@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "overrides": {
+    "Keychain-Debowler": {
+      "type": "seasonal_neutralize",
+      "reason": "Free 4/20 giveaway item — seasonal spike is not organic demand"
+    }
+  },
+  "events": [
+    { "name": "420_season", "startMMDD": "04-01", "endMMDD": "04-25", "recurring": true, "mask": false },
+    { "name": "holiday_season", "startMMDD": "11-01", "endMMDD": "12-31", "recurring": true, "mask": false }
+  ]
+}

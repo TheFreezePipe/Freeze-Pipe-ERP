@@ -1,0 +1,228 @@
+==============================================================================================================
+FREEZE PIPE FORECAST BACKTEST REPORT — Enterprise Engine v2
+Generated: 2026-04-03
+Test periods: 9  |  Focus SKUs: 15  |  Total tests: 135
+==============================================================================================================
+
+═══ ACCURACY BY TEST PERIOD ═══
+
+Cutoff Date         Period Description                   Avg MAPE   Med MAPE   Bias     Tested
+----------------------------------------------------------------------------------------------------
+2025-03-15    Mid-March 2025 (pre-4/20 ramp)             26.8%     11.5%   -132      14
+2025-04-10    Early April 2025 (4/20 ramp peak)          26.3%     22.5%   -121      14
+2025-05-15    Mid-May 2025 (post-4/20 normal)            27.7%     17.6%    -32      15
+2025-07-01    July 2025 (summer baseline)                24.1%     17.2%    -14      15
+2025-09-01    September 2025 (early fall)                65.0%     15.6%    -13      15
+2025-11-01    November 2025 (holiday ramp start)         32.8%     35.0%   -257      15
+2025-12-01    December 2025 (peak holiday)               79.6%     51.2%+    398      15
+2026-01-15    Mid-January 2026 (post-holiday)            58.0%     20.2%+    139      15
+2026-03-01    March 2026 (recent, pre-4/20)              33.7%     28.8%    -22      15
+
+
+═══ ACCURACY BY SKU (across all test periods) ═══
+
+SKU                  Category        Avg MAPE   Med MAPE   Avg Bias   Tests   Best Period              Worst Period
+------------------------------------------------------------------------------------------------------------------------
+BW20                 Pipes              20.9%     19.9%+       91      9   2025-09-01 (6%)            2025-12-01 (48%)
+BW20DNA              Pipes              28.2%     28.8%+      186      9   2025-05-15 (0%)            2026-01-15 (53%)
+BW40SP               Joint Chiller      19.7%     19.2%       -7      9   2026-03-01 (4%)             2025-07-01 (34%)
+NB4                  Bongs             153.2%     67.0%+       41      7   2025-11-01 (24%)           2025-09-01 (719%)
+BW22                 Bongs              36.6%     18.6%+        1      9   2025-04-10 (8%)            2026-03-01 (82%)
+BW21P                Bubblers           26.1%      9.6%+       22      9   2025-09-01 (4%)            2025-12-01 (99%)
+BW20-Bowl            Bowls              23.2%     21.9%      -23      9   2025-09-01 (1%)             2025-12-01 (51%)
+BW33-19P             Ash Catchers       34.8%     36.5%+        5      9   2025-03-15 (11%)           2025-12-01 (91%)
+Keychain-Debowler    Accessories        42.0%     38.5%     -515      9   2026-01-15 (11%)            2025-03-15 (92%)
+Cleaning-Bottle      Accessories        74.4%     19.8%+      192      9   2026-03-01 (3%)            2025-12-01 (499%)
+FP-Koozie            Accessories        21.0%     11.6%      -19      9   2025-11-01 (1%)             2026-03-01 (69%)
+HT-5                 Coils              34.4%     37.5%       -6      9   2025-11-01 (0%)             2026-03-01 (60%)
+NB2-Base             Bases              41.6%     16.7%+        4      9   2025-03-15 (5%)            2025-05-15 (146%)
+BW38                 Dab Rigs           67.9%     27.9%       -1      9   2025-03-15 (12%)            2026-01-15 (355%)
+NB1M                 Bongs              27.5%     20.9%      -22      9   2025-03-15 (2%)             2026-01-15 (83%)
+
+
+═══ DETAILED FORECAST vs ACTUAL GRID ═══
+
+--- 2025-03-15: Mid-March 2025 (pre-4/20 ramp) ---
+SKU                  Category         Forecast   Actual   Error    MAPE
+--------------------------------------------------------------------------------
+BW20                 Pipes                1405     1006    +399     40%
+BW20DNA              Pipes                 328      646    -318     49%
+BW40SP               Joint Chiller         200      168     +32     19%
+NB4                  Bongs                   0        0      +0     n/a
+BW22                 Bongs                  48      211    -163     77%
+BW21P                Bubblers              319      340     -21      6%
+BW20-Bowl            Bowls                1175     1076     +99      9%
+BW33-19P             Ash Catchers           84       94     -10     11%
+Keychain-Debowler    Accessories           162     1960   -1798     92%
+Cleaning-Bottle      Accessories           203      214     -11      5%
+FP-Koozie            Accessories           279      261     +18      7%
+HT-5                 Coils                  91      155     -64     41%
+NB2-Base             Bases                  43       41      +2      5%
+BW38                 Dab Rigs               23       26      -3     12%
+NB1M                 Bongs                 167      171      -4      2%
+
+--- 2025-04-10: Early April 2025 (4/20 ramp peak) ---
+SKU                  Category         Forecast   Actual   Error    MAPE
+--------------------------------------------------------------------------------
+BW20                 Pipes                1054      977     +77      8%
+BW20DNA              Pipes                1146      849    +297     35%
+BW40SP               Joint Chiller         223      182     +41     23%
+NB4                  Bongs                   0        0      +0     n/a
+BW22                 Bongs                 240      261     -21      8%
+BW21P                Bubblers              266      253     +13      5%
+BW20-Bowl            Bowls                 962     1417    -455     32%
+BW33-19P             Ash Catchers          125       86     +39     45%
+Keychain-Debowler    Accessories           181     1884   -1703     90%
+Cleaning-Bottle      Accessories           233      255     -22      9%
+FP-Koozie            Accessories           251      225     +26     12%
+HT-5                 Coils                  72       46     +26     57%
+NB2-Base             Bases                  44       40      +4     10%
+BW38                 Dab Rigs               41       33      +8     24%
+NB1M                 Bongs                 190      212     -22     10%
+
+--- 2025-05-15: Mid-May 2025 (post-4/20 normal) ---
+SKU                  Category         Forecast   Actual   Error    MAPE
+--------------------------------------------------------------------------------
+BW20                 Pipes                 549      756    -207     27%
+BW20DNA              Pipes                 531      532      -1      0%
+BW40SP               Joint Chiller          92      102     -10     10%
+NB4                  Bongs                  32       97     -65     67%
+BW22                 Bongs                 125      148     -23     16%
+BW21P                Bubblers              190      177     +13      7%
+BW20-Bowl            Bowls                 957     1226    -269     22%
+BW33-19P             Ash Catchers           61       69      -8     12%
+Keychain-Debowler    Accessories           300      251     +49     20%
+Cleaning-Bottle      Accessories           224      187     +37     20%
+FP-Koozie            Accessories           131      136      -5      4%
+HT-5                 Coils                  36       55     -19     35%
+NB2-Base             Bases                  69       28     +41    146%
+BW38                 Dab Rigs               14       17      -3     18%
+NB1M                 Bongs                  98      113     -15     13%
+
+--- 2025-07-01: July 2025 (summer baseline) ---
+SKU                  Category         Forecast   Actual   Error    MAPE
+--------------------------------------------------------------------------------
+BW20                 Pipes                 813      873     -60      7%
+BW20DNA              Pipes                 626      664     -38      6%
+BW40SP               Joint Chiller          96      146     -50     34%
+NB4                  Bongs                  40      139     -99     71%
+BW22                 Bongs                 143      122     +21     17%
+BW21P                Bubblers              217      240     -23     10%
+BW20-Bowl            Bowls                 927      735    +192     26%
+BW33-19P             Ash Catchers           65       56      +9     16%
+Keychain-Debowler    Accessories           239      293     -54     18%
+Cleaning-Bottle      Accessories           193      202      -9      4%
+FP-Koozie            Accessories           165      162      +3      2%
+HT-5                 Coils                  26       56     -30     54%
+NB2-Base             Bases                  14       15      -1      7%
+BW38                 Dab Rigs               12       25     -13     52%
+NB1M                 Bongs                 100      159     -59     37%
+
+--- 2025-09-01: September 2025 (early fall) ---
+SKU                  Category         Forecast   Actual   Error    MAPE
+--------------------------------------------------------------------------------
+BW20                 Pipes                 899      957     -58      6%
+BW20DNA              Pipes                1031     1049     -18      2%
+BW40SP               Joint Chiller         215      266     -51     19%
+NB4                  Bongs                 172       21    +151    719%
+BW22                 Bongs                 200      237     -37     16%
+BW21P                Bubblers              229      220      +9      4%
+BW20-Bowl            Bowls                 817      825      -8      1%
+BW33-19P             Ash Catchers           55       90     -35     39%
+Keychain-Debowler    Accessories           243      287     -44     15%
+Cleaning-Bottle      Accessories           291      365     -74     20%
+FP-Koozie            Accessories           140      124     +16     13%
+HT-5                 Coils                  25       40     -15     38%
+NB2-Base             Bases                  15       23      -8     35%
+BW38                 Dab Rigs               20       37     -17     46%
+NB1M                 Bongs                 155      160      -5      3%
+
+--- 2025-11-01: November 2025 (holiday ramp start) ---
+SKU                  Category         Forecast   Actual   Error    MAPE
+--------------------------------------------------------------------------------
+BW20                 Pipes                1253     1564    -311     20%
+BW20DNA              Pipes                1582     2186    -604     28%
+BW40SP               Joint Chiller         419      370     +49     13%
+NB4                  Bongs                 299      392     -93     24%
+BW22                 Bongs                 212      375    -163     43%
+BW21P                Bubblers              234      414    -180     43%
+BW20-Bowl            Bowls                 763     1507    -744     49%
+BW33-19P             Ash Catchers           98      188     -90     48%
+Keychain-Debowler    Accessories           438      712    -274     38%
+Cleaning-Bottle      Accessories           589     1971   -1382     70%
+FP-Koozie            Accessories           183      182      +1      1%
+HT-5                 Coils                  38       38      +0      0%
+NB2-Base             Bases                  15       33     -18     55%
+BW38                 Dab Rigs               30       40     -10     25%
+NB1M                 Bongs                  78      120     -42     35%
+
+--- 2025-12-01: December 2025 (peak holiday) ---
+SKU                  Category         Forecast   Actual   Error    MAPE
+--------------------------------------------------------------------------------
+BW20                 Pipes                2652     1789    +863     48%
+BW20DNA              Pipes                3844     2533   +1311     52%
+BW40SP               Joint Chiller         658      845    -187     22%
+NB4                  Bongs                 654      514    +140     27%
+BW22                 Bongs                 676      444    +232     52%
+BW21P                Bubblers              690      346    +344     99%
+BW20-Bowl            Bowls                2248     1487    +761     51%
+BW33-19P             Ash Catchers          292      153    +139     91%
+Keychain-Debowler    Accessories           499     1086    -587     54%
+Cleaning-Bottle      Accessories          3571      596   +2975    499%
+FP-Koozie            Accessories           269      197     +72     37%
+HT-5                 Coils                  65       70      -5      7%
+NB2-Base             Bases                  44       24     +20     83%
+BW38                 Dab Rigs               49       68     -19     28%
+NB1M                 Bongs                 121      213     -92     43%
+
+--- 2026-01-15: Mid-January 2026 (post-holiday) ---
+SKU                  Category         Forecast   Actual   Error    MAPE
+--------------------------------------------------------------------------------
+BW20                 Pipes                1589     1322    +267     20%
+BW20DNA              Pipes                2245     1463    +782     53%
+BW40SP               Joint Chiller         527      397    +130     33%
+NB4                  Bongs                 370      155    +215    139%
+BW22                 Bongs                 345      291     +54     19%
+BW21P                Bubblers              217      241     -24     10%
+BW20-Bowl            Bowls                1419     1252    +167     13%
+BW33-19P             Ash Catchers          181      157     +24     15%
+Keychain-Debowler    Accessories           541      488     +53     11%
+Cleaning-Bottle      Accessories           721      521    +200     38%
+FP-Koozie            Accessories           243      167     +76     46%
+HT-5                 Coils                  93       78     +15     19%
+NB2-Base             Bases                  20       24      -4     17%
+BW38                 Dab Rigs               91       20     +71    355%
+NB1M                 Bongs                 146       80     +66     83%
+
+--- 2026-03-01: March 2026 (recent, pre-4/20) ---
+SKU                  Category         Forecast   Actual   Error    MAPE
+--------------------------------------------------------------------------------
+BW20                 Pipes                1113     1268    -155     12%
+BW20DNA              Pipes                1159      900    +259     29%
+BW40SP               Joint Chiller         391      408     -17      4%
+NB4                  Bongs                 181      144     +37     26%
+BW22                 Bongs                 251      138    +113     82%
+BW21P                Bubblers              204      136     +68     50%
+BW20-Bowl            Bowls                1078     1028     +50      5%
+BW33-19P             Ash Catchers           40       63     -23     37%
+Keychain-Debowler    Accessories           425      702    -277     39%
+Cleaning-Bottle      Accessories           437      423     +14      3%
+FP-Koozie            Accessories           170      551    -381     69%
+HT-5                 Coils                  91       57     +34     60%
+NB2-Base             Bases                  15       18      -3     17%
+BW38                 Dab Rigs               22       46     -24     52%
+NB1M                 Bongs                 102      129     -27     21%
+
+
+═══ OVERALL SUMMARY ═══
+Total testable forecasts (actual > 5 units): 133
+Average MAPE:    41.8%
+Median MAPE:     22.5%
+Within 25% error: 70/133 (53%)
+Within 50% error: 105/133 (79%)
+
+Interpretation:
+  < 20% MAPE: Excellent (enterprise-grade)
+  20-35% MAPE: Good (typical for ecommerce with promos)
+  35-50% MAPE: Acceptable (volatile or low-volume SKUs)
+  > 50% MAPE: Needs attention (model weakness or data issue)

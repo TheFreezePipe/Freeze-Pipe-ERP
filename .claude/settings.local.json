@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(echo \"$PATH\")",
+      "Read(//c/Users/chase/AppData/Roaming/**)",
+      "Read(//c//**)",
+      "Read(//c/Users/chase/**)",
+      "Bash(npm create:*)",
+      "Bash(cp -r \"/c/Users/chase/Documents/Freeze Pipe/erp-temp/\"* \"/c/Users/chase/Documents/Freeze Pipe/Claude Code  ERP/\")",
+      "Bash(cp \"/c/Users/chase/Documents/Freeze Pipe/erp-temp/.gitignore\" \"/c/Users/chase/Documents/Freeze Pipe/Claude Code  ERP/\")",
+      "Bash(cp \"/c/Users/chase/Documents/Freeze Pipe/erp-temp/.eslintrc\"* \"/c/Users/chase/Documents/Freeze Pipe/Claude Code  ERP/\")",
+      "Bash(rm -rf \"/c/Users/chase/Documents/Freeze Pipe/erp-temp\")",
+      "Bash(npm install:*)",
+      "Bash(npx shadcn@latest init -y -d)",
+      "Bash(npx shadcn@latest add button card dialog input label select separator tabs toast tooltip badge scroll-area avatar dropdown-menu popover progress switch checkbox alert-dialog --yes)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(npx shadcn@latest add sheet --yes)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vite:*)",
+      "Bash(npx shadcn@latest add textarea --yes)",
+      "Bash(find '/c/Users/chase/Documents/Freeze Pipe/Claude Code  ERP/src' -type f \\\\\\(-name *.ts -o -name *.tsx -o -name *.sql \\\\\\))",
+      "Bash(node -e \":*)",
+      "Bash(node scripts/build-forecast.js)",
+      "Bash(node scripts/build-forecast.cjs)",
+      "Bash(npm run:*)",
+      "Bash(python3 -c \":*)",
+      "Bash(node scripts/build-forecast.js \"C:\\\\Users\\\\chase\\\\Downloads\\\\3079b3bd-4922-44f7-be08-9f13fe7a3c32.csv\")",
+      "Bash(node scripts/backtest-forecast.cjs \"C:\\\\Users\\\\chase\\\\Downloads\\\\3079b3bd-4922-44f7-be08-9f13fe7a3c32.csv\")",
+      "Bash(node scripts/build-forecast.cjs \"C:\\\\Users\\\\chase\\\\Downloads\\\\3079b3bd-4922-44f7-be08-9f13fe7a3c32.csv\")"
+    ]
+  }
+}

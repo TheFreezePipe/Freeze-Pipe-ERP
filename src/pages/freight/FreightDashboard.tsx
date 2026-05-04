@@ -1,0 +1,526 @@
+import { StatCard } from "@/components/shared/StatCard";
+import {
+  Ship,
+  Plane,
+  AlertTriangle,
+  DollarSign,
+  Plus,
+  ChevronDown,
+  Package,
+  Calendar,
+  Truck,
+  CheckSquare,
+  Square,
+} from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useNavigate } from "react-router-dom";
+import { FreightCostChart } from "@/components/freight/FreightCostChart";
+import { EtaCell } from "@/components/freight/EtaCell";
+import { StatusSelectWithOverride } from "@/components/freight/StatusSelectWithOverride";
+import { ShipmentTrackingWorker } from "@/lib/tracking/use-shipment-tracking";
+import { useMemo } from "react";
+import { format, differenceInDays, parseISO } from "date-fns";
+import { cn } from "@/lib/utils";
+import { useUrlFilter, useUrlBoolFilter } from "@/lib/use-url-filter";
+import {
+  useFreightShipments,
+  useFreightLineItems,
+  type FreightLineItemWithProduct,
+} from "@/lib/hooks";
+import type { FreightShipment } from "@/types/database";
+
+const DELIVERED_PREVIEW_COUNT = 5;
+
+export default function FreightDashboard() {
+  const navigate = useNavigate();
+  const [filter, setFilter] = useUrlFilter<"all" | "sea" | "air" | "high_risk">("filter", "all");
+  const [showAllDelivered, setShowAllDelivered] = useUrlBoolFilter("all_delivered", false);
+
+  const { data: freight = [], isLoading } = useFreightShipments();
+  const { data: freightLineItems = [] } = useFreightLineItems();
+
+  const stats = useMemo(() => {
+    const active = freight.filter(f => f.status !== "delivered");
+    const seaCount = active.filter(f => f.freight_type === "sea").length;
+    const airCount = active.filter(f => f.freight_type === "air").length;
+    const highRiskCount = active.filter(f => f.status === "high_risk").length;
+
+    const highRiskItems = freightLineItems.filter(li => {
+      const shipment = freight.find(f => f.id === li.freight_shipment_id);
+      return shipment?.status === "high_risk";
+    });
+    const cashAtRiskCost = highRiskItems.reduce((s, li) => s + (li.unit_cost ?? 0) * li.quantity, 0);
+    const cashAtRiskRetail = highRiskItems.reduce((s, li) => s + (li.retail_value ?? 0) * li.quantity, 0);
+
+    return { seaCount, airCount, highRiskCount, cashAtRiskCost, cashAtRiskRetail };
+  }, [freight, freightLineItems]);
+
+  const sortedFreight = useMemo(() => {
+    let filtered = freight;
+    if (filter === "sea") filtered = filtered.filter(f => f.freight_type === "sea");
+    else if (filter === "air") filtered = filtered.filter(f => f.freight_type === "air");
+    else if (filter === "high_risk") filtered = filtered.filter(f => f.status === "high_risk");
+
+    const inTransit = filtered
+      .filter(f => f.status !== "delivered")
+      .sort((a, b) => {
+        if (!a.eta) return 1;
+        if (!b.eta) return -1;
+        return a.eta.localeCompare(b.eta);
+      });
+
+    const delivered = filtered
+      .filter(f => f.status === "delivered")
+      .sort((a, b) => {
+        if (!a.actual_arrival_date) return 1;
+        if (!b.actual_arrival_date) return -1;
+        return b.actual_arrival_date.localeCompare(a.actual_arrival_date);
+      });
+
+    const visibleDelivered = showAllDelivered ? delivered : delivered.slice(0, DELIVERED_PREVIEW_COUNT);
+    const hasMoreDelivered = delivered.length > DELIVERED_PREVIEW_COUNT;
+
+    return { inTransit, delivered: visibleDelivered, hasMoreDelivered, totalDelivered: delivered.length };
+  }, [filter, showAllDelivered, freight]);
+
+  // Pre-bucket line items by shipment so each card render is O(1) instead
+  // of a fresh filter pass.
+  const linesByShipment = useMemo(() => {
+    const out = new Map<string, FreightLineItemWithProduct[]>();
+    for (const li of freightLineItems) {
+      const arr = out.get(li.freight_shipment_id);
+      if (arr) arr.push(li);
+      else out.set(li.freight_shipment_id, [li]);
+    }
+    return out;
+  }, [freightLineItems]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
+        Loading shipments…
+      </div>
+    );
+  }
+
+  return (
+    // max-w-5xl matches the supplier ShipmentsList — keeps card meta rows
+    // dense and readable instead of stretching across wide monitors.
+    <div className="space-y-6 max-w-5xl">
+      {/* Background workers — one per active shipment, polls carrier APIs.
+          Mounted at page level so unmounting a card (e.g. via filter
+          change) doesn't kill an in-flight tracking request. */}
+      {sortedFreight.inTransit.map(f => (
+        <ShipmentTrackingWorker key={f.id} shipment={f} />
+      ))}
+
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Freight Tracking</h1>
+          <p className="text-muted-foreground">Monitor all shipments</p>
+        </div>
+        <Button onClick={() => navigate("/freight/new")}>
+          <Plus className="mr-2 h-4 w-4" />
+          New Shipment
+        </Button>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard title="Sea Freight" value={stats.seaCount} subtitle="Active shipments" icon={Ship} iconColor="text-blue-400" />
+        <StatCard title="Air Freight" value={stats.airCount} subtitle="Active shipments" icon={Plane} iconColor="text-cyan-400" />
+        <StatCard title="High Risk" value={stats.highRiskCount} subtitle="Under inspection" icon={AlertTriangle} iconColor="text-red-400" />
+        <StatCard title="Cash at Risk" value={`$${stats.cashAtRiskCost.toLocaleString()}`} subtitle={`$${stats.cashAtRiskRetail.toLocaleString()} retail value`} icon={DollarSign} iconColor="text-yellow-400" />
+      </div>
+
+      <Tabs value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
+        <TabsList>
+          <TabsTrigger value="all">All</TabsTrigger>
+          <TabsTrigger value="sea">Sea</TabsTrigger>
+          <TabsTrigger value="air">Air</TabsTrigger>
+          <TabsTrigger value="high_risk">High Risk</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {sortedFreight.inTransit.length === 0 && sortedFreight.totalDelivered === 0 ? (
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            No shipments match the current filter.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {sortedFreight.inTransit.map(f => (
+            <ShipmentCard
+              key={f.id}
+              shipment={f}
+              lines={linesByShipment.get(f.id) ?? []}
+            />
+          ))}
+
+          {sortedFreight.inTransit.length > 0 && sortedFreight.delivered.length > 0 && (
+            <div className="flex items-center gap-3 pt-4 pb-1 px-1">
+              <div className="h-px bg-border flex-1" />
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                Delivered
+              </span>
+              <div className="h-px bg-border flex-1" />
+            </div>
+          )}
+
+          {sortedFreight.delivered.map(f => (
+            <ShipmentCard
+              key={f.id}
+              shipment={f}
+              lines={linesByShipment.get(f.id) ?? []}
+            />
+          ))}
+
+          {sortedFreight.hasMoreDelivered && !showAllDelivered && (
+            <div className="flex justify-center pt-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowAllDelivered(true)}
+                className="text-xs text-muted-foreground"
+              >
+                See {sortedFreight.totalDelivered - DELIVERED_PREVIEW_COUNT} more delivered
+                <ChevronDown className="ml-1 h-3 w-3" />
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Sea Freight - Cost per Unit</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <FreightCostChart />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ShipmentCard — admin-side card mirroring the supplier portal's layout
+// (single-row dense header with cartons-primary + meta grid; lines table
+// below) with admin-only additions: inline status override, EtaCell with
+// auto-tracking timestamp, days-left chip, and per-line cost columns.
+// Whole card is a click target → navigates to /freight/:id. Interactive
+// children (status select) stop propagation so they don't hijack clicks.
+// ---------------------------------------------------------------------------
+function ShipmentCard({
+  shipment,
+  lines,
+}: {
+  shipment: FreightShipment;
+  lines: FreightLineItemWithProduct[];
+}) {
+  const navigate = useNavigate();
+  const totalUnits = lines.reduce((sum, l) => sum + (l.quantity ?? 0), 0);
+  const totalCartons = shipment.total_cartons ?? 0;
+  const totalCost = lines.reduce((s, l) => s + (l.unit_cost ?? 0) * (l.quantity ?? 0), 0);
+
+  const isPending = shipment.status === "pending";
+  const isHighRisk = shipment.status === "high_risk";
+  const missingTracking = isPending && !shipment.tracking_number;
+
+  // Border tint precedence: high_risk (red) > missing tracking on pending
+  // (amber) > primary. High_risk is the most urgent admin signal.
+  const borderTone = isHighRisk
+    ? "border-l-4 border-l-red-500/70"
+    : missingTracking
+      ? "border-l-4 border-l-amber-500/70"
+      : "border-l-4 border-l-primary/50";
+
+  // Days left until ETA; only meaningful for in-transit shipments. Color
+  // tiers: red overdue, amber <5d, muted otherwise. Delivered shows nothing
+  // here (the card belongs to the Delivered section).
+  const daysLeft = shipment.eta && shipment.status !== "delivered"
+    ? differenceInDays(parseISO(shipment.eta), new Date())
+    : null;
+
+  function activate() {
+    navigate(`/freight/${shipment.id}`);
+  }
+
+  return (
+    <Card
+      className={`${borderTone} cursor-pointer transition-colors hover:bg-accent/20 focus-within:ring-2 focus-within:ring-primary/40`}
+      role="button"
+      tabIndex={0}
+      onClick={activate}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          activate();
+        }
+      }}
+    >
+      <CardContent className="p-0">
+        {/* Header — single row: identity cluster (left) + cartons callout
+            (middle) + meta grid (right). Same shape as the supplier card
+            with the status badge replaced by the editable status select. */}
+        <div className="px-5 py-2.5 border-b border-border/80 bg-muted/30 flex items-center gap-5">
+          <div className="shrink-0 flex items-center gap-4">
+            <div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-mono text-sm font-semibold">
+                  {shipment.shipment_number ?? (
+                    <span className="italic text-muted-foreground font-normal">
+                      awaiting number
+                    </span>
+                  )}
+                </span>
+                {shipment.freight_type === "sea" ? (
+                  <Ship className="h-3.5 w-3.5 text-blue-400" aria-label="Sea freight" />
+                ) : (
+                  <Plane className="h-3.5 w-3.5 text-cyan-400" aria-label="Air freight" />
+                )}
+              </div>
+              {/* Editable status + admin-only context badges. Stop
+                  propagation so opening the dropdown doesn't trigger
+                  the card's click-to-navigate. */}
+              <div
+                className="flex items-center gap-1.5 mt-1 flex-wrap"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <StatusSelectWithOverride shipment={shipment} variant="compact" />
+                {missingTracking && (
+                  <Badge
+                    variant="outline"
+                    className="border-amber-500/40 text-amber-400 text-[10px] py-0"
+                  >
+                    tracking missing
+                  </Badge>
+                )}
+                {daysLeft !== null && (
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "text-[10px] py-0 tabular-nums",
+                      daysLeft < 0
+                        ? "border-red-500/40 text-red-400"
+                        : daysLeft < 5
+                          ? "border-amber-500/40 text-amber-400"
+                          : "border-border text-muted-foreground",
+                    )}
+                  >
+                    {daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue` : `${daysLeft}d left`}
+                  </Badge>
+                )}
+              </div>
+            </div>
+            {/* Totals callout — cartons primary (matches supplier),
+                units + cost as supporting context. */}
+            <div className="text-right border-l border-border/50 pl-4">
+              <div className="text-3xl font-semibold tabular-nums leading-none">
+                {totalCartons.toLocaleString()}
+              </div>
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">
+                carton{totalCartons === 1 ? "" : "s"}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1 tabular-nums">
+                {totalUnits.toLocaleString()} units
+              </div>
+            </div>
+          </div>
+
+          {/* Meta grid — Tracking / Carrier / Cost / Shipped / ETA. ETA
+              uses EtaCell so it carries the auto-tracking timestamp +
+              refresh button (admin-only behavior). */}
+          <div className="flex-1 min-w-0 grid grid-cols-2 sm:grid-cols-3 gap-x-5 gap-y-1.5 text-sm border-l border-border/50 pl-5">
+            <DetailRow
+              icon={<Truck className="h-3.5 w-3.5" />}
+              label="Tracking"
+              value={shipment.tracking_number}
+              mono
+            />
+            <DetailRow
+              icon={<Package className="h-3.5 w-3.5" />}
+              label="Carrier"
+              value={shipment.carrier_name}
+            />
+            <DetailRow
+              icon={<DollarSign className="h-3.5 w-3.5" />}
+              label="Freight cost"
+              value={
+                shipment.freight_cost && shipment.freight_cost > 0
+                  ? `$${shipment.freight_cost.toLocaleString()}`
+                  : null
+              }
+            />
+            <DetailRow
+              icon={<Calendar className="h-3.5 w-3.5" />}
+              label="Shipped"
+              value={shipment.ship_date ? format(parseISO(shipment.ship_date), "MMM d, yyyy") : null}
+            />
+            <div className="flex items-start gap-2 min-w-0">
+              <span className="text-muted-foreground/70 mt-0.5 shrink-0">
+                <Calendar className="h-3.5 w-3.5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  ETA
+                </div>
+                <div className="text-sm">
+                  <EtaCell shipment={shipment} />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Lines — admin gets two extra columns vs. supplier:
+            unit cost and line total. Prefilled stays as a boolean
+            checkbox (consistent with supplier view). */}
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+              <th className="px-5 py-2">SKU</th>
+              <th className="px-3 py-2 text-right">Qty</th>
+              <th className="px-3 py-2 text-right">Unit Cost</th>
+              <th className="px-3 py-2 text-right">Line Total</th>
+              <th className="px-3 py-2 text-center w-24">Prefilled</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={5}
+                  className="px-5 py-4 text-center text-xs text-muted-foreground italic"
+                >
+                  No line items on this shipment.
+                </td>
+              </tr>
+            ) : (
+              <>
+                {lines.map((line) => (
+                  <LineRow key={line.id} line={line} />
+                ))}
+                {lines.length > 1 && (
+                  <tr className="border-t border-border/50 bg-muted/20">
+                    <td
+                      className="px-5 py-2 text-[10px] uppercase tracking-wider text-muted-foreground"
+                      colSpan={3}
+                    >
+                      Shipment Total
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums font-semibold">
+                      ${totalCost.toLocaleString()}
+                    </td>
+                    <td className="px-3 py-2" />
+                  </tr>
+                )}
+              </>
+            )}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// DetailRow — icon + label + value in the meta grid. Same pattern as the
+// supplier card. Empty values render a muted em dash so the grid stays
+// aligned regardless of which fields are populated.
+// ---------------------------------------------------------------------------
+function DetailRow({
+  icon,
+  label,
+  value,
+  mono,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string | null | undefined;
+  mono?: boolean;
+}) {
+  const empty = !value;
+  return (
+    <div className="flex items-start gap-2 min-w-0">
+      <span className="text-muted-foreground/70 mt-0.5 shrink-0">{icon}</span>
+      <div className="min-w-0 flex-1">
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+        <div
+          className={`text-sm truncate ${mono ? "font-mono text-xs" : ""} ${
+            empty ? "text-muted-foreground/60" : ""
+          }`}
+        >
+          {value ?? "—"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// LineRow — admin-side line: SKU + Qty + Unit Cost + Line Total + boolean
+// Prefilled. Costs are nullable in the schema so each math/format call
+// guards with `?? 0`.
+// ---------------------------------------------------------------------------
+function LineRow({ line }: { line: FreightLineItemWithProduct }) {
+  const unitCost = line.unit_cost ?? 0;
+  const qty = line.quantity ?? 0;
+  const lineTotal = unitCost * qty;
+  const prefilled = line.quantity_prefilled;
+
+  let prefilledCell: React.ReactNode;
+  if (prefilled === null || prefilled === undefined) {
+    prefilledCell = (
+      <span className="text-muted-foreground/60 text-xs" title="Not a fillable SKU">
+        —
+      </span>
+    );
+  } else if (prefilled > 0) {
+    prefilledCell = (
+      <span className="inline-flex items-center gap-1.5 text-green-400" title="Prefilled">
+        <CheckSquare className="h-4 w-4" />
+        <span className="text-xs">Yes</span>
+      </span>
+    );
+  } else {
+    prefilledCell = (
+      <span className="inline-flex items-center gap-1.5 text-muted-foreground" title="Not prefilled">
+        <Square className="h-4 w-4" />
+        <span className="text-xs">No</span>
+      </span>
+    );
+  }
+
+  return (
+    <tr className="border-t border-border/50">
+      <td className="px-5 py-2.5">
+        {line.product ? (
+          <div className="flex items-baseline gap-2 min-w-0">
+            <span className="font-mono text-xs">{line.product.sku}</span>
+            <span className="text-muted-foreground text-xs truncate">
+              {line.product.product_name}
+            </span>
+          </div>
+        ) : (
+          <span className="font-mono text-xs text-muted-foreground">
+            {line.sku_id.slice(0, 8)}…
+          </span>
+        )}
+      </td>
+      <td className="px-3 py-2.5 text-right tabular-nums font-medium">
+        {qty.toLocaleString()}
+      </td>
+      <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">
+        {unitCost > 0 ? `$${unitCost.toFixed(2)}` : "—"}
+      </td>
+      <td className="px-3 py-2.5 text-right tabular-nums">
+        {lineTotal > 0 ? `$${lineTotal.toLocaleString()}` : "—"}
+      </td>
+      <td className="px-3 py-2.5 text-center">{prefilledCell}</td>
+    </tr>
+  );
+}
