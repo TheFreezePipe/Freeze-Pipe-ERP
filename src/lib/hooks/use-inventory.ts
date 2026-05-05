@@ -143,7 +143,7 @@ export function useBulkCycleCount() {
       const { data, error } = await supabase.rpc("rpc_bulk_cycle_count", {
         p_adjustments: payload,
         p_reason: params.reason,
-        p_notes: params.notes ?? null,
+        p_notes: params.notes ?? "",
         p_actor_id: params.actorId,
       });
       if (error) {

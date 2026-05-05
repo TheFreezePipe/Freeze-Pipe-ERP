@@ -221,7 +221,7 @@ export function useFactoryOrderComponentStatusBatch(orderIds: string[]) {
         { p_parent_order_ids: orderIds },
       );
       if (error) throw error;
-      const obj = (data ?? {}) as Record<string, FactoryOrderComponentStatus>;
+      const obj = (data ?? {}) as unknown as Record<string, FactoryOrderComponentStatus>;
       return new Map(Object.entries(obj));
     },
     enabled: orderIds.length > 0,

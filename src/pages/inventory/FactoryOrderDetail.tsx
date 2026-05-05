@@ -131,6 +131,7 @@ export default function FactoryOrderDetail() {
   // panel: orders containing the component SKU, not parented elsewhere,
   // and not this order itself.
   function candidatesFor(componentSkuId: string): FactoryOrderWithItems[] {
+    if (!order) return [];
     return orders.filter(
       (o) =>
         o.id !== order.id &&
