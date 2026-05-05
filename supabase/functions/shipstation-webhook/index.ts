@@ -327,34 +327,75 @@ async function upsertOrder(order: ShipStationOrder, seenVia: string): Promise<st
     orderRowId = inserted.id;
   }
 
-  // Resolve SKU codes to product_skus.id
-  const skuCodes = order.items.map(i => i.sku).filter(Boolean);
-  const { data: skuRows } = await supabase
-    .from("product_skus")
-    .select("id, sku")
-    .in("sku", skuCodes);
-  const skuMap = new Map((skuRows ?? []).map(r => [r.sku, r.id as string]));
-
-  // Replace line items (fresh insert set per order)
+  // Replace line items idempotently. Filter+resolve via shared helper.
   await supabase
     .from("shipstation_order_items")
     .delete()
     .eq("shipstation_order_id", orderRowId);
 
-  if (order.items.length > 0) {
-    await supabase.from("shipstation_order_items").insert(
-      order.items.map(i => ({
-        shipstation_order_id: orderRowId,
-        shipstation_line_item_id: i.orderItemId,
-        sku_code: i.sku ?? "(unknown)",
-        sku_id: skuMap.get(i.sku) ?? null,
-        quantity: i.quantity,
-        unit_price_cents: Math.round(i.unitPrice * 100),
-      })),
-    );
+  const rowsToInsert = await resolveLineItems(orderRowId, order.items);
+  if (rowsToInsert.length > 0) {
+    await supabase.from("shipstation_order_items").insert(rowsToInsert);
   }
 
   return orderRowId;
+}
+
+// -----------------------------------------------------------------------------
+// Resolve ShipStation line items into shipstation_order_items rows.
+// Filtering: skip empty sku_code, skip qty <= 0, skip non-inventory entries.
+// SKU id resolution priority:
+//   1. shipstation_sku_handling.resolved_sku_id (alias)
+//   2. case-insensitive product_skus.sku match
+//   3. NULL → goes to triage queue, blocks the order's apply
+// Same logic is duplicated in shipstation-reconcile/index.ts; if you change
+// one, change the other.
+// -----------------------------------------------------------------------------
+async function resolveLineItems(
+  orderRowId: string,
+  items: ShipStationOrder["items"],
+): Promise<Array<Record<string, unknown>>> {
+  const trackable = items.filter(i =>
+    i.sku && i.sku.trim() !== "" && i.quantity > 0
+  );
+  if (trackable.length === 0) return [];
+
+  const skuCodes = [...new Set(trackable.map(i => i.sku))];
+
+  const [{ data: handlingRows }, { data: allSkus }] = await Promise.all([
+    supabase
+      .from("shipstation_sku_handling")
+      .select("sku_code, resolved_sku_id, is_non_inventory")
+      .in("sku_code", skuCodes),
+    supabase
+      .from("product_skus")
+      .select("id, sku"),
+  ]);
+
+  const handlingMap = new Map(
+    (handlingRows ?? []).map(r => [r.sku_code, r as { resolved_sku_id: string | null; is_non_inventory: boolean }]),
+  );
+  const skuByLowercase = new Map(
+    (allSkus ?? []).map(r => [(r.sku as string).toLowerCase(), r.id as string]),
+  );
+
+  return trackable
+    .map(i => {
+      const handling = handlingMap.get(i.sku);
+      if (handling?.is_non_inventory) return null;
+      const sku_id = handling?.resolved_sku_id
+        ?? skuByLowercase.get(i.sku.toLowerCase())
+        ?? null;
+      return {
+        shipstation_order_id: orderRowId,
+        shipstation_line_item_id: i.orderItemId,
+        sku_code: i.sku,
+        sku_id,
+        quantity: i.quantity,
+        unit_price_cents: Math.round(i.unitPrice * 100),
+      };
+    })
+    .filter((r): r is NonNullable<typeof r> => r !== null);
 }
 
 // -----------------------------------------------------------------------------
