@@ -76,4 +76,11 @@ BEGIN
   RAISE NOTICE '  factory_order_items:   %', v_factory_order_items;
   RAISE NOTICE '  freight_shipments:     %', v_freight_shipments;
   RAISE NOTICE '  freight_line_items:    %', v_freight_line_items;
-  RAISE NOTICE '  shipment_variances:    %', v_shipment_var
+  RAISE NOTICE '  shipment_variances:    %', v_shipment_variances;
+  RAISE NOTICE '  component_breakage_reports:      %', v_component_breakage_reports;
+
+  IF v_factory_orders + v_factory_order_items + v_freight_shipments
+     + v_freight_line_items + v_shipment_variances + v_component_breakage_reports > 0 THEN
+    RAISE EXCEPTION 'Migration 046 left non-zero rows behind — DELETE order or RESTRICT FK changed';
+  END IF;
+END$$;

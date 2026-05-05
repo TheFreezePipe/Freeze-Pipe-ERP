@@ -572,4 +572,3 @@ function marginColor(ratio: number): string {
   if (ratio >= 0.3) return "text-yellow-400";
   return "text-red-400";
 }
-                                                                                

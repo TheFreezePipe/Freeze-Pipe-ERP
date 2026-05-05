@@ -911,4 +911,83 @@ export default function SKUDetail() {
 
               {/* Unit costs that feed the rollup */}
               <div className="grid grid-cols-2 gap-3 pt-2 border-t border-border">
-                <div><Label className="text-xs">Labor (US, unfilled path)</Label><Input type="number" step="0.01" value={values.labor_cost_us} onChan
+                <div><Label className="text-xs">Labor (US, unfilled path)</Label><Input type="number" step="0.01" value={values.labor_cost_us} onChange={(e) => set("labor_cost_us", e.target.value)} /></div>
+                <div><Label className="text-xs">Glycerin (US, unfilled path)</Label><Input type="number" step="0.01" value={values.glycerin_cost_us} onChange={(e) => set("glycerin_cost_us", e.target.value)} /></div>
+                <div className="col-span-2"><Label className="text-xs">Manufacturing Cost (CN, prefilled path)</Label><Input type="number" step="0.01" value={values.manufacturing_cost_cn} onChange={(e) => set("manufacturing_cost_cn", e.target.value)} /></div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Pack & Ship Cost */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Pack & Ship Cost</CardTitle>
+            <CardDescription>Total: ${packShip.toFixed(2)}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label className="text-xs">Packing Material</Label><Input type="number" step="0.01" value={values.packing_material_cost} onChange={(e) => set("packing_material_cost", e.target.value)} /></div>
+              <div><Label className="text-xs">Packing Labor</Label><Input type="number" step="0.01" value={values.packing_labor_cost} onChange={(e) => set("packing_labor_cost", e.target.value)} /></div>
+              <div><Label className="text-xs">Shipping Cost</Label><Input type="number" step="0.01" value={values.shipping_cost} onChange={(e) => set("shipping_cost", e.target.value)} /></div>
+              <div>
+                <Label className="text-xs">
+                  Credit Card Fees{" "}
+                  <span className="text-muted-foreground/60 font-normal">
+                    {ccFeesStored != null && ccFeesStored > 0
+                      ? "(custom)"
+                      : `(${(DEFAULT_CC_FEE_RATE * 100).toFixed(0)}% of Retail — default)`}
+                  </span>
+                </Label>
+                <Input type="number" step="0.01" value={creditCardFees} disabled className="opacity-70" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Save costs — single button commits all 12 persisted cost fields
+          across the Raw / Importing / Manufacturing / Pack & Ship cards.
+          The "Save mfg settings" button inside the Manufacturing card is
+          separate — it covers the override toggle + window slider, which
+          have their own UX. */}
+      <div className="flex items-center justify-end gap-3 sticky bottom-2 z-10 bg-background/95 backdrop-blur p-3 -mx-3 rounded-lg border border-border shadow-sm">
+        {saveError && (
+          <span className="text-xs text-red-400 mr-auto" title={saveError}>
+            {saveError}
+          </span>
+        )}
+        {costsDirty && !saveError && (
+          <span className="text-xs text-amber-400">Unsaved changes</span>
+        )}
+        <Button
+          onClick={handleSaveCosts}
+          disabled={!costsDirty || upsertEcon.isPending}
+        >
+          {upsertEcon.isPending ? "Saving…" : "Save costs"}
+        </Button>
+      </div>
+
+      <div className="flex items-center justify-between">
+        {isAdmin && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className={activeState ? "text-muted-foreground/60 hover:text-red-400" : "text-red-400 hover:text-green-400"}
+            onClick={async () => {
+              const newState = !activeState;
+              setIsActive(newState);
+              await updateProduct.mutateAsync({ id: product.id, updates: { is_active: newState } });
+            }}
+          >
+            {activeState ? (
+              <><EyeOff className="mr-1.5 h-3.5 w-3.5" />Deactivate SKU</>
+            ) : (
+              <><Eye className="mr-1.5 h-3.5 w-3.5" />Reactivate SKU</>
+            )}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}

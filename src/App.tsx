@@ -229,4 +229,16 @@ export default function App() {
               } />
             </Route>
 
-            {/* Defau
+            {/* Default redirect based on role */}
+            <Route path="*" element={
+              <RequireAuth>
+                <DefaultRedirect />
+              </RequireAuth>
+            } />
+          </Routes>
+          <Toaster />
+        </AuthProvider>
+      </BrowserRouter>
+    </QueryClientProvider>
+  );
+}

@@ -414,6 +414,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "factory_orders_parent_factory_order_id_fkey"
+            columns: ["parent_factory_order_id"]
+            isOneToOne: false
+            referencedRelation: "factory_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "factory_orders_parent_factory_order_id_fkey"
+            columns: ["parent_factory_order_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_factory_orders"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "factory_orders_ship_via_supplier_id_fkey"
             columns: ["ship_via_supplier_id"]
             isOneToOne: false
@@ -2686,17 +2700,6 @@ export type Database = {
         Args: { p_child_order_id: string }
         Returns: undefined
       }
-      rpc_advance_factory_order_stage: {
-        Args: {
-          p_actor_id: string
-          p_factory_order_item_id: string
-          p_from_stage: string
-          p_notes?: string
-          p_quantity: number
-          p_to_stage: string
-        }
-        Returns: Json
-      }
       rpc_apply_freight_delivery: {
         Args: { p_actor_id: string; p_shipment_id: string }
         Returns: Json
@@ -2713,6 +2716,15 @@ export type Database = {
       }
       rpc_apply_shipstation_sale: {
         Args: { p_order_id: string; p_system_actor_id?: string }
+        Returns: Json
+      }
+      rpc_bulk_cycle_count: {
+        Args: {
+          p_actor_id: string
+          p_adjustments: Json
+          p_notes: string
+          p_reason: string
+        }
         Returns: Json
       }
       rpc_clear_freight_status_override: {
@@ -2755,32 +2767,19 @@ export type Database = {
         }
         Returns: Json
       }
-      rpc_log_task_completion:
-        | {
-            Args: {
-              p_actor_id: string
-              p_notes: string
-              p_quantity: number
-              p_sku_id: string
-              p_task_type: string
-              p_time_completed?: string
-              p_time_started?: string
-            }
-            Returns: Json
-          }
-        | {
-            Args: {
-              p_actor_id: string
-              p_location_id?: string
-              p_notes: string
-              p_quantity: number
-              p_sku_id: string
-              p_task_type: string
-              p_time_completed?: string
-              p_time_started?: string
-            }
-            Returns: Json
-          }
+      rpc_log_task_completion: {
+        Args: {
+          p_actor_id: string
+          p_location_id?: string
+          p_notes: string
+          p_quantity: number
+          p_sku_id: string
+          p_task_type: string
+          p_time_completed?: string
+          p_time_started?: string
+        }
+        Returns: Json
+      }
       rpc_promote_user_to_supplier: {
         Args: { p_supplier_id: string; p_target_user_id: string }
         Returns: Json
@@ -2851,4 +2850,163 @@ export type Database = {
           p_carrier?: string
           p_clear_carrier?: boolean
           p_clear_eta?: boolean
-        
+          p_clear_freight_cost?: boolean
+          p_clear_ship_date?: boolean
+          p_clear_tracking_number?: boolean
+          p_eta?: string
+          p_expected_version: number
+          p_freight_cost?: number
+          p_ship_date?: string
+          p_shipment_id: string
+          p_tracking_number?: string
+        }
+        Returns: Json
+      }
+      rpc_update_user_role: {
+        Args: {
+          p_actor_id: string
+          p_new_role: string
+          p_target_user_id: string
+        }
+        Returns: Json
+      }
+      verify_audit_chain: {
+        Args: { p_start_from?: string }
+        Returns: {
+          first_broken_at: string
+          first_broken_id: string
+          message: string
+        }[]
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
+}
+
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
+
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {},
+  },
+} as const

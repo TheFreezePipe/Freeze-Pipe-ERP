@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Supabase CLI internal state
+supabase/.temp/
+
+# Local backups & scratch
+.git.broken/
+tmp/
