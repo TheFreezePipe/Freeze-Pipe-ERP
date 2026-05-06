@@ -1,16 +1,19 @@
 import { useParams, useNavigate } from "react-router-dom";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Ship, Plane, Package, DollarSign, FileText, RefreshCw, TrendingUp, TrendingDown } from "lucide-react";
+import { ArrowLeft, Ship, Plane, Package, DollarSign, FileText, RefreshCw, TrendingUp, TrendingDown, Pencil, Check, X } from "lucide-react";
 import { FREIGHT_TYPES, type FreightStatus } from "@/lib/constants";
 import { format, parseISO, formatDistanceToNow } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useShipmentTracking } from "@/lib/tracking/use-shipment-tracking";
 import { etaDriftDays } from "@/lib/tracking/reconcile";
 import { StatusSelectWithOverride } from "@/components/freight/StatusSelectWithOverride";
-import { useFreightShipment, useFreightLineItems } from "@/lib/hooks";
+import { useFreightShipment, useFreightLineItems, useUpdateFreightShipment } from "@/lib/hooks";
+import { useAuth } from "@/lib/auth-context";
 
 const TIMELINE_STEPS: { status: FreightStatus; label: string }[] = [
   { status: "on_the_water", label: "On the Water" },
@@ -22,11 +25,88 @@ const TIMELINE_STEPS: { status: FreightStatus; label: string }[] = [
 export default function FreightDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { isAdmin, isManager } = useAuth();
+  const canEdit = isAdmin || isManager;
 
   const { data: shipment, isLoading: shipmentLoading } = useFreightShipment(id ?? "");
   const { data: lineItemsRaw = [], isLoading: lineItemsLoading } = useFreightLineItems(id);
 
   const tracking = useShipmentTracking(shipment);
+  const updateShipment = useUpdateFreightShipment();
+
+  // Inline edits for carrier_name + tracking_number — same pencil → input
+  // → check (save) / x (cancel) pattern as SKUDetail. Empty input clears
+  // the field to NULL (rather than persisting empty string), letting
+  // operators undo a previous entry. Errors surface inline next to the
+  // input so the user sees them without scrolling.
+  const [editingCarrier, setEditingCarrier] = useState(false);
+  const [carrierDraft, setCarrierDraft] = useState("");
+  const [carrierError, setCarrierError] = useState<string | null>(null);
+  const [editingTracking, setEditingTracking] = useState(false);
+  const [trackingDraft, setTrackingDraft] = useState("");
+  const [trackingError, setTrackingError] = useState<string | null>(null);
+
+  function startCarrierEdit() {
+    setCarrierDraft(shipment?.carrier_name ?? "");
+    setEditingCarrier(true);
+    setCarrierError(null);
+  }
+  function cancelCarrierEdit() {
+    setEditingCarrier(false);
+    setCarrierDraft("");
+    setCarrierError(null);
+  }
+  async function saveCarrierEdit() {
+    if (!shipment) return;
+    setCarrierError(null);
+    const next = carrierDraft.trim();
+    const nextValue = next === "" ? null : next;
+    if (nextValue === (shipment.carrier_name ?? null)) {
+      setEditingCarrier(false);
+      return;
+    }
+    try {
+      await updateShipment.mutateAsync({
+        id: shipment.id,
+        updates: { carrier_name: nextValue },
+      });
+      setEditingCarrier(false);
+      setCarrierDraft("");
+    } catch (err) {
+      setCarrierError(err instanceof Error ? err.message : "Failed to save carrier");
+    }
+  }
+
+  function startTrackingEdit() {
+    setTrackingDraft(shipment?.tracking_number ?? "");
+    setEditingTracking(true);
+    setTrackingError(null);
+  }
+  function cancelTrackingEdit() {
+    setEditingTracking(false);
+    setTrackingDraft("");
+    setTrackingError(null);
+  }
+  async function saveTrackingEdit() {
+    if (!shipment) return;
+    setTrackingError(null);
+    const next = trackingDraft.trim();
+    const nextValue = next === "" ? null : next;
+    if (nextValue === (shipment.tracking_number ?? null)) {
+      setEditingTracking(false);
+      return;
+    }
+    try {
+      await updateShipment.mutateAsync({
+        id: shipment.id,
+        updates: { tracking_number: nextValue },
+      });
+      setEditingTracking(false);
+      setTrackingDraft("");
+    } catch (err) {
+      setTrackingError(err instanceof Error ? err.message : "Failed to save tracking number");
+    }
+  }
 
   if (shipmentLoading || lineItemsLoading) {
     return (
@@ -131,11 +211,83 @@ export default function FreightDetail() {
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
                 <p className="text-xs text-muted-foreground">Carrier</p>
-                <p className="font-medium">{shipment.carrier_name ?? "-"}</p>
+                {editingCarrier ? (
+                  <div className="flex items-center gap-1">
+                    <Input
+                      value={carrierDraft}
+                      onChange={(e) => setCarrierDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") saveCarrierEdit();
+                        if (e.key === "Escape") cancelCarrierEdit();
+                      }}
+                      autoFocus
+                      placeholder={shipment.freight_type === "sea" ? "e.g. Maersk" : "e.g. FedEx"}
+                      className="h-7 text-sm"
+                      disabled={updateShipment.isPending}
+                    />
+                    <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={saveCarrierEdit} disabled={updateShipment.isPending} title="Save (Enter)">
+                      <Check className="h-3.5 w-3.5 text-green-400" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={cancelCarrierEdit} disabled={updateShipment.isPending} title="Cancel (Escape)">
+                      <X className="h-3.5 w-3.5 text-muted-foreground" />
+                    </Button>
+                  </div>
+                ) : canEdit ? (
+                  <button
+                    type="button"
+                    onClick={startCarrierEdit}
+                    className="group inline-flex items-center gap-1 font-medium hover:text-foreground"
+                    title="Click to edit carrier"
+                  >
+                    <span>{shipment.carrier_name ?? <span className="text-muted-foreground italic">No carrier</span>}</span>
+                    <Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </button>
+                ) : (
+                  <p className="font-medium">{shipment.carrier_name ?? "-"}</p>
+                )}
+                {carrierError && (
+                  <p className="text-[11px] text-red-400 mt-0.5" title={carrierError}>{carrierError}</p>
+                )}
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Tracking #</p>
-                <p className="font-medium font-mono text-xs">{shipment.tracking_number ?? "-"}</p>
+                {editingTracking ? (
+                  <div className="flex items-center gap-1">
+                    <Input
+                      value={trackingDraft}
+                      onChange={(e) => setTrackingDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") saveTrackingEdit();
+                        if (e.key === "Escape") cancelTrackingEdit();
+                      }}
+                      autoFocus
+                      placeholder="Tracking number"
+                      className="h-7 text-xs font-mono"
+                      disabled={updateShipment.isPending}
+                    />
+                    <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={saveTrackingEdit} disabled={updateShipment.isPending} title="Save (Enter)">
+                      <Check className="h-3.5 w-3.5 text-green-400" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={cancelTrackingEdit} disabled={updateShipment.isPending} title="Cancel (Escape)">
+                      <X className="h-3.5 w-3.5 text-muted-foreground" />
+                    </Button>
+                  </div>
+                ) : canEdit ? (
+                  <button
+                    type="button"
+                    onClick={startTrackingEdit}
+                    className="group inline-flex items-center gap-1 font-medium font-mono text-xs hover:text-foreground"
+                    title="Click to edit tracking number"
+                  >
+                    <span>{shipment.tracking_number ?? <span className="text-muted-foreground italic font-sans">No tracking</span>}</span>
+                    <Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </button>
+                ) : (
+                  <p className="font-medium font-mono text-xs">{shipment.tracking_number ?? "-"}</p>
+                )}
+                {trackingError && (
+                  <p className="text-[11px] text-red-400 mt-0.5" title={trackingError}>{trackingError}</p>
+                )}
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Forwarder</p>
