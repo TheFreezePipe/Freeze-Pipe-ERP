@@ -377,12 +377,21 @@ export default function FreightNew() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="carrier">Carrier</Label>
-                <Input
-                  id="carrier"
-                  placeholder={freightType === "sea" ? "e.g. Maersk" : "e.g. FedEx"}
-                  value={carrierName}
-                  onChange={e => setCarrierName(e.target.value)}
-                />
+                {/* Constrained to the 3 carriers we integrate with for tracking
+                    (FedEx live; UPS + DHL stubbed). For sea freight from China,
+                    these are the US final-mile carriers — the original ocean
+                    carrier (Maersk/COSCO/etc.) is captured in freight_type='sea'
+                    and isn't tracked at the carrier_name level here. */}
+                <Select value={carrierName} onValueChange={setCarrierName}>
+                  <SelectTrigger id="carrier">
+                    <SelectValue placeholder="Select carrier" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="FedEx">FedEx</SelectItem>
+                    <SelectItem value="UPS">UPS</SelectItem>
+                    <SelectItem value="DHL">DHL</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="forwarder">Forwarder ID</Label>
