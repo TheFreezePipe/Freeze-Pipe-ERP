@@ -183,10 +183,12 @@ export default function SKUDetail() {
       return;
     }
     try {
+      // No expectedVersion — matches the existing retail/category edits on
+      // this page. row_version isn't projected through the useProduct hook's
+      // type, and concurrent edits to product_skus metadata are rare.
       await updateProduct.mutateAsync({
         id: product.id,
         updates: { sku: next },
-        expectedVersion: product.row_version,
       });
       setEditingSku(false);
       setSkuDraft("");
@@ -227,7 +229,6 @@ export default function SKUDetail() {
       await updateProduct.mutateAsync({
         id: product.id,
         updates: { product_name: next },
-        expectedVersion: product.row_version,
       });
       setEditingName(false);
       setNameDraft("");
