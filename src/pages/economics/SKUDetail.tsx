@@ -117,6 +117,19 @@ export default function SKUDetail() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [retailError, setRetailError] = useState<string | null>(null);
 
+  // Inline SKU code + product name edits (admin-only). Same pencil → input
+  // → check/x pattern as retail. SKU rename is allowed because all
+  // FK/relational references go via product_skus.id (UUID) — only the
+  // human-readable text columns (e.g. shipstation_order_items.sku_code,
+  // freight_line_items snapshots) keep their old text after a rename, which
+  // is intentional historical preservation.
+  const [editingSku, setEditingSku] = useState(false);
+  const [skuDraft, setSkuDraft] = useState("");
+  const [skuError, setSkuError] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [nameError, setNameError] = useState<string | null>(null);
+
   function startRetailEdit() {
     setRetailDraft(product?.retail_price?.toString() ?? "");
     setEditingRetail(true);
@@ -144,6 +157,82 @@ export default function SKUDetail() {
       setRetailDraft("");
     } catch (err) {
       setRetailError(err instanceof Error ? err.message : "Failed to save retail price");
+    }
+  }
+
+  function startSkuEdit() {
+    setSkuDraft(product?.sku ?? "");
+    setEditingSku(true);
+    setSkuError(null);
+  }
+  function cancelSkuEdit() {
+    setEditingSku(false);
+    setSkuDraft("");
+    setSkuError(null);
+  }
+  async function saveSkuEdit() {
+    if (!product) return;
+    setSkuError(null);
+    const next = skuDraft.trim();
+    if (!next) {
+      setSkuError("SKU code is required");
+      return;
+    }
+    if (next === product.sku) {
+      setEditingSku(false);
+      return;
+    }
+    try {
+      await updateProduct.mutateAsync({
+        id: product.id,
+        updates: { sku: next },
+        expectedVersion: product.row_version,
+      });
+      setEditingSku(false);
+      setSkuDraft("");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to save SKU code";
+      // Friendly hint for the unique-key violation on product_skus.sku
+      if (/duplicate key|product_skus_sku_key|unique/i.test(msg)) {
+        setSkuError(`Another product already uses code "${next}"`);
+      } else {
+        setSkuError(msg);
+      }
+    }
+  }
+
+  function startNameEdit() {
+    setNameDraft(product?.product_name ?? "");
+    setEditingName(true);
+    setNameError(null);
+  }
+  function cancelNameEdit() {
+    setEditingName(false);
+    setNameDraft("");
+    setNameError(null);
+  }
+  async function saveNameEdit() {
+    if (!product) return;
+    setNameError(null);
+    const next = nameDraft.trim();
+    if (!next) {
+      setNameError("Product name is required");
+      return;
+    }
+    if (next === product.product_name) {
+      setEditingName(false);
+      return;
+    }
+    try {
+      await updateProduct.mutateAsync({
+        id: product.id,
+        updates: { product_name: next },
+        expectedVersion: product.row_version,
+      });
+      setEditingName(false);
+      setNameDraft("");
+    } catch (err) {
+      setNameError(err instanceof Error ? err.message : "Failed to save product name");
     }
   }
 
@@ -449,7 +538,48 @@ export default function SKUDetail() {
         </Button>
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold">{product.sku}</h1>
+            {/* SKU code — inline editable (admin only). Pencil shows on
+                hover; click puts the code into an input. Enter or check
+                button saves; Escape or x button cancels. Unique-key
+                violations are caught and surfaced as a friendly hint. */}
+            {editingSku ? (
+              <div className="flex items-center gap-1">
+                <Input
+                  value={skuDraft}
+                  onChange={(e) => setSkuDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveSkuEdit();
+                    if (e.key === "Escape") cancelSkuEdit();
+                  }}
+                  autoFocus
+                  className="h-8 text-xl font-bold w-44"
+                  disabled={updateProduct.isPending}
+                />
+                <Button size="icon" variant="ghost" className="h-8 w-8" onClick={saveSkuEdit} disabled={updateProduct.isPending} title="Save (Enter)">
+                  <Check className="h-4 w-4 text-green-400" />
+                </Button>
+                <Button size="icon" variant="ghost" className="h-8 w-8" onClick={cancelSkuEdit} disabled={updateProduct.isPending} title="Cancel (Escape)">
+                  <X className="h-4 w-4 text-muted-foreground" />
+                </Button>
+                {skuError && (
+                  <span className="text-[11px] text-red-400 ml-1" title={skuError}>
+                    {skuError}
+                  </span>
+                )}
+              </div>
+            ) : isAdmin ? (
+              <button
+                type="button"
+                onClick={startSkuEdit}
+                className="group inline-flex items-center gap-1"
+                title="Click to edit SKU code"
+              >
+                <h1 className="text-2xl font-bold">{product.sku}</h1>
+                <Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+              </button>
+            ) : (
+              <h1 className="text-2xl font-bold">{product.sku}</h1>
+            )}
             {/* Category badge — click pencil to flip fillable ↔ non-
                 fillable. Drives whether the Manufacturing Cost card
                 appears further down the page. */}
@@ -567,7 +697,45 @@ export default function SKUDetail() {
               <Badge variant="outline" className="border-red-500/50 text-red-400">Inactive</Badge>
             )}
           </div>
-          <p className="text-muted-foreground">{product.product_name}</p>
+          {/* Product name — inline editable (admin only). */}
+          {editingName ? (
+            <div className="flex items-center gap-1 mt-1">
+              <Input
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") saveNameEdit();
+                  if (e.key === "Escape") cancelNameEdit();
+                }}
+                autoFocus
+                className="h-7 text-sm w-80"
+                disabled={updateProduct.isPending}
+              />
+              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={saveNameEdit} disabled={updateProduct.isPending} title="Save (Enter)">
+                <Check className="h-3.5 w-3.5 text-green-400" />
+              </Button>
+              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={cancelNameEdit} disabled={updateProduct.isPending} title="Cancel (Escape)">
+                <X className="h-3.5 w-3.5 text-muted-foreground" />
+              </Button>
+              {nameError && (
+                <span className="text-[11px] text-red-400 ml-1" title={nameError}>
+                  {nameError}
+                </span>
+              )}
+            </div>
+          ) : isAdmin ? (
+            <button
+              type="button"
+              onClick={startNameEdit}
+              className="group inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+              title="Click to edit product name"
+            >
+              <span>{product.product_name}</span>
+              <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+            </button>
+          ) : (
+            <p className="text-muted-foreground">{product.product_name}</p>
+          )}
         </div>
       </div>
 
