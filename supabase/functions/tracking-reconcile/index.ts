@@ -70,13 +70,28 @@ interface Shipment {
 
 const RECEIVE_WINDOW_DAYS = { sea: 7, air: 2 };
 
+// CORS headers — required because this function is now also called from
+// the browser (the "Refresh tracking" button on the freight dashboard),
+// not just from pg_cron. Without these, the browser blocks the request
+// at the preflight stage with "Failed to send a request to the Edge Function".
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
 // -----------------------------------------------------------------------------
 // Main handler
 // -----------------------------------------------------------------------------
 Deno.serve(async (req) => {
+  // CORS preflight
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: CORS_HEADERS });
+  }
+
   const authHeader = req.headers.get("authorization") ?? "";
   if (!authHeader.startsWith("Bearer ")) {
-    return new Response("unauthorized", { status: 401 });
+    return new Response("unauthorized", { status: 401, headers: CORS_HEADERS });
   }
 
   const report = {
@@ -117,12 +132,12 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({ ok: true, report }), {
       status: 200,
-      headers: { "content-type": "application/json" },
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
     });
   } catch (err) {
     return new Response(
       JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }),
-      { status: 500, headers: { "content-type": "application/json" } },
+      { status: 500, headers: { ...CORS_HEADERS, "content-type": "application/json" } },
     );
   }
 });
