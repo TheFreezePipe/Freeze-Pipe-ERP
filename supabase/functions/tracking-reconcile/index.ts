@@ -26,6 +26,10 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const MAERSK_API_KEY = Deno.env.get("MAERSK_API_KEY") ?? "";
 const FEDEX_API_KEY = Deno.env.get("FEDEX_API_KEY") ?? "";
 const FEDEX_API_SECRET = Deno.env.get("FEDEX_API_SECRET") ?? "";
+const FEDEX_USE_SANDBOX = (Deno.env.get("FEDEX_USE_SANDBOX") ?? "false").toLowerCase() === "true";
+const FEDEX_BASE = FEDEX_USE_SANDBOX
+  ? "https://apis-sandbox.fedex.com"
+  : "https://apis.fedex.com";
 const DHL_API_KEY = Deno.env.get("DHL_API_KEY") ?? "";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
@@ -106,7 +110,7 @@ Deno.serve(async (req) => {
         report.errors++;
         report.error_details.push({
           shipmentId: shipment.id,
-          error: err instanceof Error ? err.message : String(err),
+          error: stringifyError(err),
         });
       }
     }
@@ -292,16 +296,140 @@ async function fetchEvergreen(trackingNumber: string): Promise<TrackingUpdate | 
   return notReceivedNow();
 }
 
+// FedEx Track API v1. OAuth2 client_credentials → POST /track/v1/trackingnumbers.
+// Token has 1hr TTL; cron fires every 6h so we just fetch fresh each call (cheap,
+// no caching needed). Sandbox vs production controlled by FEDEX_USE_SANDBOX env.
 async function fetchFedEx(trackingNumber: string): Promise<TrackingUpdate | null> {
   if (!FEDEX_API_KEY || !FEDEX_API_SECRET) return notReceivedNow();
-  // TODO: OAuth2 token, then POST /track/v1/trackingnumbers
-  return notReceivedNow();
+
+  // Step 1: OAuth token
+  const tokenRes = await fetch(`${FEDEX_BASE}/oauth/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: FEDEX_API_KEY,
+      client_secret: FEDEX_API_SECRET,
+    }).toString(),
+  });
+  if (!tokenRes.ok) {
+    const body = await tokenRes.text();
+    throw new Error(`FedEx OAuth ${tokenRes.status}: ${body.slice(0, 200)}`);
+  }
+  const { access_token } = await tokenRes.json() as { access_token: string };
+
+  // Step 2: tracking call
+  const trackRes = await fetch(`${FEDEX_BASE}/track/v1/trackingnumbers`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${access_token}`,
+      "Content-Type": "application/json",
+      "X-locale": "en_US",
+    },
+    body: JSON.stringify({
+      includeDetailedScans: true,
+      trackingInfo: [{ trackingNumberInfo: { trackingNumber } }],
+    }),
+  });
+  if (!trackRes.ok) {
+    const body = await trackRes.text();
+    throw new Error(`FedEx track ${trackRes.status}: ${body.slice(0, 200)}`);
+  }
+
+  // deno-lint-ignore no-explicit-any
+  const trackJson = await trackRes.json() as any;
+  const result = trackJson?.output?.completeTrackResults?.[0]?.trackResults?.[0];
+  if (!result) return notReceivedNow();
+
+  // Per-tracking errors (e.g. "tracking number not found") arrive as `error` on the result
+  if (result.error?.code) {
+    console.warn(`FedEx tracking ${trackingNumber}: ${result.error.code} ${result.error.message ?? ""}`);
+    return notReceivedNow();
+  }
+
+  const code: string | undefined = result.latestStatusDetail?.code;
+  const status: TrackingStatus = mapFedExStatusCode(code);
+
+  // deno-lint-ignore no-explicit-any
+  const dateAndTimes: Array<{ type: string; dateTime: string }> = result.dateAndTimes ?? [];
+  const findDate = (t: string) => dateAndTimes.find(d => d.type === t)?.dateTime ?? null;
+  const carrierEta = toDateOnly(findDate("ESTIMATED_DELIVERY"));
+  const deliveredAt = toDateOnly(findDate("ACTUAL_DELIVERY"));
+
+  // deno-lint-ignore no-explicit-any
+  const events = (result.scanEvents ?? []).slice(0, 25).map((e: any) => ({
+    timestamp: e.date ?? "",
+    description: e.eventDescription ?? e.derivedStatus ?? e.eventType ?? "",
+    location: formatFedExLocation(e.scanLocation),
+  }));
+
+  return {
+    status,
+    carrierEta,
+    deliveredAt,
+    events,
+    checkedAt: new Date().toISOString(),
+  };
+}
+
+// FedEx codes per https://developer.fedex.com/api/en-us/catalog/track/v1/docs.html
+function mapFedExStatusCode(code: string | undefined): TrackingStatus {
+  switch (code) {
+    case "DL":                                                   // Delivered
+      return "delivered";
+    case "OD":                                                   // Out for delivery
+      return "out_for_delivery";
+    case "IT":                                                   // In transit
+    case "AR": case "AF":                                        // Arrived at / At FedEx facility
+    case "DP":                                                   // Departed
+    case "PU":                                                   // Picked up
+    case "EP":                                                   // Eligible for pickup
+    case "DE":                                                   // Delivery exception (still in flight)
+    case "CC":                                                   // Cleared customs
+    case "SF":                                                   // At sort facility
+      return "in_transit";
+    case "OC":                                                   // Order created (info received, not yet picked up)
+    case "SH":                                                   // Shipment info sent — not yet picked up
+    case "CA":                                                   // Cancelled
+    default:
+      return "not_received";
+  }
+}
+
+function toDateOnly(iso: string | null): string | null {
+  return iso ? iso.slice(0, 10) : null;
+}
+
+// deno-lint-ignore no-explicit-any
+function formatFedExLocation(scan: any): string | null {
+  if (!scan) return null;
+  const parts = [scan.city, scan.stateOrProvinceCode, scan.countryCode].filter(Boolean);
+  return parts.length ? parts.join(", ") : null;
 }
 
 async function fetchDhl(trackingNumber: string): Promise<TrackingUpdate | null> {
   if (!DHL_API_KEY) return notReceivedNow();
   // TODO: GET /track/shipments?trackingNumber={awb} with DHL-API-Key header
   return notReceivedNow();
+}
+
+// Pretty-print errors that aren't proper Error instances (PostgrestError,
+// raw fetch error objects, plain strings) so the report doesn't surface
+// useless `[object Object]` strings.
+// deno-lint-ignore no-explicit-any
+function stringifyError(err: any): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object") {
+    // PostgrestError: { code, message, details, hint }
+    if ("message" in err) {
+      const code = err.code ? `[${err.code}] ` : "";
+      const details = err.details ? ` (${err.details})` : "";
+      return `${code}${err.message}${details}`;
+    }
+    try { return JSON.stringify(err); } catch { /* fall through */ }
+  }
+  return String(err);
 }
 
 function notReceivedNow(): TrackingUpdate {

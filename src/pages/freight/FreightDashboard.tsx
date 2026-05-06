@@ -11,6 +11,7 @@ import {
   Truck,
   CheckSquare,
   Square,
+  RefreshCw,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +21,8 @@ import { useNavigate } from "react-router-dom";
 import { FreightCostChart } from "@/components/freight/FreightCostChart";
 import { EtaCell } from "@/components/freight/EtaCell";
 import { StatusSelectWithOverride } from "@/components/freight/StatusSelectWithOverride";
-import { ShipmentTrackingWorker } from "@/lib/tracking/use-shipment-tracking";
+import { ShipmentTrackingWorker, useRefreshAllTracking } from "@/lib/tracking/use-shipment-tracking";
+import { useToast } from "@/hooks/use-toast";
 import { useMemo } from "react";
 import { format, differenceInDays, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -41,6 +43,31 @@ export default function FreightDashboard() {
 
   const { data: freight = [], isLoading } = useFreightShipments();
   const { data: freightLineItems = [] } = useFreightLineItems();
+  const { refresh: refreshTracking, isRefreshing } = useRefreshAllTracking();
+  const { toast } = useToast();
+
+  async function handleRefreshTracking() {
+    try {
+      const report = await refreshTracking();
+      const bits: string[] = [];
+      bits.push(`${report.shipments_checked} checked`);
+      if (report.eta_changes > 0) bits.push(`${report.eta_changes} ETA${report.eta_changes === 1 ? "" : "s"} updated`);
+      if (report.status_changes > 0) bits.push(`${report.status_changes} status change${report.status_changes === 1 ? "" : "s"}`);
+      if (report.errors > 0) bits.push(`${report.errors} error${report.errors === 1 ? "" : "s"}`);
+      const noChanges = report.eta_changes === 0 && report.status_changes === 0 && report.errors === 0;
+      toast({
+        title: "Tracking refreshed",
+        description: noChanges ? `${report.shipments_checked} shipment${report.shipments_checked === 1 ? "" : "s"} checked, no changes` : bits.join(" · "),
+        variant: report.errors > 0 ? "destructive" : "default",
+      });
+    } catch (err) {
+      toast({
+        title: "Tracking refresh failed",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    }
+  }
 
   const stats = useMemo(() => {
     const active = freight.filter(f => f.status !== "delivered");
@@ -122,10 +149,16 @@ export default function FreightDashboard() {
           <h1 className="text-2xl font-bold">Freight Tracking</h1>
           <p className="text-muted-foreground">Monitor all shipments</p>
         </div>
-        <Button onClick={() => navigate("/freight/new")}>
-          <Plus className="mr-2 h-4 w-4" />
-          New Shipment
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleRefreshTracking} disabled={isRefreshing}>
+            <RefreshCw className={cn("mr-2 h-4 w-4", isRefreshing && "animate-spin")} />
+            {isRefreshing ? "Refreshing…" : "Refresh tracking"}
+          </Button>
+          <Button onClick={() => navigate("/freight/new")}>
+            <Plus className="mr-2 h-4 w-4" />
+            New Shipment
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

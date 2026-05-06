@@ -46,6 +46,55 @@ export function useShipmentTracking(shipment: FreightShipment | null | undefined
 }
 
 /**
+ * Page-level "refresh all tracking" hook for the freight dashboard's
+ * Refresh button. Triggers the same Edge Function the cron uses, which
+ * iterates every in-flight shipment and reconciles. Returns a summary
+ * report from the function (shipments_checked / eta_changes / status_changes
+ * / errors) so the UI can show what happened.
+ *
+ * Note: the underlying tracking-reconcile function currently always
+ * processes ALL in-flight shipments regardless of the body — there is
+ * no per-shipment filter on the server side yet. This hook is the
+ * appropriate caller for that "all" behavior; the older
+ * useShipmentTracking hook above sends a shipmentId in the body that
+ * the server ignores (latent — works but redundantly does the full sweep).
+ */
+type ReconcileReport = {
+  shipments_checked: number;
+  eta_changes: number;
+  status_changes: number;
+  overrides_skipped: number;
+  errors: number;
+  error_details?: Array<{ shipmentId: string; error: string }>;
+};
+
+export function useRefreshAllTracking() {
+  const qc = useQueryClient();
+
+  const refresh = useMutation({
+    mutationFn: async (): Promise<ReconcileReport> => {
+      const { data, error } = await supabase.functions.invoke("tracking-reconcile", {
+        body: {},
+      });
+      if (error) throw error;
+      // Function returns { ok: true, report: {...} }
+      const report = (data as { ok?: boolean; report?: ReconcileReport })?.report;
+      if (!report) throw new Error("tracking-reconcile returned no report");
+      return report;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["freight"] });
+    },
+  });
+
+  return {
+    refresh: () => refresh.mutateAsync(),
+    isRefreshing: refresh.isPending,
+    lastReport: refresh.data ?? null,
+  };
+}
+
+/**
  * Kept as an export for backwards compatibility with list pages that
  * previously rendered one of these per in-transit shipment to kick off
  * client-side polling. Now a no-op: server-side cron drives everything.
