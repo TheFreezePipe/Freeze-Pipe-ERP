@@ -604,6 +604,20 @@ export default function FreightNew() {
                   );
                 })}
 
+                {/* Add another carton — same handler as the header button,
+                    placed at the bottom of the list so users with many carton
+                    groups don't have to scroll back up to add the next one. */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={addCartonGroup}
+                >
+                  <Plus className="mr-1.5 h-4 w-4" />
+                  Add Carton
+                </Button>
+
                 {/* Totals */}
                 <Separator />
                 <div className="flex items-center justify-between text-sm px-1">
