@@ -207,10 +207,14 @@ export interface Database {
         // migration 041. Live In Transit + On Order derivations live in
         // `src/lib/inventory-aggregates.ts` (read from freight_shipments
         // and factory_orders respectively).
+        // warehouse_prefilled_raw added in migration 20260506000002 — units
+        // arriving pre-filled from supplier (sources the prefilled_rtsing
+        // task type, skipping WIP).
         Row: {
           id: string;
           sku_id: string;
           warehouse_raw: number;
+          warehouse_prefilled_raw: number;
           warehouse_in_production: number;
           warehouse_finished: number;
           warehouse_other: number;
@@ -221,6 +225,7 @@ export interface Database {
           id?: string;
           sku_id: string;
           warehouse_raw?: number;
+          warehouse_prefilled_raw?: number;
           warehouse_in_production?: number;
           warehouse_finished?: number;
           warehouse_other?: number;

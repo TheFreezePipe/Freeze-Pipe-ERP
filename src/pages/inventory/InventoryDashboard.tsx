@@ -298,6 +298,7 @@ export default function InventoryDashboard() {
     inventory.forEach(inv => {
       initial[inv.id] = {
         warehouse_raw: inv.warehouse_raw,
+        warehouse_prefilled_raw: inv.warehouse_prefilled_raw ?? 0,
         warehouse_in_production: inv.warehouse_in_production,
         warehouse_finished: inv.warehouse_finished,
         warehouse_other: inv.warehouse_other,
@@ -318,7 +319,7 @@ export default function InventoryDashboard() {
     for (const [invId, edited] of Object.entries(editValues)) {
       const inv = inventory.find(i => i.id === invId);
       if (!inv) continue;
-      for (const field of ["warehouse_raw", "warehouse_in_production", "warehouse_finished", "warehouse_other"] as CycleCountField[]) {
+      for (const field of ["warehouse_raw", "warehouse_prefilled_raw", "warehouse_in_production", "warehouse_finished", "warehouse_other"] as CycleCountField[]) {
         const newVal = edited[field] ?? 0;
         const oldVal = inv[field] as number;
         const delta = newVal - oldVal;
@@ -534,6 +535,7 @@ export default function InventoryDashboard() {
                       <th className="px-3 py-3 text-center">Category</th>
                       <th className="px-3 py-3 text-center">ABC</th>
                       <th className="px-3 py-3 text-center border-l border-border/50">Raw</th>
+                      <th className="px-3 py-3 text-center">Pre-filled</th>
                       <th className="px-3 py-3 text-center">WIP</th>
                       <th className="px-3 py-3 text-center">Finished</th>
                     </tr>
@@ -607,6 +609,9 @@ export default function InventoryDashboard() {
                         <>
                           <td className="px-2 py-1 text-center border-l border-border/50">
                             <Input type="number" className="h-8 w-20 text-center text-xs" value={getEditValue(inv.id, "warehouse_raw")} onChange={e => setEditFieldValue(inv.id, "warehouse_raw", e.target.value)} />
+                          </td>
+                          <td className="px-2 py-1 text-center">
+                            <Input type="number" className="h-8 w-20 text-center text-xs" value={getEditValue(inv.id, "warehouse_prefilled_raw")} onChange={e => setEditFieldValue(inv.id, "warehouse_prefilled_raw", e.target.value)} />
                           </td>
                           <td className="px-2 py-1 text-center">
                             <Input type="number" className="h-8 w-20 text-center text-xs" value={getEditValue(inv.id, "warehouse_in_production")} onChange={e => setEditFieldValue(inv.id, "warehouse_in_production", e.target.value)} />

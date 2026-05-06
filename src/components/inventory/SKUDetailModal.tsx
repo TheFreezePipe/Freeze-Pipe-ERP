@@ -322,10 +322,14 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
         {/* Warehouse breakdown */}
         <div className="space-y-2">
           <h3 className="text-sm font-medium">Warehouse Breakdown</h3>
-          <div className="grid grid-cols-4 gap-2 text-center text-xs">
+          <div className="grid grid-cols-5 gap-2 text-center text-xs">
             <div className="rounded-md bg-muted/50 p-2">
               <p className="text-muted-foreground">Raw</p>
               <p className="text-base font-bold">{inventory.warehouse_raw}</p>
+            </div>
+            <div className="rounded-md bg-muted/50 p-2">
+              <p className="text-muted-foreground">Pre-filled</p>
+              <p className="text-base font-bold text-cyan-400">{inventory.warehouse_prefilled_raw ?? 0}</p>
             </div>
             <div className="rounded-md bg-muted/50 p-2">
               <p className="text-muted-foreground">WIP</p>

@@ -286,6 +286,11 @@ export const demoInventory: (InventoryLevel & { product?: ProductSKU })[] = demo
     id: `inv-${p.id}`,
     sku_id: p.id,
     warehouse_raw: d[0],
+    // Demo fixtures predate the warehouse_prefilled_raw column (added
+    // 2026-05-06). Default to 0 so the demo dashboard doesn't surface
+    // fake pre-filled inventory; tests of the new bucket should write
+    // values explicitly.
+    warehouse_prefilled_raw: 0,
     warehouse_in_production: d[1],
     warehouse_finished: d[2],
     warehouse_other: d[3],
@@ -511,7 +516,9 @@ const TASK_MOVEMENTS: Record<
 > = {
   emptying: { from: "warehouse_raw", to: "warehouse_in_production" },
   rtsing: { from: "warehouse_in_production", to: "warehouse_finished" },
-  prefilled_rtsing: { from: "warehouse_raw", to: "warehouse_finished" },
+  // Mirrors the production change in migration 20260506000002 — prefilled
+  // RTSing now sources from warehouse_prefilled_raw, not warehouse_raw.
+  prefilled_rtsing: { from: "warehouse_prefilled_raw", to: "warehouse_finished" },
   filling_capping: null, // no bucket move — metadata entry only
 };
 
@@ -606,7 +613,7 @@ export function archiveSku(
   // can still be archived via this demo helper — the real archive_sku
   // RPC is where the production rule lives.
   const onHand = inv
-    ? inv.warehouse_raw + inv.warehouse_in_production + inv.warehouse_finished + inv.warehouse_other
+    ? inv.warehouse_raw + (inv.warehouse_prefilled_raw ?? 0) + inv.warehouse_in_production + inv.warehouse_finished + inv.warehouse_other
     : 0;
 
   if (onHand > 0 && !opts.force) {

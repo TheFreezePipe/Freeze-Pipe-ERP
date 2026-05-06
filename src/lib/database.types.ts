@@ -674,6 +674,7 @@ export type Database = {
           warehouse_finished: number | null
           warehouse_in_production: number | null
           warehouse_other: number | null
+          warehouse_prefilled_raw: number
           warehouse_raw: number | null
         }
         Insert: {
@@ -686,6 +687,7 @@ export type Database = {
           warehouse_finished?: number | null
           warehouse_in_production?: number | null
           warehouse_other?: number | null
+          warehouse_prefilled_raw?: number
           warehouse_raw?: number | null
         }
         Update: {
@@ -698,6 +700,7 @@ export type Database = {
           warehouse_finished?: number | null
           warehouse_in_production?: number | null
           warehouse_other?: number | null
+          warehouse_prefilled_raw?: number
           warehouse_raw?: number | null
         }
         Relationships: [

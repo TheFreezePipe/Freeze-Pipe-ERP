@@ -10,8 +10,11 @@ export function ManufacturingCompletionChart() {
 
     inventory.forEach(inv => {
       if (inv.product?.category !== "fillable") return;
+      // Pre-filled raw counts as "complete" — units arrived already filled
+      // and just need a fast RTS step (no manufacturing work). Lumping it
+      // with unfilled would inflate the work-remaining metric incorrectly.
       totalUnfilled += inv.warehouse_raw + inv.warehouse_in_production;
-      totalComplete += inv.warehouse_finished;
+      totalComplete += inv.warehouse_finished + (inv.warehouse_prefilled_raw ?? 0);
     });
 
     const total = totalUnfilled + totalComplete;

@@ -15,6 +15,7 @@ export default function ManufacturingDashboard() {
 
   const stats = useMemo(() => {
     const raw = inventory.reduce((s, i) => s + i.warehouse_raw, 0);
+    const prefilledRaw = inventory.reduce((s, i) => s + (i.warehouse_prefilled_raw ?? 0), 0);
     const wip = inventory.reduce((s, i) => s + i.warehouse_in_production, 0);
     const finished = inventory.reduce((s, i) => s + i.warehouse_finished, 0);
     // "Today" = start of today in the browser's local timezone. Prefer
@@ -31,7 +32,7 @@ export default function ManufacturingDashboard() {
         ? s + t.quantity_processed
         : s;
     }, 0);
-    return { raw, wip, finished, todayOutput };
+    return { raw, prefilledRaw, wip, finished, todayOutput };
   }, [inventory, taskLogs]);
 
   const pipelineRows = useMemo(() => {
@@ -39,9 +40,11 @@ export default function ManufacturingDashboard() {
       .filter(inv => inv.product?.category === "fillable")
       .map(inv => {
         const product = inv.product;
-        const total = inv.warehouse_raw + inv.warehouse_in_production + inv.warehouse_finished;
+        const prefilledRaw = inv.warehouse_prefilled_raw ?? 0;
+        const total = inv.warehouse_raw + prefilledRaw + inv.warehouse_in_production + inv.warehouse_finished;
         const priority = computeManufacturingPriority(
           inv.warehouse_raw,
+          prefilledRaw,
           inv.warehouse_in_production,
           inv.warehouse_finished,
           getEffectiveDemand(product.id, product.monthly_demand),
@@ -93,8 +96,9 @@ export default function ManufacturingDashboard() {
         <p className="text-muted-foreground">Pipeline status and production overview</p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard title="Raw Inventory" value={stats.raw.toLocaleString()} subtitle="Awaiting processing" icon={Package} iconColor="text-blue-400" />
+        <StatCard title="Pre-filled Raw" value={stats.prefilledRaw.toLocaleString()} subtitle="Skip-WIP, RTS direct" icon={Package} iconColor="text-cyan-400" />
         <StatCard title="In Production" value={stats.wip.toLocaleString()} subtitle="Being processed" icon={Factory} iconColor="text-orange-400" />
         <StatCard title="Finished" value={stats.finished.toLocaleString()} subtitle="Ready to ship" icon={PackageCheck} iconColor="text-green-400" />
         <StatCard title="Today's Output" value={stats.todayOutput} subtitle="Units completed" icon={Clock} iconColor="text-purple-400" />
@@ -128,7 +132,9 @@ export default function ManufacturingDashboard() {
         </CardHeader>
         <CardContent className="space-y-4">
           {pipelineRows.map(({ inv, product, total, priority }, index) => {
+            const prefilledRaw = inv.warehouse_prefilled_raw ?? 0;
             const rawPct = total > 0 ? (inv.warehouse_raw / total) * 100 : 0;
+            const prefilledPct = total > 0 ? (prefilledRaw / total) * 100 : 0;
             const wipPct = total > 0 ? (inv.warehouse_in_production / total) * 100 : 0;
             const finPct = total > 0 ? (inv.warehouse_finished / total) * 100 : 0;
             const urgency = urgencyLabel(priority.score);
@@ -174,6 +180,15 @@ export default function ManufacturingDashboard() {
                       {inv.warehouse_raw}
                     </div>
                   )}
+                  {prefilledPct > 0 && (
+                    <div
+                      className="flex items-center justify-center bg-cyan-500/80 text-[10px] font-medium text-white"
+                      style={{ width: `${prefilledPct}%` }}
+                      title={`Pre-filled raw: ${prefilledRaw}`}
+                    >
+                      {prefilledRaw}
+                    </div>
+                  )}
                   {wipPct > 0 && (
                     <div
                       className="flex items-center justify-center bg-orange-500/80 text-[10px] font-medium text-white"
@@ -196,10 +211,14 @@ export default function ManufacturingDashboard() {
               </div>
             );
           })}
-          <div className="flex items-center gap-6 pt-2 text-xs text-muted-foreground">
+          <div className="flex items-center gap-6 pt-2 text-xs text-muted-foreground flex-wrap">
             <div className="flex items-center gap-1.5">
               <div className="h-3 w-3 rounded-full bg-blue-500/80" />
               Raw
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="h-3 w-3 rounded-full bg-cyan-500/80" />
+              Pre-filled Raw
             </div>
             <div className="flex items-center gap-1.5">
               <div className="h-3 w-3 rounded-full bg-orange-500/80" />

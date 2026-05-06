@@ -55,17 +55,22 @@ export function computeDOS(units: number, monthlyDemand: number): number {
  */
 export function computeManufacturingPriority(
   raw: number,
+  prefilledRaw: number,
   wip: number,
   finished: number,
   monthlyDemand: number,
   abc: string | null,
 ): { score: number; finishedDOS: number; unfilledPct: number } {
   const dailyDemand = monthlyDemand / 30;
+  // "Unfilled" = needs filling work. Pre-filled raw is excluded — those
+  // units arrived already filled and just need RTSing (a fast skip-the-WIP
+  // step), so they're effectively as good as finished for priority/DOS.
   const unfilled = raw + wip;
-  const totalWarehouse = unfilled + finished;
-  const finishedDOS = finished / Math.max(dailyDemand, 0.01);
+  const effectiveFinished = finished + prefilledRaw;
+  const totalWarehouse = unfilled + effectiveFinished;
+  const finishedDOS = effectiveFinished / Math.max(dailyDemand, 0.01);
 
-  const demandPressure = dailyDemand / Math.max(finished, 1);
+  const demandPressure = dailyDemand / Math.max(effectiveFinished, 1);
   const unfilledRatio = unfilled / Math.max(totalWarehouse, 1);
   const abcWeight = abc === "A" ? 1.5 : abc === "C" ? 0.5 : 1.0;
 

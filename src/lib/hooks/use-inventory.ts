@@ -6,6 +6,7 @@ export type InventoryWithProduct = InventoryLevel & { product: ProductSKU };
 
 export type CycleCountField =
   | "warehouse_raw"
+  | "warehouse_prefilled_raw"
   | "warehouse_in_production"
   | "warehouse_finished"
   | "warehouse_other";

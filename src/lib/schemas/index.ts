@@ -72,7 +72,7 @@ export type DemandOverrideInput = z.infer<typeof demandOverrideSchema>;
 // -----------------------------------------------------------------------------
 export const cycleCountSchema = z.object({
   skuId: nonEmptyString,
-  field: z.enum(["warehouse_raw", "warehouse_in_production", "warehouse_finished", "warehouse_other"]),
+  field: z.enum(["warehouse_raw", "warehouse_prefilled_raw", "warehouse_in_production", "warehouse_finished", "warehouse_other"]),
   delta: z.number().int().refine(v => v !== 0, "Delta cannot be zero"),
   reason: z.enum(["breakage", "mispick", "theft", "receiving_error", "other"]),
   notes: z.string().trim().max(500).optional(),

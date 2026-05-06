@@ -136,6 +136,7 @@ export function inventoryTotalsReal(
 } {
   const warehouseTotal =
     (inv.warehouse_raw ?? 0) +
+    (inv.warehouse_prefilled_raw ?? 0) +
     (inv.warehouse_in_production ?? 0) +
     (inv.warehouse_finished ?? 0) +
     (inv.warehouse_other ?? 0);

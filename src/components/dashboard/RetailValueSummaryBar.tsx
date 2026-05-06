@@ -134,15 +134,19 @@ export function RetailValueSummaryBar() {
       cashOnOrder += totals.onOrderTotal * onOrderPerUnit;
       cashTransit += totals.transitTotal * inTransitPerUnit;
 
-      // Warehouse breaks across four sub-buckets that each carry a
+      // Warehouse breaks across five sub-buckets that each carry a
       // different amount of mfg-paid. Read the raw column values from
       // inventory_levels and apply per-bucket cost.
       const wRaw = inv.warehouse_raw ?? 0;
+      const wPrefilled = inv.warehouse_prefilled_raw ?? 0;
       const wInProd = inv.warehouse_in_production ?? 0;
       const wFinished = inv.warehouse_finished ?? 0;
       const wOther = inv.warehouse_other ?? 0;
 
       cashWarehouse += wRaw * baseCost;
+      // Pre-filled raw arrived already filled by supplier — supplier already
+      // paid the full mfg cost. Treat valuation-wise like finished.
+      cashWarehouse += wPrefilled * (baseCost + effectiveMfg);
       cashWarehouse += wInProd * (baseCost + 0.5 * usMfg);
       cashWarehouse += wFinished * (baseCost + effectiveMfg);
       cashWarehouse += wOther * (baseCost + effectiveMfg);
