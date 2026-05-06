@@ -113,3 +113,42 @@ export function useUpdateFreightShipment() {
     },
   });
 }
+
+/**
+ * Confirm receipt of a delivered freight shipment.
+ *
+ * Carrier tracking flips a shipment's status to 'delivered' when the
+ * carrier reports delivery, but inventory_levels DOES NOT move at that
+ * point. An admin or manager must explicitly confirm physical receipt
+ * before the units land in warehouse_raw — handles the case where a
+ * shipment is marked delivered by carrier but is still sitting in a
+ * freight terminal awaiting pickup.
+ *
+ * The RPC (rpc_apply_freight_delivery, post-migration 20260506000001)
+ * itself enforces the admin/manager role check on the caller's
+ * auth.uid(); this hook just wraps it. UI is responsible for hiding the
+ * affordance from non-admin/manager users to avoid surprising errors.
+ */
+export function useConfirmFreightReceipt() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: { shipmentId: string; actorId: string }) => {
+      const { data, error } = await supabase.rpc("rpc_apply_freight_delivery", {
+        p_shipment_id: params.shipmentId,
+        p_actor_id: params.actorId,
+      });
+      if (error) throw error;
+      const result = data as { ok?: boolean; message?: string; error?: string; line_items_processed?: number };
+      if (!result?.ok) {
+        throw new Error(result?.message ?? result?.error ?? "Receipt confirmation failed");
+      }
+      return result;
+    },
+    onSuccess: (_data, { shipmentId }) => {
+      qc.invalidateQueries({ queryKey: ["freight"] });
+      qc.invalidateQueries({ queryKey: ["freight", shipmentId] });
+      qc.invalidateQueries({ queryKey: ["freight-line-items"] });
+      qc.invalidateQueries({ queryKey: ["inventory"] });
+    },
+  });
+}

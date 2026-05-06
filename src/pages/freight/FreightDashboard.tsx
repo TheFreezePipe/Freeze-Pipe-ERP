@@ -12,6 +12,7 @@ import {
   CheckSquare,
   Square,
   RefreshCw,
+  PackageCheck,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -30,9 +31,11 @@ import { useUrlFilter, useUrlBoolFilter } from "@/lib/use-url-filter";
 import {
   useFreightShipments,
   useFreightLineItems,
+  useConfirmFreightReceipt,
   type FreightLineItemWithProduct,
 } from "@/lib/hooks";
 import type { FreightShipment } from "@/types/database";
+import { useAuth } from "@/lib/auth-context";
 
 const DELIVERED_PREVIEW_COUNT = 5;
 
@@ -91,6 +94,19 @@ export default function FreightDashboard() {
     else if (filter === "air") filtered = filtered.filter(f => f.freight_type === "air");
     else if (filter === "high_risk") filtered = filtered.filter(f => f.status === "high_risk");
 
+    // Pending receipt: carrier flipped status to delivered, but admin/manager
+    // hasn't confirmed physical receipt yet. These get pinned to the top of
+    // the list with green-glow styling and a "Confirm receipt" button so
+    // operators can't miss them. Inventory only credits on confirmation.
+    const pendingReceipt = filtered
+      .filter(f => f.status === "delivered" && !f.receipt_confirmed_at)
+      .sort((a, b) => {
+        // Most recently delivered first
+        if (!a.actual_arrival_date) return 1;
+        if (!b.actual_arrival_date) return -1;
+        return b.actual_arrival_date.localeCompare(a.actual_arrival_date);
+      });
+
     const inTransit = filtered
       .filter(f => f.status !== "delivered")
       .sort((a, b) => {
@@ -100,7 +116,7 @@ export default function FreightDashboard() {
       });
 
     const delivered = filtered
-      .filter(f => f.status === "delivered")
+      .filter(f => f.status === "delivered" && !!f.receipt_confirmed_at)
       .sort((a, b) => {
         if (!a.actual_arrival_date) return 1;
         if (!b.actual_arrival_date) return -1;
@@ -110,7 +126,7 @@ export default function FreightDashboard() {
     const visibleDelivered = showAllDelivered ? delivered : delivered.slice(0, DELIVERED_PREVIEW_COUNT);
     const hasMoreDelivered = delivered.length > DELIVERED_PREVIEW_COUNT;
 
-    return { inTransit, delivered: visibleDelivered, hasMoreDelivered, totalDelivered: delivered.length };
+    return { pendingReceipt, inTransit, delivered: visibleDelivered, hasMoreDelivered, totalDelivered: delivered.length };
   }, [filter, showAllDelivered, freight]);
 
   // Pre-bucket line items by shipment so each card render is O(1) instead
@@ -185,6 +201,40 @@ export default function FreightDashboard() {
         </Card>
       ) : (
         <div className="space-y-3">
+          {/* Pending receipt confirmation: carrier-flagged delivered but
+              awaiting admin/manager sign-off. Pinned to the very top so
+              they're impossible to miss. ShipmentCard adds green-glow
+              styling + the Confirm Receipt button for these. */}
+          {sortedFreight.pendingReceipt.length > 0 && (
+            <>
+              <div className="flex items-center gap-3 pb-1 px-1">
+                <div className="h-px bg-green-500/40 flex-1" />
+                <span className="text-[10px] uppercase tracking-wider text-green-400 font-semibold inline-flex items-center gap-1.5">
+                  <PackageCheck className="h-3 w-3" />
+                  Awaiting Receipt Confirmation ({sortedFreight.pendingReceipt.length})
+                </span>
+                <div className="h-px bg-green-500/40 flex-1" />
+              </div>
+              {sortedFreight.pendingReceipt.map(f => (
+                <ShipmentCard
+                  key={f.id}
+                  shipment={f}
+                  lines={linesByShipment.get(f.id) ?? []}
+                />
+              ))}
+            </>
+          )}
+
+          {sortedFreight.pendingReceipt.length > 0 && sortedFreight.inTransit.length > 0 && (
+            <div className="flex items-center gap-3 pt-4 pb-1 px-1">
+              <div className="h-px bg-border flex-1" />
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                In Transit
+              </span>
+              <div className="h-px bg-border flex-1" />
+            </div>
+          )}
+
           {sortedFreight.inTransit.map(f => (
             <ShipmentCard
               key={f.id}
@@ -255,6 +305,9 @@ function ShipmentCard({
   lines: FreightLineItemWithProduct[];
 }) {
   const navigate = useNavigate();
+  const { isAdmin, isManager, user } = useAuth();
+  const { toast } = useToast();
+  const confirmReceipt = useConfirmFreightReceipt();
   const totalUnits = lines.reduce((sum, l) => sum + (l.quantity ?? 0), 0);
   const totalCartons = shipment.total_cartons ?? 0;
   const totalCost = lines.reduce((s, l) => s + (l.unit_cost ?? 0) * (l.quantity ?? 0), 0);
@@ -262,14 +315,18 @@ function ShipmentCard({
   const isPending = shipment.status === "pending";
   const isHighRisk = shipment.status === "high_risk";
   const missingTracking = isPending && !shipment.tracking_number;
+  // Pending receipt: carrier said delivered, operator hasn't confirmed yet.
+  const isPendingReceipt = shipment.status === "delivered" && !shipment.receipt_confirmed_at;
 
-  // Border tint precedence: high_risk (red) > missing tracking on pending
-  // (amber) > primary. High_risk is the most urgent admin signal.
-  const borderTone = isHighRisk
-    ? "border-l-4 border-l-red-500/70"
-    : missingTracking
-      ? "border-l-4 border-l-amber-500/70"
-      : "border-l-4 border-l-primary/50";
+  // Border tint precedence: pending_receipt (green glow, most actionable) >
+  // high_risk (red) > missing tracking on pending (amber) > primary.
+  const borderTone = isPendingReceipt
+    ? "border-l-4 border-l-green-500 ring-2 ring-green-500/40 shadow-[0_0_15px_rgba(34,197,94,0.25)]"
+    : isHighRisk
+      ? "border-l-4 border-l-red-500/70"
+      : missingTracking
+        ? "border-l-4 border-l-amber-500/70"
+        : "border-l-4 border-l-primary/50";
 
   // Days left until ETA; only meaningful for in-transit shipments. Color
   // tiers: red overdue, amber <5d, muted otherwise. Delivered shows nothing
@@ -280,6 +337,28 @@ function ShipmentCard({
 
   function activate() {
     navigate(`/freight/${shipment.id}`);
+  }
+
+  async function handleConfirmReceipt(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!user) return;
+    try {
+      const result = await confirmReceipt.mutateAsync({
+        shipmentId: shipment.id,
+        actorId: user.id,
+      });
+      const lineCount = result.line_items_processed ?? 0;
+      toast({
+        title: `Receipt confirmed: ${shipment.shipment_number}`,
+        description: `${lineCount} line item${lineCount === 1 ? "" : "s"} credited to warehouse_raw`,
+      });
+    } catch (err) {
+      toast({
+        title: "Confirmation failed",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    }
   }
 
   return (
@@ -295,6 +374,38 @@ function ShipmentCard({
         }
       }}
     >
+      {/* Confirmation banner — only when pending receipt. Shows carrier
+          delivery date + Confirm Receipt button (admin/manager only). */}
+      {isPendingReceipt && (
+        <div className="flex items-center justify-between gap-3 px-5 py-2.5 bg-green-500/10 border-b border-green-500/30">
+          <div className="flex items-center gap-2 text-sm">
+            <PackageCheck className="h-4 w-4 text-green-400 shrink-0" />
+            <span className="text-green-100">
+              Marked delivered by carrier
+              {shipment.actual_arrival_date && (
+                <> on <span className="font-medium">{format(parseISO(shipment.actual_arrival_date), "MMM d, yyyy")}</span></>
+              )}.{" "}
+              <span className="text-green-300/80">
+                {(isAdmin || isManager)
+                  ? "Confirm receipt to credit warehouse inventory."
+                  : "Awaiting admin or manager to confirm receipt."}
+              </span>
+            </span>
+          </div>
+          {(isAdmin || isManager) && (
+            <Button
+              size="sm"
+              variant="default"
+              className="bg-green-600 hover:bg-green-500 text-white shrink-0"
+              onClick={handleConfirmReceipt}
+              disabled={confirmReceipt.isPending}
+            >
+              <PackageCheck className="mr-1.5 h-3.5 w-3.5" />
+              {confirmReceipt.isPending ? "Confirming…" : "Confirm receipt"}
+            </Button>
+          )}
+        </div>
+      )}
       <CardContent className="p-0">
         {/* Header — single row: identity cluster (left) + cartons callout
             (middle) + meta grid (right). Same shape as the supplier card

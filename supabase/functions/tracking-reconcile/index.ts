@@ -180,25 +180,20 @@ async function applyUpdate(shipment: Shipment, update: TrackingUpdate): Promise<
   const statusChanged = reconciled.status !== shipment.status;
   const overrideSkipped = !!shipment.status_overridden_at && statusChanged === false && reconciled.status !== shipment.status;
 
-  // Detect a delivery transition (something → delivered). These need to go
-  // through rpc_apply_freight_delivery so inventory_levels.warehouse_raw is
-  // credited + status flips + audit rows are written atomically. Without
-  // this hand-off, auto-tracking marks shipments delivered but inventory
-  // never lands — a gap that bit shipment 403 on 2026-05-06.
-  const isDeliveryTransition = statusChanged
-    && reconciled.status === "delivered"
-    && shipment.status !== "delivered";
-
-  // Build the always-patch payload (ETA + arrival date). Status only goes
-  // here for non-delivery changes — delivery transitions are handled by the
-  // RPC below, which sets status itself.
+  // Build the update payload. Note: when carrier marks a shipment delivered,
+  // we flip status here but do NOT credit inventory automatically. Inventory
+  // crediting is gated behind operator confirmation via the "Confirm receipt"
+  // button on the freight dashboard, which calls rpc_apply_freight_delivery.
+  // Rationale: carrier-reported delivery doesn't always mean physical receipt
+  // at the warehouse (units may sit at a freight terminal for days), and we
+  // want admin/manager sign-off before inventory levels move.
   const patch: Partial<Shipment> = {
     eta: reconciled.eta,
     eta_original: reconciled.eta_original,
     eta_last_checked_at: update.checkedAt,
     actual_arrival_date: reconciled.actual_arrival_date,
   };
-  if (statusChanged && !isDeliveryTransition) {
+  if (reconciled.status !== shipment.status) {
     patch.status = reconciled.status;
   }
 
@@ -207,26 +202,6 @@ async function applyUpdate(shipment: Shipment, update: TrackingUpdate): Promise<
     .update(patch)
     .eq("id", shipment.id);
   if (updateErr) throw updateErr;
-
-  // Delivery transition: call the RPC. It iterates freight_line_items,
-  // increments inventory_levels.warehouse_raw, writes a freight_delivered
-  // audit row per line item, and finally flips freight_shipments.status to
-  // 'delivered'. The RPC catches its own internal errors and returns
-  // {ok:false, message}; on that path we throw so the main loop's catch
-  // surfaces it in report.errors instead of silently swallowing.
-  if (isDeliveryTransition) {
-    const { data, error: deliverErr } = await supabase.rpc("rpc_apply_freight_delivery", {
-      p_shipment_id: shipment.id,
-      p_actor_id: SYSTEM_ACTOR_ID,
-    });
-    if (deliverErr) throw deliverErr;
-    if (data && typeof data === "object" && "ok" in data && data.ok === false) {
-      const msg = (data as { message?: string; error?: string }).message
-        ?? (data as { error?: string }).error
-        ?? "rpc_apply_freight_delivery failed";
-      throw new Error(`Delivery credit failed for ${shipment.shipment_number}: ${msg}`);
-    }
-  }
 
   // Audit entries — one per line-item SKU so the log is filterable by SKU.
   const { data: lineItems } = await supabase

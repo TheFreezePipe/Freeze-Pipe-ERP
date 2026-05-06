@@ -557,6 +557,8 @@ export type Database = {
           insurance_cost: number | null
           notes: string | null
           origin_supplier_id: string | null
+          receipt_confirmed_at: string | null
+          receipt_confirmed_by: string | null
           row_version: number
           ship_date: string | null
           shipment_number: string
@@ -586,6 +588,8 @@ export type Database = {
           insurance_cost?: number | null
           notes?: string | null
           origin_supplier_id?: string | null
+          receipt_confirmed_at?: string | null
+          receipt_confirmed_by?: string | null
           row_version?: number
           ship_date?: string | null
           shipment_number: string
@@ -615,6 +619,8 @@ export type Database = {
           insurance_cost?: number | null
           notes?: string | null
           origin_supplier_id?: string | null
+          receipt_confirmed_at?: string | null
+          receipt_confirmed_by?: string | null
           row_version?: number
           ship_date?: string | null
           shipment_number?: string
@@ -639,6 +645,13 @@ export type Database = {
             columns: ["origin_supplier_id"]
             isOneToOne: false
             referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "freight_shipments_receipt_confirmed_by_fkey"
+            columns: ["receipt_confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
@@ -1428,6 +1441,62 @@ export type Database = {
         }
         Relationships: []
       }
+      shipstation_sku_handling: {
+        Row: {
+          added_at: string
+          added_by: string | null
+          is_non_inventory: boolean
+          notes: string | null
+          resolved_sku_id: string | null
+          sku_code: string
+        }
+        Insert: {
+          added_at?: string
+          added_by?: string | null
+          is_non_inventory?: boolean
+          notes?: string | null
+          resolved_sku_id?: string | null
+          sku_code: string
+        }
+        Update: {
+          added_at?: string
+          added_by?: string | null
+          is_non_inventory?: boolean
+          notes?: string | null
+          resolved_sku_id?: string | null
+          sku_code?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shipstation_sku_handling_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shipstation_sku_handling_resolved_sku_id_fkey"
+            columns: ["resolved_sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shipstation_sku_handling_resolved_sku_id_fkey"
+            columns: ["resolved_sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus_active"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shipstation_sku_handling_resolved_sku_id_fkey"
+            columns: ["resolved_sku_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_skus"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       shipstation_sync_runs: {
         Row: {
           completed_at: string | null
@@ -2109,6 +2178,17 @@ export type Database = {
         ]
       }
       shipstation_unresolved_skus: {
+        Row: {
+          distinct_orders: number | null
+          first_seen: string | null
+          last_seen: string | null
+          line_item_count: number | null
+          sku_code: string | null
+          total_units: number | null
+        }
+        Relationships: []
+      }
+      shipstation_unresolved_skus_pending: {
         Row: {
           distinct_orders: number | null
           first_seen: string | null
@@ -2803,6 +2883,18 @@ export type Database = {
       }
       rpc_set_profile_active: {
         Args: { p_is_active: boolean; p_target_user_id: string }
+        Returns: Json
+      }
+      rpc_shipstation_register_non_inventory_sku: {
+        Args: { p_notes?: string; p_sku_code: string }
+        Returns: Json
+      }
+      rpc_shipstation_register_sku_alias: {
+        Args: {
+          p_notes?: string
+          p_resolved_sku_id: string
+          p_sku_code: string
+        }
         Returns: Json
       }
       rpc_supplier_advance_factory_order: {
