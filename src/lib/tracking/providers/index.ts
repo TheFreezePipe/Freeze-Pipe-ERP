@@ -58,18 +58,30 @@ export function getProvider(
 }
 
 /**
- * Carriers whose tracking provider is currently a mock (returns
- * fabricated tracking data). Surface a "[mock]" indicator in the UI for
- * any shipment using one of these so operators don't trust simulated
- * data. Remove a carrier from this set when its real API integration
- * lands. Keep in sync with the providers/*.ts files.
+ * Carriers whose SERVER-SIDE tracking fetcher (in
+ * supabase/functions/tracking-reconcile/index.ts) is still a stub
+ * returning placeholder data. The UI shows a "mock data" warning on
+ * the EtaCell for these so operators don't trust the displayed ETA.
+ *
+ * Note: the OLD client-side providers under src/lib/tracking/providers/
+ * are mock and largely dead-code now (the per-browser polling pattern
+ * was retired; ETAs are driven by the server-side reconciler that runs
+ * on pg_cron every 6h plus the manual "Refresh tracking" button). What
+ * matters for the UI warning is the SERVER-SIDE fetcher's status,
+ * which is what this set tracks.
+ *
+ * Remove a carrier here when its server-side fetcher in
+ * tracking-reconcile/index.ts gets a real implementation. Currently:
+ *   * fedex — REAL (live FedEx Track API; see fetchFedEx)
+ *   * ups, dhl — server-side stubs; awaiting API keys
+ *   * maersk, cosco, evergreen — ocean carriers, no implementation plans
  */
 export const MOCK_CARRIERS: ReadonlySet<string> = new Set([
   "maersk",
   "cosco",
   "evergreen",
-  "fedex",
   "dhl",
+  "ups",
 ]);
 
 export function isCarrierMock(carrierName: string | null | undefined): boolean {
