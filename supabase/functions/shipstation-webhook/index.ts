@@ -213,10 +213,24 @@ async function processWebhookEvent(
 
   for (const order of orders) {
     const orderRowId = await upsertOrder(order, payload.resource_type);
-    // Apply inventory only on ship-related events.
+    // Gate inventory apply on the order's current STATUS rather than the
+    // webhook event type. We deduct as soon as an order is committed to
+    // shipping — even if it isn't physically shipped yet — so the
+    // dashboard shows real-time inventory pressure (lets operators
+    // intentionally oversell when new stock is arriving soon, per the
+    // negative-inventory workflow we shipped on 2026-05-06).
+    //
+    //   shipped, awaiting_shipment → deduct
+    //   on_hold                    → skip (awaiting resolution)
+    //   cancelled                  → skip (won't ship)
+    //   awaiting_payment           → skip (not yet committed)
+    //
+    // If an awaiting_shipment order later cancels, the deduction stays
+    // until an operator reverses it via cycle count. That's accepted —
+    // cancellations are rare in this workflow.
     if (
-      payload.resource_type === "SHIP_NOTIFY"
-      || payload.resource_type === "ITEM_SHIP_NOTIFY"
+      order.orderStatus === "shipped"
+      || order.orderStatus === "awaiting_shipment"
     ) {
       await applySaleInventory(orderRowId);
     }
@@ -401,17 +415,21 @@ async function resolveLineItems(
 // -----------------------------------------------------------------------------
 // Apply inventory delta via the atomic RPC
 // -----------------------------------------------------------------------------
-async function applySaleInventory(orderRowId: string): Promise<void> {
-  // Look up the "system" actor id — a reserved profile for automated writes.
-  const { data: sys } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("email", "system@internal")
-    .maybeSingle();
+// System actor: hardcoded deterministic UUID (memory note in
+// freezepipe_erp_project — auth user is system@internal.freezepipe).
+// Previously this function looked up profile by email='system@internal'
+// which doesn't match the real email; the lookup returned null so
+// p_system_actor_id was always null, which made the RPC's
+// inventory_transactions inserts fail with NOT NULL on performed_by,
+// caught by the RPC's exception handler and returned as ok:false.
+// Net effect: ~zero inventory ever actually deducted from ShipStation
+// orders since the function was deployed. Fixed 2026-05-07.
+const SYSTEM_ACTOR_ID = "00000000-0000-0000-0000-000000000001";
 
+async function applySaleInventory(orderRowId: string): Promise<void> {
   const { data, error } = await supabase.rpc("rpc_apply_shipstation_sale", {
     p_order_id: orderRowId,
-    p_system_actor_id: sys?.id ?? null,
+    p_system_actor_id: SYSTEM_ACTOR_ID,
   });
   if (error) {
     throw new Error(`rpc_apply_shipstation_sale failed: ${error.message}`);

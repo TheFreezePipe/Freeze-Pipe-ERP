@@ -114,15 +114,29 @@ Deno.serve(async (req) => {
     }
 
     // -------- Stage 3: apply inventory for orders still pending ----------
+    // Mirrors the webhook's status-based gate (see shipstation-webhook
+    // for the full rationale): we deduct for shipped + awaiting_shipment
+    // only. Skipping on_hold / cancelled / awaiting_payment avoids
+    // false deductions for orders that may never ship.
     const { data: unappliedOrders } = await supabase
       .from("shipstation_orders")
       .select("id")
       .is("inventory_applied_at", null)
       .lt("inventory_apply_attempts", 6)
+      .in("order_status", ["shipped", "awaiting_shipment"])
       .limit(500);
 
     for (const o of unappliedOrders ?? []) {
-      const { data } = await supabase.rpc("rpc_apply_shipstation_sale", { p_order_id: o.id });
+      const { data } = await supabase.rpc("rpc_apply_shipstation_sale", {
+        p_order_id: o.id,
+        // System actor (deterministic UUID, see migration 20260505000001
+        // memory note). Required because inventory_transactions.performed_by
+        // is NOT NULL FK to profiles — passing null silently swallows the
+        // insert in the RPC's protected section and returns ok:false,
+        // making every cron call appear to "skip" when it's actually
+        // failing on a constraint violation.
+        p_system_actor_id: "00000000-0000-0000-0000-000000000001",
+      });
       if (data && typeof data === "object" && "ok" in data && data.ok) {
         report.inventory_apply_succeeded++;
       } else {
