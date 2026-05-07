@@ -45,6 +45,15 @@ export default function FreightDetail() {
   const [editingTracking, setEditingTracking] = useState(false);
   const [trackingDraft, setTrackingDraft] = useState("");
   const [trackingError, setTrackingError] = useState<string | null>(null);
+  // Inline edit for freight_cost — same pencil pattern, but parses to a
+  // number. Empty input clears to NULL so the cost-breakdown row falls
+  // back to "$0" rather than a literal zero (matches the convention used
+  // by the supplier-portal RPC's `p_clear_freight_cost` flag). Applies to
+  // both air and sea shipments — freight_type doesn't gate the edit since
+  // freight_cost lives on the parent shipment row regardless of mode.
+  const [editingCost, setEditingCost] = useState(false);
+  const [costDraft, setCostDraft] = useState("");
+  const [costError, setCostError] = useState<string | null>(null);
 
   function startCarrierEdit() {
     setCarrierDraft(shipment?.carrier_name ?? "");
@@ -105,6 +114,50 @@ export default function FreightDetail() {
       setTrackingDraft("");
     } catch (err) {
       setTrackingError(err instanceof Error ? err.message : "Failed to save tracking number");
+    }
+  }
+
+  function startCostEdit() {
+    // Pre-fill the input with the existing value (or empty string if none).
+    // Use the raw number so the operator sees the same thing they'd see
+    // in the cost-breakdown row, not a formatted "$1,234.56".
+    setCostDraft(shipment?.freight_cost?.toString() ?? "");
+    setEditingCost(true);
+    setCostError(null);
+  }
+  function cancelCostEdit() {
+    setEditingCost(false);
+    setCostDraft("");
+    setCostError(null);
+  }
+  async function saveCostEdit() {
+    if (!shipment) return;
+    setCostError(null);
+    const trimmed = costDraft.trim();
+    let nextValue: number | null;
+    if (trimmed === "") {
+      nextValue = null;
+    } else {
+      const n = parseFloat(trimmed);
+      if (!Number.isFinite(n) || n < 0) {
+        setCostError("Cost must be a non-negative number");
+        return;
+      }
+      nextValue = n;
+    }
+    if (nextValue === (shipment.freight_cost ?? null)) {
+      setEditingCost(false);
+      return;
+    }
+    try {
+      await updateShipment.mutateAsync({
+        id: shipment.id,
+        updates: { freight_cost: nextValue },
+      });
+      setEditingCost(false);
+      setCostDraft("");
+    } catch (err) {
+      setCostError(err instanceof Error ? err.message : "Failed to save freight cost");
     }
   }
 
@@ -363,10 +416,50 @@ export default function FreightDetail() {
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
+              <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">Freight</span>
-                <span className="tabular-nums">${(shipment.freight_cost ?? 0).toLocaleString()}</span>
+                {editingCost ? (
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-muted-foreground">$</span>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={costDraft}
+                      onChange={(e) => setCostDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") saveCostEdit();
+                        if (e.key === "Escape") cancelCostEdit();
+                      }}
+                      autoFocus
+                      placeholder="0.00"
+                      className="h-7 w-32 text-right tabular-nums"
+                      disabled={updateShipment.isPending}
+                    />
+                    <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={saveCostEdit} disabled={updateShipment.isPending} title="Save (Enter)">
+                      <Check className="h-3.5 w-3.5 text-green-400" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={cancelCostEdit} disabled={updateShipment.isPending} title="Cancel (Escape)">
+                      <X className="h-3.5 w-3.5 text-muted-foreground" />
+                    </Button>
+                  </div>
+                ) : canEdit ? (
+                  <button
+                    type="button"
+                    onClick={startCostEdit}
+                    className="group inline-flex items-center gap-1 tabular-nums hover:text-foreground"
+                    title="Click to edit freight cost"
+                  >
+                    <span>${(shipment.freight_cost ?? 0).toLocaleString()}</span>
+                    <Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </button>
+                ) : (
+                  <span className="tabular-nums">${(shipment.freight_cost ?? 0).toLocaleString()}</span>
+                )}
               </div>
+              {costError && (
+                <p className="text-[11px] text-red-400 text-right -mt-1" title={costError}>{costError}</p>
+              )}
               <div className="flex justify-between font-bold">
                 <span>Total Cost</span>
                 <span className="tabular-nums text-primary">${(shipment.freight_cost ?? 0).toLocaleString()}</span>
