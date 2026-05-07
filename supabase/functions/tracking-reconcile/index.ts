@@ -31,6 +31,15 @@ const FEDEX_BASE = FEDEX_USE_SANDBOX
   ? "https://apis-sandbox.fedex.com"
   : "https://apis.fedex.com";
 const DHL_API_KEY = Deno.env.get("DHL_API_KEY") ?? "";
+// UPS — same OAuth2 client_credentials shape as FedEx, just a different
+// base URL pair. CIE is UPS's test environment; new apps default to it
+// until "Promote to Production" is approved on the developer portal.
+const UPS_CLIENT_ID = Deno.env.get("UPS_CLIENT_ID") ?? "";
+const UPS_CLIENT_SECRET = Deno.env.get("UPS_CLIENT_SECRET") ?? "";
+const UPS_USE_SANDBOX = (Deno.env.get("UPS_USE_SANDBOX") ?? "false").toLowerCase() === "true";
+const UPS_BASE = UPS_USE_SANDBOX
+  ? "https://wwwcie.ups.com"
+  : "https://onlinetools.ups.com";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
@@ -155,6 +164,7 @@ async function fetchCarrierUpdate(shipment: Shipment): Promise<TrackingUpdate | 
       case "cosco":      return await fetchCosco(shipment.tracking_number);
       case "evergreen":  return await fetchEvergreen(shipment.tracking_number);
       case "fedex":      return await fetchFedEx(shipment.tracking_number);
+      case "ups":        return await fetchUps(shipment.tracking_number);
       case "dhl":        return await fetchDhl(shipment.tracking_number);
       default:
         console.warn(`No carrier integration for "${carrier}" on shipment ${shipment.shipment_number}`);
@@ -424,6 +434,151 @@ function toDateOnly(iso: string | null): string | null {
 function formatFedExLocation(scan: any): string | null {
   if (!scan) return null;
   const parts = [scan.city, scan.stateOrProvinceCode, scan.countryCode].filter(Boolean);
+  return parts.length ? parts.join(", ") : null;
+}
+
+// UPS Tracking API. OAuth2 client_credentials → POST /security/v1/oauth/token,
+// then GET /api/track/v1/details/{trackingNumber}. Token TTL is ~1hr; cron
+// fires every 6h so we just fetch fresh each call. Sandbox vs production
+// controlled by UPS_USE_SANDBOX env (CIE = test, only works against UPS's
+// sample tracking numbers; flip to production once your developer-portal
+// app's "Promote to Production" is approved).
+//
+// Reference: https://developer.ups.com/api/reference/tracking/api-overview
+async function fetchUps(trackingNumber: string): Promise<TrackingUpdate | null> {
+  if (!UPS_CLIENT_ID || !UPS_CLIENT_SECRET) return notReceivedNow();
+
+  // Step 1: OAuth token. UPS uses HTTP Basic auth on the token endpoint
+  // (client_id:client_secret base64-encoded), unlike FedEx which puts
+  // the credentials in the form body.
+  const basicAuth = btoa(`${UPS_CLIENT_ID}:${UPS_CLIENT_SECRET}`);
+  const tokenRes = await fetch(`${UPS_BASE}/security/v1/oauth/token`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Authorization": `Basic ${basicAuth}`,
+    },
+    body: "grant_type=client_credentials",
+  });
+  if (!tokenRes.ok) {
+    const body = await tokenRes.text();
+    throw new Error(`UPS OAuth ${tokenRes.status}: ${body.slice(0, 200)}`);
+  }
+  const { access_token } = await tokenRes.json() as { access_token: string };
+
+  // Step 2: tracking call. UPS requires a transId (unique per request)
+  // and transactionSrc (free-text app identifier) header on every
+  // tracking call.
+  const trackRes = await fetch(
+    `${UPS_BASE}/api/track/v1/details/${encodeURIComponent(trackingNumber)}`,
+    {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${access_token}`,
+        "transId": crypto.randomUUID(),
+        "transactionSrc": "freezepipe-erp",
+      },
+    },
+  );
+  if (!trackRes.ok) {
+    const body = await trackRes.text();
+    // 404 from UPS = "tracking number not in our system" — common for
+    // freshly-labelled shipments before the first scan. Treat as
+    // not-received-yet rather than an error.
+    if (trackRes.status === 404) return notReceivedNow();
+    throw new Error(`UPS track ${trackRes.status}: ${body.slice(0, 200)}`);
+  }
+
+  // deno-lint-ignore no-explicit-any
+  const trackJson = await trackRes.json() as any;
+  const shipment = trackJson?.trackResponse?.shipment?.[0];
+  const pkg = shipment?.package?.[0];
+  if (!pkg) return notReceivedNow();
+
+  // currentStatus.code is the canonical "where is it right now" status.
+  const code: string | undefined = pkg.currentStatus?.code;
+  const status: TrackingStatus = mapUpsStatusCode(code);
+
+  // UPS exposes ETA + delivery dates inside deliveryDate[]:
+  //   { type: "DEL", date: "20260507" }   ← actual delivery
+  //   { type: "RDD", date: "20260510" }   ← rescheduled delivery date
+  //   { type: "EDD", date: "20260510" }   ← estimated delivery date
+  // Normalize all of these to ISO YYYY-MM-DD.
+  // deno-lint-ignore no-explicit-any
+  const deliveryDates: Array<{ type: string; date: string }> = pkg.deliveryDate ?? [];
+  const findDate = (t: string) =>
+    upsYyyymmddToIso(deliveryDates.find((d) => d.type === t)?.date ?? null);
+  const carrierEta = findDate("RDD") ?? findDate("EDD");
+  const deliveredAt = findDate("DEL");
+
+  // deno-lint-ignore no-explicit-any
+  const events = (pkg.activity ?? []).slice(0, 25).map((a: any) => ({
+    timestamp: upsActivityTimestamp(a),
+    description: a.status?.description ?? a.status?.statusCode ?? "",
+    location: formatUpsLocation(a.location),
+  }));
+
+  return {
+    status,
+    carrierEta,
+    deliveredAt,
+    events,
+    checkedAt: new Date().toISOString(),
+  };
+}
+
+// UPS status codes per https://developer.ups.com/api/reference/tracking/api-overview
+function mapUpsStatusCode(code: string | undefined): TrackingStatus {
+  switch (code) {
+    case "D":  // Delivered
+    case "DO": // Delivered Origin CFS (Freight)
+    case "DD": // Delivered Destination CFS (Freight)
+      return "delivered";
+    case "O":  // Out for delivery
+      return "out_for_delivery";
+    case "I":  // In transit
+    case "P":  // Pickup
+    case "W":  // Warehousing
+      return "in_transit";
+    case "M":  // Manifest received — billing info uploaded, not yet picked up
+    case "MV": // Manifest voided
+    case "RS": // Returned to shipper
+    case "X":  // Exception
+    case "NA": // Not available
+    default:
+      return "not_received";
+  }
+}
+
+// UPS dates come back as YYYYMMDD strings, no separators. Convert to
+// the ISO YYYY-MM-DD shape the rest of the system uses.
+function upsYyyymmddToIso(s: string | null): string | null {
+  if (!s || s.length !== 8) return null;
+  return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+}
+
+// UPS activity timestamps are split across two fields:
+//   date: "20260507"  (YYYYMMDD)
+//   time: "143000"    (HHMMSS)
+// Combine to a best-effort ISO string. Falls back to date-only if time
+// is missing.
+// deno-lint-ignore no-explicit-any
+function upsActivityTimestamp(a: any): string {
+  const iso = upsYyyymmddToIso(a?.date ?? null);
+  if (!iso) return "";
+  const t: string | undefined = a?.time;
+  if (t && t.length === 6) {
+    return `${iso}T${t.slice(0, 2)}:${t.slice(2, 4)}:${t.slice(4, 6)}`;
+  }
+  return iso;
+}
+
+// deno-lint-ignore no-explicit-any
+function formatUpsLocation(loc: any): string | null {
+  if (!loc) return null;
+  const addr = loc.address ?? loc;
+  const parts = [addr?.city, addr?.stateProvince, addr?.country, addr?.countryCode]
+    .filter(Boolean);
   return parts.length ? parts.join(", ") : null;
 }
 

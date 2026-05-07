@@ -72,8 +72,8 @@ export function getProvider(
  *
  * Remove a carrier here when its server-side fetcher in
  * tracking-reconcile/index.ts gets a real implementation. Currently:
- *   * fedex — REAL (live FedEx Track API; see fetchFedEx)
- *   * ups, dhl — server-side stubs; awaiting API keys
+ *   * fedex, ups — REAL (live carrier APIs)
+ *   * dhl — server-side stub; awaiting API keys
  *   * maersk, cosco, evergreen — ocean carriers, no implementation plans
  */
 export const MOCK_CARRIERS: ReadonlySet<string> = new Set([
@@ -81,7 +81,6 @@ export const MOCK_CARRIERS: ReadonlySet<string> = new Set([
   "cosco",
   "evergreen",
   "dhl",
-  "ups",
 ]);
 
 export function isCarrierMock(carrierName: string | null | undefined): boolean {
