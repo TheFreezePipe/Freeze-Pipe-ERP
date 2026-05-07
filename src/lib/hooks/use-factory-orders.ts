@@ -299,6 +299,70 @@ export function missingComponentsForSku(
   return out;
 }
 
+/**
+ * Admin-only: edit a factory order atomically.
+ * Wraps `rpc_admin_edit_factory_order` (migration 20260507000003).
+ *
+ * Header fields are passed individually; line operations are an array of
+ * insert/update/delete records the RPC processes in delete→update→insert
+ * order so the (factory_order_id, sku_id) unique index doesn't trip when
+ * the user is, e.g., re-using a SKU on a fresh line.
+ *
+ * Throws on the RPC's `ok=false` envelope so the caller's try/catch fires
+ * — same shape as the supplier-portal hooks (e.g. useAdvanceFactoryOrder).
+ */
+export type FactoryOrderLineOp =
+  | { op: "insert"; sku_id: string; quantity_ordered: number }
+  | { op: "update"; id: string; sku_id: string; quantity_ordered: number }
+  | { op: "delete"; id: string };
+
+export function useAdminEditFactoryOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: {
+      orderId: string;
+      expectedVersion: number;
+      header?: {
+        order_number?: string | null;
+        supplier_id?: string;
+        order_date?: string | null;
+        expected_completion?: string | null;
+      };
+      lineOps?: FactoryOrderLineOp[];
+    }) => {
+      // RPC expects the JSON shape { header: {...}, line_ops: [...] }.
+      // Header keys present here mean "change this field" — including
+      // explicit nulls, which clear the column. Absent keys = no change.
+      const payload: Record<string, unknown> = {};
+      if (params.header) payload.header = params.header;
+      if (params.lineOps && params.lineOps.length > 0) payload.line_ops = params.lineOps;
+
+      // Stale generated-types: the new RPC isn't in database.types.ts yet,
+      // so we cast through `unknown` to satisfy the typed `.rpc()` overload.
+      // Same pattern used in use-shipstation-aliases.ts and elsewhere when
+      // a migration ships ahead of the type regen.
+      const { data, error } = await (
+        supabase.rpc as unknown as (
+          fn: string,
+          args: Record<string, unknown>,
+        ) => Promise<{ data: unknown; error: { message: string } | null }>
+      )("rpc_admin_edit_factory_order", {
+        p_order_id: params.orderId,
+        p_expected_version: params.expectedVersion,
+        p_payload: payload,
+      });
+      if (error) throw new Error(error.message);
+      const env = data as { ok: boolean; error?: string; new_version?: number } | null;
+      if (!env?.ok) throw new Error(env?.error ?? "Edit failed");
+      return env;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["factory-orders"] });
+      qc.invalidateQueries({ queryKey: ["factory-order-component-status"] });
+    },
+  });
+}
+
 /** Admin-only: link a child factory_order to its parent. */
 export function useLinkFactoryOrderToParent() {
   const qc = useQueryClient();
