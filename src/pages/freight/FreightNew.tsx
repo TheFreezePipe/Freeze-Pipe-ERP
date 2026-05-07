@@ -274,7 +274,8 @@ export default function FreightNew() {
           freight_cost: parsedFreightCost,
           insurance_cost: 0,
           duties_cost: 0,
-          total_cost: parsedFreightCost,
+          // total_cost is a generated column (freight + insurance + duties)
+          // — DB computes it automatically; setting it directly would error.
           total_cartons: totals.totalCartons,
           notes: notes || null,
         },

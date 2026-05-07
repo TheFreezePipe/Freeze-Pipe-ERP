@@ -151,6 +151,9 @@ export interface Database {
           freight_cost: number;
           insurance_cost: number;
           duties_cost: number;
+          /** Generated column: freight_cost + insurance_cost + duties_cost.
+           *  DB computes automatically; do not set in Insert/Update — Postgres
+           *  rejects writes to GENERATED ALWAYS columns. */
           total_cost: number;
           /** Actual carton count entered at shipment creation (sum of carton_qty across all carton groups). */
           total_cartons: number | null;
@@ -176,7 +179,7 @@ export interface Database {
           freight_cost?: number;
           insurance_cost?: number;
           duties_cost?: number;
-          total_cost?: number;
+          // total_cost intentionally omitted — generated column, DB-computed.
           total_cartons?: number | null;
           notes?: string | null;
         };
