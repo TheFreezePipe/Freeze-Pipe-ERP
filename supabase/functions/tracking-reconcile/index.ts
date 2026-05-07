@@ -495,9 +495,15 @@ async function fetchUps(trackingNumber: string): Promise<TrackingUpdate | null> 
   const pkg = shipment?.package?.[0];
   if (!pkg) return notReceivedNow();
 
-  // currentStatus.code is the canonical "where is it right now" status.
-  const code: string | undefined = pkg.currentStatus?.code;
-  const status: TrackingStatus = mapUpsStatusCode(code);
+  // Derive status from the most recent activity's `status.type` (a single
+  // letter: D/I/M/O/etc.). The top-level `currentStatus.code` field looks
+  // similar but actually returns a 3-digit numeric code (e.g. "011" for
+  // delivered) that doesn't fit our single-letter mapper. Activity is
+  // returned newest-first.
+  // deno-lint-ignore no-explicit-any
+  const activity: Array<any> = pkg.activity ?? [];
+  const latestType: string | undefined = activity[0]?.status?.type;
+  const status: TrackingStatus = mapUpsStatusCode(latestType);
 
   // UPS exposes ETA + delivery dates inside deliveryDate[]:
   //   { type: "DEL", date: "20260507" }   ← actual delivery
@@ -512,7 +518,7 @@ async function fetchUps(trackingNumber: string): Promise<TrackingUpdate | null> 
   const deliveredAt = findDate("DEL");
 
   // deno-lint-ignore no-explicit-any
-  const events = (pkg.activity ?? []).slice(0, 25).map((a: any) => ({
+  const events = activity.slice(0, 25).map((a: any) => ({
     timestamp: upsActivityTimestamp(a),
     description: a.status?.description ?? a.status?.statusCode ?? "",
     location: formatUpsLocation(a.location),
