@@ -132,3 +132,90 @@ export function useInviteUser() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["profiles"] }),
   });
 }
+
+/**
+ * Admin password ops — wraps the `admin-password` Edge Function for
+ * two SMTP-free flows:
+ *
+ *   - mode='create' → admin onboards a new user with a known password
+ *     (no invite email). Useful when SMTP isn't configured or when
+ *     the admin wants to share creds via Slack/text directly.
+ *
+ *   - mode='reset' → admin generates a new password for an existing
+ *     user. Doubles as "unlock the account if they're stuck on
+ *     unconfirmed-email purgatory" since email_confirm is set on the
+ *     update.
+ *
+ * Returns the generated password to the caller — admin must surface
+ * it once in the UI; it isn't stored anywhere readable. Callers
+ * shouldn't log it.
+ */
+export type AdminPasswordResult = {
+  ok: boolean;
+  user_id: string;
+  password: string;
+  warning?: string;
+  warning_detail?: string;
+};
+
+export function useAdminCreateUserWithPassword() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: {
+      email: string;
+      fullName: string;
+      role: "admin" | "manager" | "user" | "supplier";
+      supplierId?: string | null;
+    }): Promise<AdminPasswordResult> => {
+      const { data, error } = await supabase.functions.invoke("admin-password", {
+        body: {
+          mode: "create",
+          email: params.email,
+          full_name: params.fullName,
+          role: params.role,
+          supplier_id: params.supplierId ?? null,
+        },
+      });
+      if (error) {
+        const ctx = (error as unknown as {
+          context?: { json?: () => Promise<{ error?: string }> };
+        }).context;
+        if (ctx?.json) {
+          try {
+            const j = await ctx.json();
+            if (j?.error) throw new Error(j.error);
+          } catch { /* fall through */ }
+        }
+        throw new Error(error.message ?? "create failed");
+      }
+      return data as AdminPasswordResult;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["profiles"] }),
+  });
+}
+
+export function useAdminResetUserPassword() {
+  return useMutation({
+    mutationFn: async (params: { userId: string }): Promise<AdminPasswordResult> => {
+      const { data, error } = await supabase.functions.invoke("admin-password", {
+        body: {
+          mode: "reset",
+          user_id: params.userId,
+        },
+      });
+      if (error) {
+        const ctx = (error as unknown as {
+          context?: { json?: () => Promise<{ error?: string }> };
+        }).context;
+        if (ctx?.json) {
+          try {
+            const j = await ctx.json();
+            if (j?.error) throw new Error(j.error);
+          } catch { /* fall through */ }
+        }
+        throw new Error(error.message ?? "reset failed");
+      }
+      return data as AdminPasswordResult;
+    },
+  });
+}

@@ -8,7 +8,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
-import { X as XIcon, Link2, Link2Off, Building2, UserX, UserCheck, UserPlus, Mail } from "lucide-react";
+import { X as XIcon, Link2, Link2Off, Building2, UserX, UserCheck, UserPlus, Mail, KeyRound, Copy, Check } from "lucide-react";
 import { useState } from "react";
 import {
   useProfiles,
@@ -17,6 +17,8 @@ import {
   usePromoteUserToSupplier,
   useSetProfileActive,
   useInviteUser,
+  useAdminCreateUserWithPassword,
+  useAdminResetUserPassword,
 } from "@/lib/hooks";
 import { supabase } from "@/lib/supabase";
 import { useQuery } from "@tanstack/react-query";
@@ -66,6 +68,8 @@ export default function UserManagement() {
   const promoteToSupplier = usePromoteUserToSupplier();
   const setActive = useSetProfileActive();
   const inviteUser = useInviteUser();
+  const adminCreate = useAdminCreateUserWithPassword();
+  const adminReset = useAdminResetUserPassword();
   const [roleError, setRoleError] = useState<{ userId: string; message: string } | null>(null);
   const [linkDialogUser, setLinkDialogUser] = useState<Profile | null>(null);
   const [homebaseIdInput, setHomebaseIdInput] = useState("");
@@ -85,6 +89,20 @@ export default function UserManagement() {
   const [inviteSupplierId, setInviteSupplierId] = useState<string>("");
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
+  // Two onboarding modes inside the same dialog: "email" (current —
+  // sends a Supabase invite mail, requires SMTP) and "password" (new
+  // — generates a credential server-side, displays it once, no email
+  // sent). Defaults to "password" because SMTP isn't configured yet.
+  const [inviteMode, setInviteMode] = useState<"email" | "password">("password");
+  const [generatedCredential, setGeneratedCredential] = useState<{ email: string; password: string } | null>(null);
+  const [copiedFromDialog, setCopiedFromDialog] = useState(false);
+
+  // Reset-password dialog (separate from invite). Shown via the
+  // per-user "Reset" action.
+  const [resetTarget, setResetTarget] = useState<Profile | null>(null);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetCredential, setResetCredential] = useState<{ email: string; password: string } | null>(null);
+  const [copiedFromReset, setCopiedFromReset] = useState(false);
 
   function resetInviteForm() {
     setInviteEmail("");
@@ -93,11 +111,14 @@ export default function UserManagement() {
     setInviteSupplierId("");
     setInviteError(null);
     setInviteSuccess(null);
+    setGeneratedCredential(null);
+    setCopiedFromDialog(false);
   }
 
   async function handleInvite() {
     setInviteError(null);
     setInviteSuccess(null);
+    setGeneratedCredential(null);
     const trimmedEmail = inviteEmail.trim().toLowerCase();
     const trimmedName = inviteName.trim();
     if (!trimmedEmail || !trimmedEmail.includes("@")) {
@@ -110,6 +131,25 @@ export default function UserManagement() {
     }
     if (inviteRole === "supplier" && !inviteSupplierId) {
       setInviteError("Pick a supplier when inviting a supplier user");
+      return;
+    }
+    // Branch on mode: "email" sends an invite, "password" creates the
+    // user with a generated credential (no email needed).
+    if (inviteMode === "password") {
+      try {
+        const result = await adminCreate.mutateAsync({
+          email: trimmedEmail,
+          fullName: trimmedName,
+          role: inviteRole,
+          supplierId: inviteRole === "supplier" ? inviteSupplierId : null,
+        });
+        if (result.warning) {
+          setInviteError(`User created — ${result.warning}`);
+        }
+        setGeneratedCredential({ email: trimmedEmail, password: result.password });
+      } catch (err) {
+        setInviteError(err instanceof Error ? err.message : "Create failed");
+      }
       return;
     }
     try {
@@ -134,6 +174,31 @@ export default function UserManagement() {
       setInviteError(err instanceof Error ? err.message : "Invite failed");
     }
   }
+  async function handleCopyCredential(text: string, target: "dialog" | "reset") {
+    try {
+      await navigator.clipboard.writeText(text);
+      if (target === "dialog") {
+        setCopiedFromDialog(true);
+        setTimeout(() => setCopiedFromDialog(false), 2000);
+      } else {
+        setCopiedFromReset(true);
+        setTimeout(() => setCopiedFromReset(false), 2000);
+      }
+    } catch { /* clipboard blocked — admin can still select+copy manually */ }
+  }
+
+  async function handleResetPassword() {
+    if (!resetTarget) return;
+    setResetError(null);
+    setResetCredential(null);
+    try {
+      const result = await adminReset.mutateAsync({ userId: resetTarget.id });
+      setResetCredential({ email: resetTarget.email, password: result.password });
+    } catch (err) {
+      setResetError(err instanceof Error ? err.message : "Reset failed");
+    }
+  }
+
   async function handlePromote() {
     if (!promoteUser || !promoteSupplierId) return;
     setPromoteError(null);
@@ -370,22 +435,41 @@ export default function UserManagement() {
                       {user.created_at ? new Date(user.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
                     </td>
                     <td className="px-3 py-3 text-right">
-                      {profile?.role === "admin" && profile.id !== user.id ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          title={isActive ? "Deactivate user" : "Reactivate user"}
-                          onClick={() => handleToggleActive(user, isActive)}
-                          disabled={setActive.isPending}
-                        >
-                          {isActive ? (
-                            <><UserX className="mr-1 h-3 w-3" /> Deactivate</>
-                          ) : (
-                            <><UserCheck className="mr-1 h-3 w-3" /> Reactivate</>
-                          )}
-                        </Button>
-                      ) : null}
+                      <div className="flex items-center justify-end gap-1">
+                        {(profile?.role === "admin" || profile?.role === "manager") && profile.id !== user.id && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                            title="Generate a new password for this user"
+                            onClick={() => {
+                              setResetTarget(user);
+                              setResetError(null);
+                              setResetCredential(null);
+                              setCopiedFromReset(false);
+                            }}
+                          >
+                            <KeyRound className="mr-1 h-3 w-3" />
+                            Reset
+                          </Button>
+                        )}
+                        {profile?.role === "admin" && profile.id !== user.id ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            title={isActive ? "Deactivate user" : "Reactivate user"}
+                            onClick={() => handleToggleActive(user, isActive)}
+                            disabled={setActive.isPending}
+                          >
+                            {isActive ? (
+                              <><UserX className="mr-1 h-3 w-3" /> Deactivate</>
+                            ) : (
+                              <><UserCheck className="mr-1 h-3 w-3" /> Reactivate</>
+                            )}
+                          </Button>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -485,24 +569,97 @@ export default function UserManagement() {
         </DialogContent>
       </Dialog>
 
-      {/* Invite-user dialog. Calls the `invite-user` Edge Function via
-          useInviteUser, which validates the caller is admin/manager
-          server-side and sends the Supabase Auth invitation email
-          (Resend in prod). Role + supplier_id are pre-applied to the
-          new profile so the invitee logs in correctly shaped on first
-          session. */}
-      <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+      {/* Invite-user dialog. Two modes:
+          - "password" (default while SMTP is unconfigured): calls the
+            admin-password Edge Function in mode='create', generates a
+            credential server-side, displays it once for the admin to
+            share via Slack/text. No email sent.
+          - "email": calls the invite-user Edge Function which sends a
+            Supabase Auth invitation email via the configured SMTP
+            provider. Currently fails silently to spam since SMTP is
+            still on the deferred Cowork list. */}
+      <Dialog open={inviteOpen} onOpenChange={(o) => { setInviteOpen(o); if (!o) resetInviteForm(); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Mail className="h-4 w-4" />
-              Invite a user
+              {inviteMode === "password" ? <KeyRound className="h-4 w-4" /> : <Mail className="h-4 w-4" />}
+              Add a user
             </DialogTitle>
             <DialogDescription>
-              They'll receive an email with a link that signs them in directly. No password setup required.
+              {inviteMode === "password"
+                ? "Generates a one-time password you share with them directly. They can change it after first login."
+                : "Sends an email with a sign-in link. Requires SMTP to be configured."}
             </DialogDescription>
           </DialogHeader>
+          {generatedCredential ? (
+            // ---- Success state: show the generated credential ----
+            <div className="space-y-3 py-2">
+              <div className="rounded-md border border-green-500/40 bg-green-500/10 px-3 py-2">
+                <p className="text-xs text-green-300 font-medium mb-2">
+                  Account created. Save this — it won't be shown again.
+                </p>
+                <div className="space-y-1.5 font-mono text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">email</span>
+                    <span>{generatedCredential.email}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">password</span>
+                    <span className="select-all">{generatedCredential.password}</span>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 h-7 text-xs"
+                  onClick={() => handleCopyCredential(
+                    `email: ${generatedCredential.email}\npassword: ${generatedCredential.password}\nsign in: ${window.location.origin}`,
+                    "dialog",
+                  )}
+                >
+                  {copiedFromDialog ? <Check className="mr-1 h-3 w-3" /> : <Copy className="mr-1 h-3 w-3" />}
+                  {copiedFromDialog ? "Copied" : "Copy email + password"}
+                </Button>
+              </div>
+              {inviteError && (
+                <p className="text-xs text-amber-400">{inviteError}</p>
+              )}
+            </div>
+          ) : (
           <div className="space-y-3 py-2">
+            {/* Mode toggle */}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setInviteMode("password")}
+                className={
+                  "flex-1 rounded-md border px-3 py-2 text-xs text-left transition-colors " +
+                  (inviteMode === "password"
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:bg-muted/50")
+                }
+              >
+                <div className="flex items-center gap-1.5 font-medium">
+                  <KeyRound className="h-3 w-3" /> Create with password
+                </div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">No email sent</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setInviteMode("email")}
+                className={
+                  "flex-1 rounded-md border px-3 py-2 text-xs text-left transition-colors " +
+                  (inviteMode === "email"
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:bg-muted/50")
+                }
+              >
+                <div className="flex items-center gap-1.5 font-medium">
+                  <Mail className="h-3 w-3" /> Send invite email
+                </div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">Needs SMTP setup</div>
+              </button>
+            </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Email</Label>
               <Input
@@ -568,6 +725,7 @@ export default function UserManagement() {
               <p className="text-xs text-green-400">{inviteSuccess}</p>
             )}
           </div>
+          )}
           <DialogFooter>
             <Button
               variant="outline"
@@ -576,14 +734,92 @@ export default function UserManagement() {
                 resetInviteForm();
               }}
             >
-              Close
+              {generatedCredential ? "Done" : "Close"}
             </Button>
+            {!generatedCredential && (
+              <Button
+                onClick={handleInvite}
+                disabled={inviteUser.isPending || adminCreate.isPending}
+              >
+                {inviteMode === "password"
+                  ? (adminCreate.isPending ? "Creating…" : "Create user")
+                  : (inviteUser.isPending ? "Sending…" : "Send invite")}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset-password dialog. Same credential-reveal pattern as the
+          create flow: admin clicks Reset → server generates a new
+          password → reveal once → admin shares via secure channel. */}
+      <Dialog open={!!resetTarget} onOpenChange={(o) => {
+        if (!o) {
+          setResetTarget(null);
+          setResetError(null);
+          setResetCredential(null);
+          setCopiedFromReset(false);
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="h-4 w-4" />
+              Reset password
+            </DialogTitle>
+            <DialogDescription>
+              {resetCredential
+                ? "Generated a new password. Share with the user via Slack/text — they can change it on first login."
+                : `Generate a new password for ${resetTarget?.full_name ?? resetTarget?.email}. Their current password will stop working immediately.`}
+            </DialogDescription>
+          </DialogHeader>
+          {resetCredential ? (
+            <div className="space-y-3 py-2">
+              <div className="rounded-md border border-green-500/40 bg-green-500/10 px-3 py-2">
+                <div className="space-y-1.5 font-mono text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">email</span>
+                    <span>{resetCredential.email}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">password</span>
+                    <span className="select-all">{resetCredential.password}</span>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 h-7 text-xs"
+                  onClick={() => handleCopyCredential(
+                    `email: ${resetCredential.email}\npassword: ${resetCredential.password}\nsign in: ${window.location.origin}`,
+                    "reset",
+                  )}
+                >
+                  {copiedFromReset ? <Check className="mr-1 h-3 w-3" /> : <Copy className="mr-1 h-3 w-3" />}
+                  {copiedFromReset ? "Copied" : "Copy email + password"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="py-2 text-sm text-muted-foreground">
+              {resetError ? <p className="text-red-400">{resetError}</p> : null}
+            </div>
+          )}
+          <DialogFooter>
             <Button
-              onClick={handleInvite}
-              disabled={inviteUser.isPending}
+              variant="outline"
+              onClick={() => setResetTarget(null)}
             >
-              {inviteUser.isPending ? "Sending…" : "Send invite"}
+              {resetCredential ? "Done" : "Cancel"}
             </Button>
+            {!resetCredential && (
+              <Button
+                onClick={handleResetPassword}
+                disabled={adminReset.isPending}
+              >
+                {adminReset.isPending ? "Resetting…" : "Generate new password"}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
