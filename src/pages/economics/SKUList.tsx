@@ -15,6 +15,7 @@ import {
   useProducts,
   useAllSkuEconomics,
   useAllPrimarySkuSupplierCosts,
+  useCreateProduct,
 } from "@/lib/hooks";
 import type { ProductSKU } from "@/types/database";
 
@@ -42,6 +43,11 @@ export default function SKUList() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Server-side error from the create RPC (e.g. unique-key violation,
+  // RLS denial). Distinct from `errors` which holds field-level client
+  // validation. Cleared when the user opens the dialog or starts typing.
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const createProduct = useCreateProduct();
 
   // Filter state. Search hits SKU + product name; selects narrow by
   // display_category and ABC classification. "Show archived" surfaces
@@ -104,18 +110,41 @@ export default function SKUList() {
     return Object.keys(e).length === 0;
   }
 
-  function handleSave() {
+  async function handleSave() {
     if (!validate()) return;
-    // In demo mode, just close the dialog. In production this would insert into Supabase.
-    setDialogOpen(false);
-    setForm(emptyForm);
-    setErrors({});
+    setSubmitError(null);
+    try {
+      const created = await createProduct.mutateAsync({
+        sku: form.sku.trim(),
+        product_name: form.product_name.trim(),
+        category: form.category,
+        display_category: form.display_category,
+        retail_price: form.retail_price ? parseFloat(form.retail_price) : null,
+        standard_quantity_per_carton: form.standard_quantity_per_carton
+          ? parseInt(form.standard_quantity_per_carton, 10)
+          : null,
+        upc_code: form.upc_code.trim() || null,
+        abc_classification: form.abc_classification || null,
+        monthly_demand: form.monthly_demand ? parseInt(form.monthly_demand, 10) : null,
+      });
+      setDialogOpen(false);
+      setForm(emptyForm);
+      setErrors({});
+      // Drop the operator straight onto the new SKU's detail page so they
+      // can fill in costs / supplier / etc. without a second click. Falls
+      // back to staying on the list page if the insert succeeded but the
+      // returned row is somehow missing an id (shouldn't happen).
+      if (created?.id) navigate(`/economics/${created.id}`);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "Failed to create SKU");
+    }
   }
 
   function handleClose() {
     setDialogOpen(false);
     setForm(emptyForm);
     setErrors({});
+    setSubmitError(null);
   }
 
   return (
@@ -540,9 +569,19 @@ export default function SKUList() {
             </div>
           </div>
 
+          {submitError && (
+            <div className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+              {submitError}
+            </div>
+          )}
+
           <DialogFooter>
-            <Button variant="outline" onClick={handleClose}>Cancel</Button>
-            <Button onClick={handleSave}>Create Product</Button>
+            <Button variant="outline" onClick={handleClose} disabled={createProduct.isPending}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={createProduct.isPending}>
+              {createProduct.isPending ? "Creating…" : "Create Product"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

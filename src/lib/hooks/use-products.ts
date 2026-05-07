@@ -35,6 +35,62 @@ export function useProduct(id: string) {
   });
 }
 
+/**
+ * Insert a new product_skus row. RLS policy "Admins can manage SKUs" gates
+ * to admin/manager via auth.uid() against profiles, so the client-side call
+ * fails for non-elevated users with a postgrest 42501 (insufficient_privilege).
+ *
+ * Returns the inserted row so callers can navigate to its id without an
+ * extra fetch. Wraps the postgrest error so the unique-key violation on
+ * (sku) surfaces as a friendly "already exists" message rather than the
+ * raw "duplicate key value violates unique constraint" string.
+ */
+export function useCreateProduct() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: {
+      sku: string;
+      product_name: string;
+      category: "fillable" | "non_fillable";
+      display_category: string;
+      retail_price?: number | null;
+      standard_quantity_per_carton?: number | null;
+      upc_code?: string | null;
+      abc_classification?: string | null;
+      monthly_demand?: number | null;
+    }) => {
+      const { data, error } = await supabase
+        .from("product_skus")
+        .insert({
+          sku: params.sku,
+          product_name: params.product_name,
+          category: params.category,
+          display_category: params.display_category,
+          retail_price: params.retail_price ?? null,
+          standard_quantity_per_carton: params.standard_quantity_per_carton ?? null,
+          upc_code: params.upc_code ?? null,
+          abc_classification: params.abc_classification ?? null,
+          monthly_demand: params.monthly_demand ?? null,
+          is_active: true,
+        })
+        .select()
+        .single();
+      if (error) {
+        // Friendly hint for the unique-key violation on product_skus.sku.
+        const msg = error.message ?? "";
+        if (/duplicate key|product_skus_sku_key|unique/i.test(msg)) {
+          throw new Error(`Another product already uses code "${params.sku}"`);
+        }
+        wrapPostgrestError(error, "Create failed");
+      }
+      return data as ProductSKU;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["products"] });
+    },
+  });
+}
+
 export function useUpdateProduct() {
   const qc = useQueryClient();
   return useMutation({
