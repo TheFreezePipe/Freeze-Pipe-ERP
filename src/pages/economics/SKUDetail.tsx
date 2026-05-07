@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, EyeOff, Eye, Plus, Trash2, Star, StarOff, Pencil, Check, X } from "lucide-react";
+import { ArrowLeft, EyeOff, Eye, Plus, Trash2, Star, StarOff, Pencil, Check, X, Tag } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useState, useMemo, useEffect, useRef } from "react";
 import {
@@ -26,6 +26,9 @@ import {
   useDeleteSkuSupplierCost,
   useSetPrimarySkuSupplierCost,
   useSkuPrefillStats,
+  useSkuAliases,
+  useRegisterSkuAlias,
+  useUnregisterSkuAlias,
 } from "@/lib/hooks";
 import { DEFAULT_CC_FEE_RATE } from "@/lib/inventory-math";
 
@@ -81,7 +84,10 @@ export default function SKUDetail() {
   const navigate = useNavigate();
   const { data: product, isLoading } = useProduct(skuId ?? "");
   const updateProduct = useUpdateProduct();
-  const { isAdmin } = useAuth();
+  const { isAdmin, isManager } = useAuth();
+  // Both roles can register aliases (managers triage day-to-day);
+  // only admin can remove an existing alias (un-applies inventory).
+  const canManageAliases = isAdmin || isManager;
 
   // Persistent data
   const suppliersQ = useSuppliers({ activeOnly: true });
@@ -257,6 +263,18 @@ export default function SKUDetail() {
   // the Raw Cost section).
   const [newSupplierId, setNewSupplierId] = useState<string>("");
   const [newUnitCost, setNewUnitCost] = useState<string>("");
+
+  // ShipStation aliases — `shipstation_sku_handling` rows that resolve to
+  // this SKU. Lets the operator add a new alias inline (e.g. "HT7" → HT-7)
+  // or remove a stale one. Hooks are admin/manager gated server-side via
+  // SECURITY DEFINER, plus the SELECT policy restricts reads to the same
+  // roles, so non-elevated users won't even see the section.
+  const aliasesQ = useSkuAliases(skuId ?? null);
+  const registerAlias = useRegisterSkuAlias();
+  const unregisterAlias = useUnregisterSkuAlias();
+  const [newAliasCode, setNewAliasCode] = useState<string>("");
+  const [aliasError, setAliasError] = useState<string | null>(null);
+  const [aliasFlash, setAliasFlash] = useState<string | null>(null);
 
   // Local mirror of persisted mfg override fields so edits don't round-trip
   // to the DB on every keystroke. Saved via the button in the section.
@@ -525,6 +543,64 @@ export default function SKUDetail() {
       // Leave `lastSaved` untouched on failure — the dirty button stays
       // active so the operator can retry without re-typing.
       setSaveError(err instanceof Error ? err.message : "Failed to save costs");
+    }
+  }
+
+  async function handleAddAlias() {
+    if (!skuId) return;
+    setAliasError(null);
+    setAliasFlash(null);
+    const code = newAliasCode.trim();
+    if (!code) {
+      setAliasError("Alias code is required");
+      return;
+    }
+    // Block adding the SKU's own code as an alias — that's already a
+    // direct match in the resolver and the row would be redundant.
+    if (product && code.toLowerCase() === product.sku.toLowerCase()) {
+      setAliasError("That's already this SKU's primary code");
+      return;
+    }
+    try {
+      const env = await registerAlias.mutateAsync({
+        skuCode: code,
+        resolvedSkuId: skuId,
+      });
+      setNewAliasCode("");
+      const n = env.existing_items_updated ?? 0;
+      setAliasFlash(
+        n > 0
+          ? `Alias added — ${n} previously-blocked order item${n === 1 ? "" : "s"} just resolved`
+          : "Alias added",
+      );
+    } catch (err) {
+      setAliasError(err instanceof Error ? err.message : "Failed to add alias");
+    }
+  }
+
+  async function handleRemoveAlias(skuCode: string) {
+    if (!skuId) return;
+    setAliasError(null);
+    setAliasFlash(null);
+    // Native confirm — the side effects (un-applying inventory deductions
+    // on linked orders) deserve a beat of friction. Operators can hit
+    // OK quickly; the explanation makes the consequence explicit.
+    const ok = window.confirm(
+      `Remove alias "${skuCode}"?\n\n` +
+        "Any ShipStation orders that resolved through this alias will be re-blocked " +
+        "and surface in the unresolved-SKU queue for re-triage.",
+    );
+    if (!ok) return;
+    try {
+      const env = await unregisterAlias.mutateAsync({ skuCode });
+      const n = env.items_reset ?? 0;
+      setAliasFlash(
+        n > 0
+          ? `Alias removed — ${n} order item${n === 1 ? "" : "s"} re-blocked`
+          : "Alias removed",
+      );
+    } catch (err) {
+      setAliasError(err instanceof Error ? err.message : "Failed to remove alias");
     }
   }
 
@@ -1114,6 +1190,110 @@ export default function SKUDetail() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ShipStation Aliases — admin/manager only. Backed by the
+          shipstation_sku_handling table (migration 20260505000001).
+          The list pulls every row whose resolved_sku_id matches this
+          SKU's id; the input registers a new alias via the SECURITY
+          DEFINER RPC. RLS blocks reads for non-admin/manager users so
+          the section is naturally hidden for them, but we still gate
+          the JSX to avoid an empty card flashing during role load. */}
+      {canManageAliases && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Tag className="h-4 w-4 text-muted-foreground" />
+              ShipStation Aliases
+            </CardTitle>
+            <CardDescription>
+              Alternative SKU codes that ShipStation uses for this product.
+              Adding an alias here re-resolves any blocked orders carrying
+              that code. Aliases are case-insensitive.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {aliasesQ.isLoading ? (
+              <p className="text-sm text-muted-foreground italic">Loading aliases…</p>
+            ) : (aliasesQ.data ?? []).length === 0 ? (
+              <p className="text-sm text-muted-foreground italic">
+                No aliases registered. ShipStation orders must use{" "}
+                <span className="font-mono text-xs">{product.sku}</span> exactly to
+                resolve to this SKU.
+              </p>
+            ) : (
+              <div className="rounded-md border border-border overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2">Alias Code</th>
+                      <th className="px-3 py-2">Added</th>
+                      <th className="px-3 py-2">Notes</th>
+                      <th className="px-3 py-2 w-8"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(aliasesQ.data ?? []).map((row) => (
+                      <tr key={row.sku_code} className="border-t border-border">
+                        <td className="px-3 py-2 font-mono text-xs">{row.sku_code}</td>
+                        <td className="px-3 py-2 text-xs text-muted-foreground tabular-nums">
+                          {new Date(row.added_at).toLocaleDateString()}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-muted-foreground">
+                          {row.notes ?? "—"}
+                        </td>
+                        <td className="px-3 py-2">
+                          {isAdmin && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              disabled={unregisterAlias.isPending}
+                              onClick={() => handleRemoveAlias(row.sku_code)}
+                              title="Remove alias"
+                            >
+                              <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="flex items-end gap-2 pt-2">
+              <div className="flex-1 space-y-1">
+                <Label className="text-xs">Add ShipStation alias</Label>
+                <Input
+                  value={newAliasCode}
+                  onChange={(e) => setNewAliasCode(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleAddAlias();
+                  }}
+                  placeholder={`e.g. ${product.sku}-OLD`}
+                  disabled={registerAlias.isPending}
+                />
+              </div>
+              <Button
+                size="sm"
+                onClick={handleAddAlias}
+                disabled={!newAliasCode.trim() || registerAlias.isPending}
+              >
+                <Plus className="mr-1 h-3.5 w-3.5" />
+                {registerAlias.isPending ? "Adding…" : "Add"}
+              </Button>
+            </div>
+
+            {aliasError && (
+              <p className="text-xs text-red-400">{aliasError}</p>
+            )}
+            {aliasFlash && !aliasError && (
+              <p className="text-xs text-green-400">{aliasFlash}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Save costs — single button commits all 12 persisted cost fields
           across the Raw / Importing / Manufacturing / Pack & Ship cards.
