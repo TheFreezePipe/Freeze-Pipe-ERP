@@ -107,12 +107,37 @@ export default function FreightDashboard() {
         return b.actual_arrival_date.localeCompare(a.actual_arrival_date);
       });
 
+    // In-transit ordering: tier-by-status first, then shipment_number
+    // ascending within each tier. Tier order goes high_risk → tracking
+    // → cleared_customs → on_the_water → pending so the closest-to-here
+    // shipments cluster at the top regardless of which one's ETA happens
+    // to be soonest. Inside each tier, numeric shipment_number puts the
+    // oldest order first; falls back to lexicographic for any carrier-
+    // prefixed numbers that aren't pure-digit.
+    const STATUS_TIER: Record<string, number> = {
+      high_risk: 0,
+      tracking: 1,
+      cleared_customs: 2,
+      on_the_water: 3,
+      pending: 4,
+    };
+    function cmpShipmentNumber(a: string | null, b: string | null): number {
+      if (!a) return 1;
+      if (!b) return -1;
+      const na = parseInt(a, 10);
+      const nb = parseInt(b, 10);
+      if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) {
+        return na - nb;
+      }
+      return a.localeCompare(b);
+    }
     const inTransit = filtered
       .filter(f => f.status !== "delivered")
       .sort((a, b) => {
-        if (!a.eta) return 1;
-        if (!b.eta) return -1;
-        return a.eta.localeCompare(b.eta);
+        const tierA = STATUS_TIER[a.status] ?? 99;
+        const tierB = STATUS_TIER[b.status] ?? 99;
+        if (tierA !== tierB) return tierA - tierB;
+        return cmpShipmentNumber(a.shipment_number, b.shipment_number);
       });
 
     const delivered = filtered
