@@ -24,52 +24,56 @@ export function useInventoryTransactions(limit = 200) {
 }
 
 /**
- * Reconstruct a per-day series of warehouse_finished balances for a SKU
+ * Reconstruct a per-day series of TOTAL warehouse balances for a SKU
  * over the last `days` days. Powers the history half of the inventory
  * projection chart on the SKU detail modal.
  *
+ * "Total warehouse" = sum across all five buckets:
+ *   warehouse_raw + warehouse_prefilled_raw + warehouse_in_production
+ *   + warehouse_finished + warehouse_other
+ *
  * We don't keep daily snapshots in the schema, so history is derived by
- * walking inventory_transactions backwards from the current balance:
+ * walking inventory_transactions backwards from the current total:
  *
- *   balance_at(t) = current - Σ delta(tx) for tx.created_at > t
+ *   total_at(t) = current_total - Σ delta(tx) for tx.created_at > t
  *
- * Where delta(tx) is how much warehouse_finished changed at tx:
- *   - movement_kind='net_change' AND field_affected='warehouse_finished'
+ * Where delta(tx) is how much TOTAL warehouse changed at tx:
+ *   - movement_kind='net_change' AND field_affected starts with 'warehouse_'
  *       → delta = tx.quantity   (already signed: negative for sales)
- *   - movement_kind='category_move' AND to_field='warehouse_finished'
- *       → delta = +tx.quantity
- *   - movement_kind='category_move' AND from_field='warehouse_finished'
- *       → delta = -tx.quantity
- *   - movement_kind='metadata' (oversell warnings, audit-only) → no change
+ *   - movement_kind='category_move' between two warehouse_* buckets
+ *       → delta = 0   (intra-warehouse movement; total unchanged)
+ *   - movement_kind='category_move' from warehouse_* to non-warehouse field
+ *       → delta = -tx.quantity   (units left the warehouse)
+ *   - movement_kind='category_move' to warehouse_* from non-warehouse field
+ *       → delta = +tx.quantity   (units entered the warehouse)
+ *   - movement_kind='metadata' (oversell warnings, audit-only) → 0
+ *   - field_affected on non-inventory columns (eta, status, etc.) → 0
  *
- * Returns end-of-day balances, oldest first. If a SKU has no transactions
- * in the window, the series is filled flat at the current balance — no
- * transactions = no changes = balance was constant. The chart treats
- * dates earlier than the SKU's first transaction (or the system genesis)
- * as known-flat in the same way; we don't fabricate movement we have no
- * evidence for.
+ * Returns end-of-day balances, oldest first. If a SKU has no inventory-
+ * affecting transactions in the window, the series is filled flat at the
+ * current total — no transactions = no changes = balance was constant.
  *
- * Caller passes the current `warehouse_finished` value (already loaded
- * for the chart) so we don't need to hit inventory_levels twice.
+ * Caller passes the current total (already loaded for the chart) so we
+ * don't need to hit inventory_levels twice.
  */
-export interface InventoryFinishedHistoryPoint {
+export interface InventoryWarehouseHistoryPoint {
   date: string; // ISO yyyy-mm-dd, end-of-day
-  finished: number;
+  total: number;
 }
 
-export function useSkuFinishedHistory(
+export function useSkuWarehouseTotalHistory(
   skuId: string | null | undefined,
-  currentFinished: number,
+  currentTotal: number,
   days: number,
 ) {
   return useQuery({
-    queryKey: ["sku-finished-history", skuId, currentFinished, days],
+    queryKey: ["sku-warehouse-total-history", skuId, currentTotal, days],
     enabled: !!skuId,
-    queryFn: async (): Promise<InventoryFinishedHistoryPoint[]> => {
-      // Pull every relevant tx in the window. Cap at 5000 rows per SKU —
-      // a busy SKU at ~50 movements/day still fits comfortably; if any
-      // SKU ever blows past that we'll see an undercounted history line
-      // (acceptable failure mode) rather than a stuck query.
+    queryFn: async (): Promise<InventoryWarehouseHistoryPoint[]> => {
+      // Pull every tx in the window for this SKU. Cap at 5000 rows —
+      // a busy SKU at ~50 movements/day fits 100 days; if any SKU ever
+      // blows past that we'll see an undercounted history line rather
+      // than a stuck query.
       const cutoffIso = new Date(Date.now() - days * 86400_000).toISOString();
       const { data, error } = await supabase
         .from("inventory_transactions")
@@ -79,8 +83,6 @@ export function useSkuFinishedHistory(
         .order("created_at", { ascending: false })
         .limit(5000);
       if (error) throw error;
-      // Cast loosely so the new movement_kind/from_field/to_field columns
-      // line up regardless of whether the generated types have caught up.
       type TxRow = {
         created_at: string;
         quantity: number;
@@ -91,48 +93,55 @@ export function useSkuFinishedHistory(
       };
       const txs = (data ?? []) as unknown as TxRow[];
 
-      function deltaToFinished(tx: TxRow): number {
+      const isWarehouseField = (f: string | null) =>
+        !!f && f.startsWith("warehouse_");
+
+      function deltaToTotal(tx: TxRow): number {
         if (tx.movement_kind === "metadata") return 0;
         if (tx.movement_kind === "category_move") {
-          if (tx.to_field === "warehouse_finished") return tx.quantity;
-          if (tx.from_field === "warehouse_finished") return -tx.quantity;
+          const fromIsWh = isWarehouseField(tx.from_field);
+          const toIsWh = isWarehouseField(tx.to_field);
+          // Intra-warehouse move — total unchanged.
+          if (fromIsWh && toIsWh) return 0;
+          // Units leaving warehouse (rare; would be e.g. write-off).
+          if (fromIsWh && !toIsWh) return -tx.quantity;
+          // Units entering warehouse from somewhere else.
+          if (!fromIsWh && toIsWh) return tx.quantity;
           return 0;
         }
-        // movement_kind = 'net_change' — only counts when affecting finished.
-        return tx.field_affected === "warehouse_finished" ? tx.quantity : 0;
+        // net_change — only counts when the field is one of our warehouse
+        // buckets. tx on metadata fields like 'eta', 'status', 'role',
+        // 'row_hash' contribute nothing.
+        return isWarehouseField(tx.field_affected) ? tx.quantity : 0;
       }
 
-      // Build the per-day series by walking the timeline. We anchor at
-      // "end of today" = current balance, then walk backwards subtracting
-      // deltas as we cross each transaction boundary. Days are in UTC
-      // to match how the rest of the chart formats dates; this is fine
-      // even for users in other timezones because the points are EOD
-      // representations, not specific clock moments.
-      const out: InventoryFinishedHistoryPoint[] = [];
+      // Walk the timeline. Anchor at "end of today" = current total,
+      // then walk backwards subtracting deltas as we cross each tx
+      // boundary. UTC end-of-day matches how the rest of the chart
+      // formats dates.
+      const out: InventoryWarehouseHistoryPoint[] = [];
       const todayUTC = new Date();
       todayUTC.setUTCHours(23, 59, 59, 999);
 
-      let runningBalance = currentFinished;
-      let txIdx = 0; // points into txs (newest first)
+      let runningBalance = currentTotal;
+      let txIdx = 0;
 
       for (let d = 0; d < days; d++) {
         const eod = new Date(todayUTC);
         eod.setUTCDate(eod.getUTCDate() - d);
-        // Reverse-walk every tx newer than this EOD.
         while (
           txIdx < txs.length &&
           new Date(txs[txIdx].created_at).getTime() > eod.getTime()
         ) {
-          runningBalance -= deltaToFinished(txs[txIdx]);
+          runningBalance -= deltaToTotal(txs[txIdx]);
           txIdx++;
         }
         out.push({
           date: eod.toISOString().slice(0, 10),
-          finished: Math.max(0, Math.round(runningBalance)),
+          total: Math.max(0, Math.round(runningBalance)),
         });
       }
 
-      // Caller wants oldest-first.
       return out.reverse();
     },
     staleTime: 5 * 60_000,

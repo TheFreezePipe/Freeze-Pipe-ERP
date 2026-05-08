@@ -14,7 +14,7 @@ import { format, parseISO } from "date-fns";
 import {
   useFreightShipments,
   useFreightLineItems,
-  useSkuFinishedHistory,
+  useSkuWarehouseTotalHistory,
 } from "@/lib/hooks";
 
 interface Props {
@@ -27,15 +27,18 @@ const HISTORY_DAYS = 30;
 const PROJECTION_DAYS = 60;
 
 /**
- * Combined history + projection chart for finished-goods inventory.
+ * Combined history + projection chart for total warehouse inventory.
  *
  * Left half (HISTORY_DAYS): reconstructed from inventory_transactions —
- * we anchor at the current `warehouse_finished` and walk backwards
- * subtracting each tx's delta. We don't keep daily snapshots in the
- * schema; the reconstructed series is exact-as-the-transactions.
+ * we anchor at today's TOTAL warehouse balance (sum across all five
+ * buckets: raw / prefilled_raw / in_production / finished / other) and
+ * walk backwards subtracting each tx's delta. Daily snapshots aren't
+ * stored in the schema; the reconstructed series is exact-as-the-tx-log.
  *
- * Right half (PROJECTION_DAYS): forward burn-down at daily demand,
- * with arriving-freight quantities added on their ETA dates.
+ * Right half (PROJECTION_DAYS): forward burn-down at daily demand
+ * (sales reduce total), with arriving-freight quantities added on their
+ * ETA dates (freight enters warehouse_raw → increases total). Internal
+ * raw → finished movement doesn't affect total; we don't model it.
  *
  * "Today" is marked with a vertical reference line. The historical
  * portion uses a stepped line (inventory is discrete; balances stay
@@ -50,9 +53,20 @@ const PROJECTION_DAYS = 60;
 export function InventoryProjectionChart({ product, inventory, demandOverride }: Props) {
   const { data: freight = [] } = useFreightShipments();
   const { data: freightLineItems = [] } = useFreightLineItems();
-  const { data: history = [] } = useSkuFinishedHistory(
+
+  // Total warehouse = sum of all five bucket columns. Drives the chart's
+  // anchor for both the historical reconstruction and the forward
+  // projection so the two halves use the same metric.
+  const currentTotal =
+    (inventory.warehouse_raw ?? 0) +
+    (inventory.warehouse_prefilled_raw ?? 0) +
+    (inventory.warehouse_in_production ?? 0) +
+    (inventory.warehouse_finished ?? 0) +
+    (inventory.warehouse_other ?? 0);
+
+  const { data: history = [] } = useSkuWarehouseTotalHistory(
     product.id,
-    inventory.warehouse_finished,
+    currentTotal,
     HISTORY_DAYS,
   );
 
@@ -74,15 +88,15 @@ export function InventoryProjectionChart({ product, inventory, demandOverride }:
         }));
       });
 
-    // Forward projection — anchored at today's current finished, then
-    // burn down by daily demand and bump up by any arriving freight on
-    // its ETA date. Day 0 (today) duplicates the historical anchor so
-    // the two series visually meet.
+    // Forward projection — anchored at today's total, then burn down
+    // by daily demand and bump up by any arriving freight on its ETA
+    // date. Day 0 (today) duplicates the historical anchor so the two
+    // series visually meet.
     const todayStr = new Date().toISOString().slice(0, 10);
     const projection: { date: string; projected: number }[] = [
-      { date: todayStr, projected: inventory.warehouse_finished },
+      { date: todayStr, projected: currentTotal },
     ];
-    let projValue = inventory.warehouse_finished;
+    let projValue = currentTotal;
     for (let d = 1; d <= PROJECTION_DAYS; d++) {
       const date = new Date();
       date.setDate(date.getDate() + d);
@@ -95,14 +109,14 @@ export function InventoryProjectionChart({ product, inventory, demandOverride }:
     }
 
     // Combine into one ordered series so recharts renders both Area
-    // shapes on the same axis. Each row sets either `finished`
-    // (historical) or `projected` (forward), or both at the today
-    // anchor. Recharts will draw connected paths and skip undefined
-    // values within each series.
-    type Row = { date: string; finished?: number; projected?: number };
+    // shapes on the same axis. Each row sets either `total` (historical)
+    // or `projected` (forward), or both at the today anchor. Recharts
+    // skips undefined values within each series so the two paths render
+    // cleanly without bleeding into each other.
+    type Row = { date: string; total?: number; projected?: number };
     const byDate = new Map<string, Row>();
     for (const h of history) {
-      byDate.set(h.date, { date: h.date, finished: h.finished });
+      byDate.set(h.date, { date: h.date, total: h.total });
     }
     for (const p of projection) {
       const existing = byDate.get(p.date) ?? { date: p.date };
@@ -118,7 +132,7 @@ export function InventoryProjectionChart({ product, inventory, demandOverride }:
       reorderPoint: Math.round(dailyBurn * 15),
       todayStr,
     };
-  }, [product, inventory, demandOverride, freight, freightLineItems, history]);
+  }, [product, demandOverride, freight, freightLineItems, history, currentTotal]);
 
   return (
     <ResponsiveContainer width="100%" height={280}>
@@ -194,19 +208,22 @@ export function InventoryProjectionChart({ product, inventory, demandOverride }:
           />
         ))}
         {/* Historical: stepped (inventory is discrete — flat between txs)
-            in cyan, solid stroke. */}
+            in cyan, solid stroke. Plots TOTAL warehouse units (sum of
+            raw / prefilled_raw / in_production / finished / other). */}
         <Area
           type="stepAfter"
-          dataKey="finished"
+          dataKey="total"
           stroke="hsl(189,94%,56%)"
           fill="hsl(189,94%,56%)"
           fillOpacity={0.18}
           strokeWidth={2}
-          name="Actual finished stock"
+          name="Actual total warehouse"
           connectNulls={false}
         />
         {/* Projected: smooth curve in purple, dashed stroke to make the
-            "this is a forecast, not history" distinction unmistakable. */}
+            "this is a forecast, not history" distinction unmistakable.
+            Same metric as the historical line: total warehouse units,
+            burning down by daily demand and bumping on freight arrivals. */}
         <Area
           type="monotone"
           dataKey="projected"
@@ -215,7 +232,7 @@ export function InventoryProjectionChart({ product, inventory, demandOverride }:
           fillOpacity={0.12}
           strokeWidth={2}
           strokeDasharray="6 4"
-          name="Projected finished stock"
+          name="Projected total warehouse"
           connectNulls={false}
         />
       </AreaChart>

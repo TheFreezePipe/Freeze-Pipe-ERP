@@ -292,21 +292,25 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
         <div className="space-y-2">
           <h3 className="text-sm font-medium">90-Day Inventory Projection</h3>
           <p className="text-xs text-muted-foreground">
-            Warehouse finished units: 30 days history + 60 days projected (based on {forecastValue}/mo{forecastData ? " forecast" : ""} demand)
+            Total warehouse units (raw + prefilled-raw + WIP + finished + other): 30 days history + 60 days projected (based on {forecastValue}/mo{forecastData ? " forecast" : ""} demand)
           </p>
           <InventoryProjectionChart
             product={product}
             inventory={inventory}
             demandOverride={forecastValue !== product.monthly_demand ? forecastValue : undefined}
           />
-          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+          <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
             <div className="flex items-center gap-1.5">
-              <div className="h-2 w-4 rounded bg-[hsl(205,94%,56%)]" />
-              Historical
+              <div className="h-2 w-4 rounded bg-[hsl(189,94%,56%)]" />
+              Historical (actual)
             </div>
             <div className="flex items-center gap-1.5">
               <div className="h-2 w-4 rounded bg-[hsl(270,67%,56%)] opacity-60" style={{ backgroundImage: "repeating-linear-gradient(90deg, transparent, transparent 3px, hsl(270,67%,56%) 3px, hsl(270,67%,56%) 6px)" }} />
               Projected
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="h-0.5 w-4 bg-[hsl(0,0%,75%)]" style={{ backgroundImage: "repeating-linear-gradient(90deg, transparent, transparent 2px, hsl(0,0%,75%) 2px, hsl(0,0%,75%) 4px)" }} />
+              Today
             </div>
             <div className="flex items-center gap-1.5">
               <div className="h-0.5 w-4 bg-[hsl(142,71%,45%)]" style={{ backgroundImage: "repeating-linear-gradient(90deg, transparent, transparent 2px, hsl(142,71%,45%) 2px, hsl(142,71%,45%) 4px)" }} />
