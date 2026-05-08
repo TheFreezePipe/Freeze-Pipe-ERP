@@ -247,6 +247,13 @@ export interface Database {
           notes: string | null;
           performed_by: string | null;
           created_at: string;
+          /** 'net_change' | 'category_move' | 'metadata' — controls how
+           *  to interpret quantity vs from_field/to_field. */
+          movement_kind: string;
+          /** Set only when movement_kind='category_move'; the source bucket. */
+          from_field: string | null;
+          /** Set only when movement_kind='category_move'; the destination bucket. */
+          to_field: string | null;
         };
         Insert: {
           id?: string;
@@ -258,6 +265,9 @@ export interface Database {
           reference_type?: string | null;
           notes?: string | null;
           performed_by?: string | null;
+          movement_kind?: string;
+          from_field?: string | null;
+          to_field?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["inventory_transactions"]["Insert"]>;
       };
