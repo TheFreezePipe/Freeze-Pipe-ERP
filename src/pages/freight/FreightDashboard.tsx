@@ -14,12 +14,11 @@ import {
   RefreshCw,
   PackageCheck,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useNavigate } from "react-router-dom";
-import { FreightCostChart } from "@/components/freight/FreightCostChart";
 import { EtaCell } from "@/components/freight/EtaCell";
 import { StatusSelectWithOverride } from "@/components/freight/StatusSelectWithOverride";
 import { ShipmentTrackingWorker, useRefreshAllTracking } from "@/lib/tracking/use-shipment-tracking";
@@ -302,14 +301,6 @@ export default function FreightDashboard() {
         </div>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Sea Freight - Cost per Unit</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <FreightCostChart />
-        </CardContent>
-      </Card>
     </div>
   );
 }

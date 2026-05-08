@@ -7,6 +7,7 @@ import { RetailValueChart } from "@/components/dashboard/RetailValueChart";
 import { ManufacturingCompletionChart } from "@/components/dashboard/ManufacturingCompletionChart";
 import { CategoryDemandChart } from "@/components/dashboard/CategoryDemandChart";
 import { AlertsPanel } from "@/components/dashboard/AlertsPanel";
+import { FreightCostChart } from "@/components/freight/FreightCostChart";
 import { useMemo } from "react";
 import { useFreightShipments, useFreightLineItems, useProducts } from "@/lib/hooks";
 
@@ -128,6 +129,19 @@ export default function Dashboard() {
         </CardHeader>
         <CardContent className="max-h-[380px] overflow-y-auto">
           <AlertsPanel />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Sea Freight — Cost per Carton</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Weighted blend (sum of freight cost ÷ sum of cartons) of all sea
+            shipments grouped by ship date.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <FreightCostChart />
         </CardContent>
       </Card>
 
