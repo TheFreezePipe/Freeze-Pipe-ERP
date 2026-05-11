@@ -24,12 +24,21 @@ import type { SKUEconomics, ProductSKU } from "@/types/database";
 export const DEFAULT_CC_FEE_RATE = 0.03;
 
 /**
- * Days of stock at current burn rate. Returns a sentinel `999` for SKUs
- * with zero monthly demand (avoids divide-by-zero and makes "infinite
- * runway" sort cleanly to the bottom of any DOS-ascending list).
+ * Sentinel value computeDOS returns when a SKU has no usable demand
+ * signal. 999 is intentionally large so DOS-ascending sorts park these
+ * rows at the bottom (where stockout urgency is moot). Display sites
+ * should check for equality with this constant and render an explanatory
+ * label rather than "999d" — that magic number is meaningless to operators.
+ */
+export const NO_DEMAND_DOS = 999;
+
+/**
+ * Days of stock at current burn rate. Returns NO_DEMAND_DOS when monthly
+ * demand is missing/zero (avoids divide-by-zero and gives DOS-ascending
+ * sorts a stable far-bottom slot for "infinite runway" SKUs).
  */
 export function computeDOS(units: number, monthlyDemand: number): number {
-  if (monthlyDemand <= 0) return 999;
+  if (monthlyDemand <= 0) return NO_DEMAND_DOS;
   return Math.round((units / (monthlyDemand / 30)) * 10) / 10;
 }
 

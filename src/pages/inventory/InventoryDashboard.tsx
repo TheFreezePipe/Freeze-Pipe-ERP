@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { computeDOS } from "@/lib/inventory-math";
+import { computeDOS, NO_DEMAND_DOS } from "@/lib/inventory-math";
 import { displayCategoryRank } from "@/lib/constants";
 import { getEffectiveDemand, getProductForecast } from "@/lib/demand";
 import {
@@ -688,8 +688,17 @@ export default function InventoryDashboard() {
                           <td className="px-3 py-2 text-right tabular-nums border-l border-border/50 font-medium">
                             {totals.warehouseTotal.toLocaleString()}
                           </td>
-                          <td className="px-3 py-2 text-right tabular-nums font-medium" style={warehouseDOSStyle(warehouseDOS)}>
-                            {warehouseDOS}d
+                          <td
+                            className="px-3 py-2 text-right tabular-nums font-medium"
+                            style={warehouseDOS === NO_DEMAND_DOS ? undefined : warehouseDOSStyle(warehouseDOS)}
+                          >
+                            {warehouseDOS === NO_DEMAND_DOS ? (
+                              <span className="text-[10px] text-muted-foreground/70 italic" title="No monthly demand on file — DOS can't be computed">
+                                No demand data
+                              </span>
+                            ) : (
+                              `${warehouseDOS}d`
+                            )}
                           </td>
                           <td className="px-3 py-2 text-right tabular-nums border-l border-border/50">
                             {totals.transitTotal > 0 ? (
@@ -703,20 +712,44 @@ export default function InventoryDashboard() {
                               <span className="text-muted-foreground/50">-</span>
                             )}
                           </td>
-                          <td className="px-3 py-2 text-right tabular-nums" style={incomingDOSStyle(transitDOS)}>
-                            {transitDOS > 0 ? `${transitDOS}d` : <span className="text-muted-foreground/50">-</span>}
+                          <td
+                            className="px-3 py-2 text-right tabular-nums"
+                            style={transitDOS === NO_DEMAND_DOS ? undefined : incomingDOSStyle(transitDOS)}
+                          >
+                            {transitDOS === NO_DEMAND_DOS ? (
+                              <span className="text-[10px] text-muted-foreground/70 italic">No demand data</span>
+                            ) : transitDOS > 0 ? (
+                              `${transitDOS}d`
+                            ) : (
+                              <span className="text-muted-foreground/50">-</span>
+                            )}
                           </td>
                           <td className="px-3 py-2 text-right tabular-nums border-l border-border/50">
                             {totals.onOrderTotal > 0 ? totals.onOrderTotal.toLocaleString() : <span className="text-muted-foreground/50">-</span>}
                           </td>
-                          <td className="px-3 py-2 text-right tabular-nums" style={incomingDOSStyle(onOrderDOS)}>
-                            {onOrderDOS > 0 ? `${onOrderDOS}d` : <span className="text-muted-foreground/50">-</span>}
+                          <td
+                            className="px-3 py-2 text-right tabular-nums"
+                            style={onOrderDOS === NO_DEMAND_DOS ? undefined : incomingDOSStyle(onOrderDOS)}
+                          >
+                            {onOrderDOS === NO_DEMAND_DOS ? (
+                              <span className="text-[10px] text-muted-foreground/70 italic">No demand data</span>
+                            ) : onOrderDOS > 0 ? (
+                              `${onOrderDOS}d`
+                            ) : (
+                              <span className="text-muted-foreground/50">-</span>
+                            )}
                           </td>
                           <td
                             className="px-4 py-2 text-center tabular-nums border-l border-border/50 text-base"
-                            style={dosTotalStyle(overallDOS, dosTarget)}
+                            style={overallDOS === NO_DEMAND_DOS ? undefined : dosTotalStyle(overallDOS, dosTarget)}
                           >
-                            {overallDOS}d
+                            {overallDOS === NO_DEMAND_DOS ? (
+                              <span className="text-[10px] text-muted-foreground/70 italic" title="No monthly demand on file — DOS can't be computed">
+                                No demand data
+                              </span>
+                            ) : (
+                              `${overallDOS}d`
+                            )}
                           </td>
                         </>
                       )}
