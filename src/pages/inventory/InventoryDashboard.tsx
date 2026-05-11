@@ -39,6 +39,20 @@ import type { FreightLineItemWithProduct } from "@/lib/hooks";
 // Category priority + rank helper moved to src/lib/constants.ts so the
 // SKU Economics page can share the exact same sequence without drift.
 
+/**
+ * Visual style for each freight status as it shows up inside the in-transit
+ * popover. `tracking` is the actionable state operators care about most
+ * (carrier has scanned it; ETA is now high-confidence), so it gets a green
+ * dot to make the binary "tracking yet or not?" answer visible at a glance.
+ */
+const FREIGHT_STATUS_PILL: Record<string, { label: string; dot: string; text: string }> = {
+  tracking:        { label: "Tracking",        dot: "bg-green-400", text: "text-green-300" },
+  cleared_customs: { label: "Customs cleared", dot: "bg-cyan-400",  text: "text-cyan-300" },
+  on_the_water:    { label: "On the water",    dot: "bg-blue-400",  text: "text-blue-300" },
+  high_risk:       { label: "High risk",       dot: "bg-red-500",   text: "text-red-300" },
+  pending:         { label: "Pending",         dot: "bg-zinc-500",  text: "text-zinc-400" },
+};
+
 /** Hover popover showing which freight shipments make up a SKU's in-transit total */
 function TransitBreakdownPopover({
   skuId,
@@ -96,6 +110,14 @@ function TransitBreakdownPopover({
               const isAir = shipment.freight_type === "air";
               const Icon = isAir ? Plane : Ship;
               const daysLeft = shipment.eta ? differenceInDays(parseISO(shipment.eta), new Date()) : null;
+              // Fall back to a neutral chip for any status the map doesn't
+              // cover so a future schema addition doesn't render a blank.
+              const pill =
+                FREIGHT_STATUS_PILL[shipment.status] ?? {
+                  label: shipment.status,
+                  dot: "bg-zinc-500",
+                  text: "text-zinc-400",
+                };
               return (
                 <div key={shipment.id} className="flex items-center gap-3 px-3 py-2">
                   <div className={`flex h-8 w-8 items-center justify-center rounded-md ${isAir ? "bg-cyan-400/10 text-cyan-400" : "bg-blue-400/10 text-blue-400"}`}>
@@ -107,6 +129,13 @@ function TransitBreakdownPopover({
                       {shipment.eta ? `ETA ${format(parseISO(shipment.eta), "MMM d")}` : "ETA —"}
                       {daysLeft !== null && daysLeft >= 0 && ` · ${daysLeft}d`}
                       {daysLeft !== null && daysLeft < 0 && ` · ${Math.abs(daysLeft)}d overdue`}
+                    </p>
+                    {/* Status pill — dot + label so "is it tracking yet?"
+                        is answerable at a glance without parsing the
+                        underlying enum value. */}
+                    <p className={`mt-0.5 inline-flex items-center gap-1 text-[10px] ${pill.text}`}>
+                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${pill.dot}`} />
+                      {pill.label}
                     </p>
                   </div>
                   <p className="text-sm font-semibold tabular-nums">{quantity.toLocaleString()}</p>
