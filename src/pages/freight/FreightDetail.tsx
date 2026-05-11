@@ -5,12 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Ship, Plane, Package, DollarSign, FileText, RefreshCw, TrendingUp, TrendingDown, Pencil, Check, X } from "lucide-react";
+import { ArrowLeft, Ship, Plane, Package, DollarSign, FileText, RefreshCw, TrendingUp, TrendingDown, Pencil, Check, X, ExternalLink } from "lucide-react";
 import { FREIGHT_TYPES, type FreightStatus } from "@/lib/constants";
 import { format, parseISO, formatDistanceToNow } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useShipmentTracking } from "@/lib/tracking/use-shipment-tracking";
 import { etaDriftDays } from "@/lib/tracking/reconcile";
+import { getCarrierTrackingUrl } from "@/lib/tracking/carrier-urls";
 import { StatusSelectWithOverride } from "@/components/freight/StatusSelectWithOverride";
 import { useFreightShipment, useFreightLineItems, useUpdateFreightShipment } from "@/lib/hooks";
 import { useAuth } from "@/lib/auth-context";
@@ -325,18 +326,54 @@ export default function FreightDetail() {
                       <X className="h-3.5 w-3.5 text-muted-foreground" />
                     </Button>
                   </div>
-                ) : canEdit ? (
-                  <button
-                    type="button"
-                    onClick={startTrackingEdit}
-                    className="group inline-flex items-center gap-1 font-medium font-mono text-xs hover:text-foreground"
-                    title="Click to edit tracking number"
-                  >
-                    <span>{shipment.tracking_number ?? <span className="text-muted-foreground italic font-sans">No tracking</span>}</span>
-                    <Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </button>
                 ) : (
-                  <p className="font-medium font-mono text-xs">{shipment.tracking_number ?? "-"}</p>
+                  // Read mode: tracking number renders as a carrier-tracking
+                  // link when both carrier_name and tracking_number are set
+                  // and we have a URL pattern for that carrier. Admin/manager
+                  // also gets a separate pencil to enter edit mode — kept
+                  // distinct from the link so a click on the number opens
+                  // the carrier page (the primary action) rather than the
+                  // editor (the rarer one).
+                  (() => {
+                    const trackingHref = getCarrierTrackingUrl(
+                      shipment.carrier_name,
+                      shipment.tracking_number,
+                    );
+                    return (
+                      <div className="inline-flex items-center gap-1.5">
+                        {shipment.tracking_number ? (
+                          trackingHref ? (
+                            <a
+                              href={trackingHref}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-medium font-mono text-xs text-primary hover:underline inline-flex items-center gap-1"
+                              title={`Open ${shipment.carrier_name} tracking page`}
+                            >
+                              {shipment.tracking_number}
+                              <ExternalLink className="h-3 w-3 opacity-60" />
+                            </a>
+                          ) : (
+                            <span className="font-medium font-mono text-xs">
+                              {shipment.tracking_number}
+                            </span>
+                          )
+                        ) : (
+                          <span className="text-muted-foreground italic text-xs">No tracking</span>
+                        )}
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={startTrackingEdit}
+                            className="text-muted-foreground hover:text-foreground"
+                            title="Edit tracking number"
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()
                 )}
                 {trackingError && (
                   <p className="text-[11px] text-red-400 mt-0.5" title={trackingError}>{trackingError}</p>

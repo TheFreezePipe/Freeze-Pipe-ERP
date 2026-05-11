@@ -22,6 +22,7 @@ import { useNavigate } from "react-router-dom";
 import { EtaCell } from "@/components/freight/EtaCell";
 import { StatusSelectWithOverride } from "@/components/freight/StatusSelectWithOverride";
 import { ShipmentTrackingWorker, useRefreshAllTracking } from "@/lib/tracking/use-shipment-tracking";
+import { getCarrierTrackingUrl } from "@/lib/tracking/carrier-urls";
 import { useToast } from "@/hooks/use-toast";
 import { useMemo } from "react";
 import { format, differenceInDays, parseISO } from "date-fns";
@@ -500,6 +501,7 @@ function ShipmentCard({
               label="Tracking"
               value={shipment.tracking_number}
               mono
+              href={getCarrierTrackingUrl(shipment.carrier_name, shipment.tracking_number)}
             />
             <DetailRow
               icon={<Package className="h-3.5 w-3.5" />}
@@ -597,25 +599,41 @@ function DetailRow({
   label,
   value,
   mono,
+  href,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string | null | undefined;
   mono?: boolean;
+  /** Optional external URL; when present, the value renders as an anchor
+   *  that opens in a new tab. Used for carrier tracking page links. */
+  href?: string | null;
 }) {
   const empty = !value;
+  const baseClass = `text-sm truncate ${mono ? "font-mono text-xs" : ""} ${
+    empty ? "text-muted-foreground/60" : ""
+  }`;
   return (
     <div className="flex items-start gap-2 min-w-0">
       <span className="text-muted-foreground/70 mt-0.5 shrink-0">{icon}</span>
       <div className="min-w-0 flex-1">
         <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
-        <div
-          className={`text-sm truncate ${mono ? "font-mono text-xs" : ""} ${
-            empty ? "text-muted-foreground/60" : ""
-          }`}
-        >
-          {value ?? "—"}
-        </div>
+        {href && value ? (
+          // Stop propagation so clicking the link doesn't also trigger
+          // the surrounding card's navigate-to-detail handler.
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className={`${baseClass} text-primary hover:underline block`}
+            title="Open carrier tracking page"
+          >
+            {value}
+          </a>
+        ) : (
+          <div className={baseClass}>{value ?? "—"}</div>
+        )}
       </div>
     </div>
   );
