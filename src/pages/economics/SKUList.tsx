@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { getEffectiveDemand } from "@/lib/demand";
 import { computeListD2C } from "@/lib/inventory-math";
-import { DISPLAY_CATEGORIES } from "@/lib/constants";
+import { DISPLAY_CATEGORIES, displayCategoryRank } from "@/lib/constants";
 import { useNavigate } from "react-router-dom";
 import { ExternalLink, Plus, Search, X } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -58,7 +58,7 @@ export default function SKUList() {
   const [showArchived, setShowArchived] = useState(false);
 
   const filteredProducts = useMemo(() => {
-    return products.filter((product) => {
+    const filtered = products.filter((product) => {
       const archivedAt = (product as ProductSKU & { archived_at?: string | null })
         .archived_at;
       const isArchived = !!archivedAt || !product.is_active;
@@ -81,6 +81,18 @@ export default function SKUList() {
         }
       }
       return true;
+    });
+
+    // Sort by Chase's operational category priority (Pipes → Bases),
+    // then by product name within each category. Matches the Stock
+    // Levels page so the two tables read in the same sequence.
+    // Spread before sort because `products` from the hook is upstream-
+    // owned and we don't want to mutate the query cache.
+    return [...filtered].sort((a, b) => {
+      const ra = displayCategoryRank(a.display_category);
+      const rb = displayCategoryRank(b.display_category);
+      if (ra !== rb) return ra - rb;
+      return a.product_name.localeCompare(b.product_name);
     });
   }, [products, searchQuery, categoryFilter, abcFilter, showArchived]);
 

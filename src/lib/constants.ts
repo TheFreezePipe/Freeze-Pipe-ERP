@@ -83,6 +83,47 @@ export const DISPLAY_CATEGORIES = [
 
 export type DisplayCategory = (typeof DISPLAY_CATEGORIES)[number];
 
+// Operational priority order for default sorts on operator-facing tables
+// (Stock Levels, SKU Economics). Distinct from DISPLAY_CATEGORIES above
+// which is the catalog of valid values — that list is in roughly-alpha
+// order for use in filter dropdowns; this list reflects Chase's preferred
+// display sequence (high-velocity / customer-facing categories first,
+// component categories last). Set 2026-05-07.
+//
+// Translations from Chase's spoken list to the canonical category values:
+//   "joint products" → "Joint Chiller" (only joint-related category)
+//   "Studio Products" → "Studio"
+// Lookup is case-insensitive; anything not in this list lands at the
+// bottom of the table so catalog drift surfaces visibly.
+export const DISPLAY_CATEGORY_PRIORITY: ReadonlyArray<string> = [
+  "Pipes",
+  "Bubblers",
+  "Joint Chiller",
+  "Bongs",
+  "Dab Rigs",
+  "Studio",
+  "Ash Catchers",
+  "Bowls",
+  "Accessories",
+  "Coils",
+  "Bases",
+];
+const DISPLAY_CATEGORY_PRIORITY_INDEX: ReadonlyMap<string, number> = new Map(
+  DISPLAY_CATEGORY_PRIORITY.map((c, i) => [c.toLowerCase(), i]),
+);
+/**
+ * Sort key for ordering rows by Chase's preferred category sequence.
+ * Unknown / null categories return a value past the end so they sort to
+ * the bottom (where catalog drift is easy to spot).
+ */
+export function displayCategoryRank(
+  displayCategory: string | null | undefined,
+): number {
+  if (!displayCategory) return DISPLAY_CATEGORY_PRIORITY.length + 1;
+  const idx = DISPLAY_CATEGORY_PRIORITY_INDEX.get(displayCategory.toLowerCase());
+  return idx === undefined ? DISPLAY_CATEGORY_PRIORITY.length + 1 : idx;
+}
+
 // FACTORIES / Factory type retired when the hardcoded nancy/yx enum was
 // replaced by the suppliers table (migration 017+). If you need a label for
 // a supplier, look it up on the suppliers row directly.

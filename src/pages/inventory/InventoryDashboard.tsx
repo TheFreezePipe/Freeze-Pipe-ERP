@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { computeDOS } from "@/lib/inventory-math";
+import { displayCategoryRank } from "@/lib/constants";
 import { getEffectiveDemand, getProductForecast } from "@/lib/demand";
 import {
   buildInTransitMap,
@@ -35,34 +36,8 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import type { FreightLineItemWithProduct } from "@/lib/hooks";
 
-// Operational priority order for the Stock Levels page default sort
-// (Chase 2026-05-07). Categories Chase named that don't map exactly
-// to the catalog's display_category values are translated:
-//   "joint products" → "Joint Chiller" (only joint-related category)
-//   "Studio Products" → "Studio"
-// Lookup is case-insensitive; anything not in this list lands at the
-// bottom of the table in alpha order so catalog drift surfaces.
-const DISPLAY_CATEGORY_PRIORITY: ReadonlyArray<string> = [
-  "Pipes",
-  "Bubblers",
-  "Joint Chiller",
-  "Bongs",
-  "Dab Rigs",
-  "Studio",
-  "Ash Catchers",
-  "Bowls",
-  "Accessories",
-  "Coils",
-  "Bases",
-];
-const DISPLAY_CATEGORY_PRIORITY_INDEX: ReadonlyMap<string, number> = new Map(
-  DISPLAY_CATEGORY_PRIORITY.map((c, i) => [c.toLowerCase(), i]),
-);
-function displayCategoryRank(displayCategory: string | null | undefined): number {
-  if (!displayCategory) return DISPLAY_CATEGORY_PRIORITY.length + 1;
-  const idx = DISPLAY_CATEGORY_PRIORITY_INDEX.get(displayCategory.toLowerCase());
-  return idx === undefined ? DISPLAY_CATEGORY_PRIORITY.length + 1 : idx;
-}
+// Category priority + rank helper moved to src/lib/constants.ts so the
+// SKU Economics page can share the exact same sequence without drift.
 
 /** Hover popover showing which freight shipments make up a SKU's in-transit total */
 function TransitBreakdownPopover({
