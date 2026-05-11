@@ -357,14 +357,28 @@ export default function InventoryDashboard() {
     setEditMode(false);
   }
 
-  /** Compute per-field deltas from the current inventory state. */
+  /**
+   * Compute per-field deltas from the current inventory state.
+   *
+   * CRITICAL: only emit a delta for fields the operator actually touched
+   * (i.e. `edited[field] !== undefined`). The prior `?? 0` fallback was
+   * silently zeroing every bucket the operator didn't edit — a bong row
+   * with raw=100, prefilled_raw=20, in_production=5, other=2, where the
+   * operator only changed warehouse_finished, would have emitted FIVE
+   * adjustments trying to zero out the four untouched buckets. That data
+   * was getting clipped at the RPC layer (prefilled_raw wasn't in the
+   * field allow-list pre-2026-05-11-1, so the whole batch failed
+   * validation as "invalid_field"). With that allow-list patched, the
+   * spurious deltas would have committed.
+   */
   function computeAdjustments(): Array<{ skuId: string; field: CycleCountField; delta: number }> {
     const adjustments: Array<{ skuId: string; field: CycleCountField; delta: number }> = [];
     for (const [invId, edited] of Object.entries(editValues)) {
       const inv = inventory.find(i => i.id === invId);
       if (!inv) continue;
       for (const field of ["warehouse_raw", "warehouse_prefilled_raw", "warehouse_in_production", "warehouse_finished", "warehouse_other"] as CycleCountField[]) {
-        const newVal = edited[field] ?? 0;
+        const newVal = edited[field];
+        if (newVal === undefined) continue; // operator never touched this cell — leave it alone
         const oldVal = inv[field] as number;
         const delta = newVal - oldVal;
         if (delta !== 0) {
@@ -435,7 +449,14 @@ export default function InventoryDashboard() {
   }
 
   function getEditValue(invId: string, field: string) {
-    return editValues[invId]?.[field] ?? 0;
+    // If the operator has typed something in this cell, show that. Otherwise
+    // pre-populate with the row's current inventory level — showing "0" by
+    // default was misleading and made operators think buckets were empty
+    // when they weren't.
+    const edited = editValues[invId]?.[field];
+    if (edited !== undefined) return edited;
+    const inv = inventory.find(i => i.id === invId);
+    return ((inv?.[field as keyof typeof inv] as number | undefined) ?? 0);
   }
 
   function setEditFieldValue(invId: string, field: string, value: string) {
