@@ -840,7 +840,19 @@ export default function InventoryDashboard() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setSaveError(null)}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmSave} disabled={bulkCycleCount.isPending}>
+            {/* preventDefault on the click handler so Radix's AlertDialog
+                doesn't auto-close before the async save finishes. Without
+                this, a failed save would dismiss the dialog instantly and
+                the operator never sees the saveError message — looks like
+                a silent no-op. confirmSave is responsible for calling
+                setReasonDialogOpen(false) itself on success. */}
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmSave();
+              }}
+              disabled={bulkCycleCount.isPending}
+            >
               {bulkCycleCount.isPending ? "Saving…" : "Record adjustment"}
             </AlertDialogAction>
           </AlertDialogFooter>
