@@ -186,7 +186,7 @@ async function applyUpdate(shipment: Shipment, update: TrackingUpdate): Promise<
   overrideSkipped: boolean;
 }> {
   const reconciled = reconcile(shipment, update);
-  const etaChanged = reconciled.eta !== shipment.eta;
+  let etaChanged = reconciled.eta !== shipment.eta;
   const statusChanged = reconciled.status !== shipment.status;
   const overrideSkipped = !!shipment.status_overridden_at && statusChanged === false && reconciled.status !== shipment.status;
 
@@ -205,6 +205,32 @@ async function applyUpdate(shipment: Shipment, update: TrackingUpdate): Promise<
   };
   if (reconciled.status !== shipment.status) {
     patch.status = reconciled.status;
+  }
+
+  // Constraint guard: chk_freight_eta_after_ship in the schema requires
+  // eta >= ship_date. The carrier sometimes returns an ETA earlier than
+  // our recorded ship_date — usually because ship_date was entered as a
+  // forecast / label-creation date and the carrier actually picked up
+  // earlier than expected. Without this guard the whole update fails
+  // with a 23514 and the reconciler surfaces an error toast.
+  //
+  // Behavior: if the new eta would violate the constraint, drop the
+  // eta change from the patch (leave the existing eta untouched) but
+  // still let everything else through — including a status change,
+  // which is the more important signal. We log to console.warn so the
+  // anomaly is visible in the Supabase function logs without becoming
+  // a user-facing error.
+  if (
+    patch.eta &&
+    shipment.ship_date &&
+    patch.eta < shipment.ship_date
+  ) {
+    console.warn(
+      `[${shipment.shipment_number}] Carrier ETA ${patch.eta} predates ship_date ${shipment.ship_date}; skipping ETA update to satisfy chk_freight_eta_after_ship. Operator may want to verify the ship_date in the UI.`,
+    );
+    delete patch.eta;
+    delete patch.eta_original;
+    etaChanged = false;
   }
 
   const { error: updateErr } = await supabase
