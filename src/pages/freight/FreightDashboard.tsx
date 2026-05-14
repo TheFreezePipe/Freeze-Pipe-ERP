@@ -24,10 +24,10 @@ import { StatusSelectWithOverride } from "@/components/freight/StatusSelectWithO
 import { ShipmentTrackingWorker, useRefreshAllTracking } from "@/lib/tracking/use-shipment-tracking";
 import { getCarrierTrackingUrl } from "@/lib/tracking/carrier-urls";
 import { useToast } from "@/hooks/use-toast";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { format, differenceInDays, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
-import { useUrlFilter, useUrlBoolFilter } from "@/lib/use-url-filter";
+import { useUrlFilter } from "@/lib/use-url-filter";
 import {
   useFreightShipments,
   useFreightLineItems,
@@ -37,12 +37,25 @@ import {
 import type { FreightShipment } from "@/types/database";
 import { useAuth } from "@/lib/auth-context";
 
-const DELIVERED_PREVIEW_COUNT = 5;
+// Delivered shipments visibility:
+//   * Receipt-confirmed deliveries within the last RECENT_DELIVERY_DAYS
+//     are always visible (operators are still likely to be cycle-counting
+//     against them or referencing them for any inbound discrepancies).
+//   * Older receipt-confirmed deliveries are hidden by default. A button
+//     reveals them in batches of REVEAL_BATCH_SIZE, most-recent-first;
+//     each subsequent click of "Show more" reveals another batch.
+const RECENT_DELIVERY_DAYS = 3;
+const REVEAL_BATCH_SIZE = 20;
 
 export default function FreightDashboard() {
   const navigate = useNavigate();
   const [filter, setFilter] = useUrlFilter<"all" | "sea" | "air" | "high_risk">("filter", "all");
-  const [showAllDelivered, setShowAllDelivered] = useUrlBoolFilter("all_delivered", false);
+  // Number of "older than RECENT_DELIVERY_DAYS" deliveries currently
+  // revealed past the default. Starts at 0 (all old ones hidden); each
+  // "Show N more" click adds REVEAL_BATCH_SIZE. Resets on page refresh
+  // by design — the default state of "recent only" is the right landing
+  // view; a freshly-loaded page shouldn't carry over a previous deep dive.
+  const [revealedOlderCount, setRevealedOlderCount] = useState(0);
 
   const { data: freight = [], isLoading } = useFreightShipments();
   const { data: freightLineItems = [] } = useFreightLineItems();
@@ -148,11 +161,38 @@ export default function FreightDashboard() {
         return b.actual_arrival_date.localeCompare(a.actual_arrival_date);
       });
 
-    const visibleDelivered = showAllDelivered ? delivered : delivered.slice(0, DELIVERED_PREVIEW_COUNT);
-    const hasMoreDelivered = delivered.length > DELIVERED_PREVIEW_COUNT;
+    // Split into recent (visible always) and older (hidden by default,
+    // revealed in batches via the "Show N more" button). Cutoff is
+    // RECENT_DELIVERY_DAYS calendar days back from today, evaluated at
+    // midnight UTC to avoid intra-day boundary flakiness.
+    const cutoff = new Date();
+    cutoff.setUTCDate(cutoff.getUTCDate() - RECENT_DELIVERY_DAYS);
+    const cutoffIso = cutoff.toISOString().slice(0, 10);
+    const recentDelivered: FreightShipment[] = [];
+    const olderDelivered: FreightShipment[] = [];
+    for (const f of delivered) {
+      // Sort key was actual_arrival_date; group by the same field.
+      // Missing dates fall to the older bucket (defensive — these
+      // shouldn't exist for receipt_confirmed_at-set rows).
+      if (f.actual_arrival_date && f.actual_arrival_date >= cutoffIso) {
+        recentDelivered.push(f);
+      } else {
+        olderDelivered.push(f);
+      }
+    }
+    const revealedOlder = olderDelivered.slice(0, revealedOlderCount);
+    const visibleDelivered = [...recentDelivered, ...revealedOlder];
+    const remainingOlder = olderDelivered.length - revealedOlder.length;
 
-    return { pendingReceipt, inTransit, delivered: visibleDelivered, hasMoreDelivered, totalDelivered: delivered.length };
-  }, [filter, showAllDelivered, freight]);
+    return {
+      pendingReceipt,
+      inTransit,
+      delivered: visibleDelivered,
+      remainingOlder,
+      totalOlderHidden: olderDelivered.length,
+      totalDelivered: delivered.length,
+    };
+  }, [filter, revealedOlderCount, freight]);
 
   // Pre-bucket line items by shipment so each card render is O(1) instead
   // of a fresh filter pass.
@@ -286,15 +326,24 @@ export default function FreightDashboard() {
             />
           ))}
 
-          {sortedFreight.hasMoreDelivered && !showAllDelivered && (
+          {/* Reveal-more button — sized one batch at a time so a long
+              delivered history doesn't dump a massive list into the DOM
+              when the user just wants to peek. Button text reflects the
+              two states: nothing-revealed-yet (show first batch) vs
+              some-revealed (show next batch). */}
+          {sortedFreight.remainingOlder > 0 && (
             <div className="flex justify-center pt-2">
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setShowAllDelivered(true)}
+                onClick={() =>
+                  setRevealedOlderCount((n) => n + REVEAL_BATCH_SIZE)
+                }
                 className="text-xs text-muted-foreground"
               >
-                See {sortedFreight.totalDelivered - DELIVERED_PREVIEW_COUNT} more delivered
+                {revealedOlderCount === 0
+                  ? `Show ${Math.min(REVEAL_BATCH_SIZE, sortedFreight.totalOlderHidden)} hidden delivered (${sortedFreight.totalOlderHidden} older than ${RECENT_DELIVERY_DAYS} days)`
+                  : `Show ${Math.min(REVEAL_BATCH_SIZE, sortedFreight.remainingOlder)} more (${sortedFreight.remainingOlder} remaining)`}
                 <ChevronDown className="ml-1 h-3 w-3" />
               </Button>
             </div>
