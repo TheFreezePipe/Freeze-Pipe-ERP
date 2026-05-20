@@ -7,7 +7,7 @@ export type TaskLogWithDetails = TaskLog & {
   employee: Pick<Profile, "id" | "full_name" | "email">;
 };
 
-export function useTaskLogs(limit = 20000) {
+export function useTaskLogs(limit = 50000) {
   return useQuery({
     queryKey: ["task-logs", limit],
     queryFn: async () => {
