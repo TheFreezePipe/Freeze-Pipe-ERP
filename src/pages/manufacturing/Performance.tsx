@@ -38,7 +38,11 @@ import { SKUInsights } from "@/components/manufacturing/SKUInsights";
 export default function Performance() {
   const [searchParams, setSearchParams] = useSearchParams();
   const range: DateRange = useMemo(() => rangeFromSearchParams(searchParams), [searchParams]);
-  const { data: taskLogs = [] } = useTaskLogs(1000);
+  // Use the hook's default limit (5000) so the entire post-import
+  // history is fetched, not a recent slice. The page filters down by
+  // DateRange in-memory below; the hook just needs to deliver enough
+  // raw rows for that filter to find matches across arbitrary ranges.
+  const { data: taskLogs = [] } = useTaskLogs();
 
   function setRange(next: DateRange) {
     const sp = rangeToSearchParams(next);
