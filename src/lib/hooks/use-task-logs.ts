@@ -7,7 +7,7 @@ export type TaskLogWithDetails = TaskLog & {
   employee: Pick<Profile, "id" | "full_name" | "email">;
 };
 
-export function useTaskLogs(limit = 5000) {
+export function useTaskLogs(limit = 20000) {
   return useQuery({
     queryKey: ["task-logs", limit],
     queryFn: async () => {
@@ -20,13 +20,30 @@ export function useTaskLogs(limit = 5000) {
       // time_completed sort preserves the actual chronology. Falls
       // back to created_at when time_completed is null (rare; would
       // mean an in-progress task that never finished).
-      const { data, error } = await supabase
-        .from("task_logs")
-        .select("*, product:product_skus(*), employee:profiles(id, full_name, email)")
-        .order("time_completed", { ascending: false, nullsFirst: false })
-        .limit(limit);
-      if (error) throw error;
-      return data as TaskLogWithDetails[];
+      //
+      // PAGINATION: Supabase's PostgREST has a server-side
+      // `db.max-rows = 1000` cap that silently truncates any single
+      // response. Asking for `limit(5000)` returns 1000 rows and the
+      // operator never knows. We page through with .range() until we
+      // either fill the requested limit or exhaust the table, then
+      // concat. PAGE_SIZE = 1000 matches the server cap so we never
+      // make a wasted request asking for more than will arrive.
+      const PAGE_SIZE = 1000;
+      const all: TaskLogWithDetails[] = [];
+      for (let offset = 0; offset < limit; offset += PAGE_SIZE) {
+        const upper = Math.min(offset + PAGE_SIZE - 1, limit - 1);
+        const { data, error } = await supabase
+          .from("task_logs")
+          .select("*, product:product_skus(*), employee:profiles(id, full_name, email)")
+          .order("time_completed", { ascending: false, nullsFirst: false })
+          .range(offset, upper);
+        if (error) throw error;
+        const chunk = (data ?? []) as TaskLogWithDetails[];
+        all.push(...chunk);
+        // Short chunk -> end of table, no need to ask for more.
+        if (chunk.length < (upper - offset + 1)) break;
+      }
+      return all;
     },
     staleTime: 60 * 1000,
   });
