@@ -7,14 +7,23 @@ export type TaskLogWithDetails = TaskLog & {
   employee: Pick<Profile, "id" | "full_name" | "email">;
 };
 
-export function useTaskLogs(limit = 200) {
+export function useTaskLogs(limit = 5000) {
   return useQuery({
     queryKey: ["task-logs", limit],
     queryFn: async () => {
+      // Order by time_completed (when the work was actually done) rather
+      // than created_at (when the DB row was inserted). This matters
+      // most for back-filled historical data: an import lands all rows
+      // with the same created_at but each row carries its real
+      // time_completed from the source system, so created_at sort
+      // would lump the entire import together at "import day" while
+      // time_completed sort preserves the actual chronology. Falls
+      // back to created_at when time_completed is null (rare; would
+      // mean an in-progress task that never finished).
       const { data, error } = await supabase
         .from("task_logs")
         .select("*, product:product_skus(*), employee:profiles(id, full_name, email)")
-        .order("created_at", { ascending: false })
+        .order("time_completed", { ascending: false, nullsFirst: false })
         .limit(limit);
       if (error) throw error;
       return data as TaskLogWithDetails[];
