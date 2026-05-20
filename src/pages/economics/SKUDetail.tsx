@@ -243,6 +243,54 @@ export default function SKUDetail() {
     }
   }
 
+  // Master carton qty — admin/manager inline edit. Same pencil pattern
+  // as retail price. Carton qty affects how freight cost-per-unit rolls
+  // up (units = cartons × qty/ctn), so an incorrect value here propagates
+  // into per-unit landed cost calculations. Surfaced and editable on the
+  // detail page so it can be corrected as soon as someone notices.
+  const [editingCarton, setEditingCarton] = useState(false);
+  const [cartonDraft, setCartonDraft] = useState("");
+  const [cartonError, setCartonError] = useState<string | null>(null);
+
+  function startCartonEdit() {
+    setCartonDraft(product?.standard_quantity_per_carton?.toString() ?? "");
+    setEditingCarton(true);
+    setCartonError(null);
+  }
+  function cancelCartonEdit() {
+    setEditingCarton(false);
+    setCartonDraft("");
+    setCartonError(null);
+  }
+  async function saveCartonEdit() {
+    if (!product) return;
+    setCartonError(null);
+    const trimmed = cartonDraft.trim();
+    if (trimmed === "") {
+      setCartonError("Carton qty is required");
+      return;
+    }
+    const next = parseInt(trimmed, 10);
+    if (!Number.isFinite(next) || next < 1) {
+      setCartonError("Must be a positive whole number");
+      return;
+    }
+    if (next === product.standard_quantity_per_carton) {
+      setEditingCarton(false);
+      return;
+    }
+    try {
+      await updateProduct.mutateAsync({
+        id: product.id,
+        updates: { standard_quantity_per_carton: next },
+      });
+      setEditingCarton(false);
+      setCartonDraft("");
+    } catch (err) {
+      setCartonError(err instanceof Error ? err.message : "Failed to save carton qty");
+    }
+  }
+
   // Category toggle (fillable ↔ non_fillable). Same pencil-on-hover
   // affordance as retail price, but the editor is a 2-button radio
   // since there are only two valid values. Persisted via useUpdateProduct.
@@ -767,6 +815,50 @@ export default function SKUDetail() {
                 title="Click to edit retail price"
               >
                 ${product.retail_price.toFixed(2)}
+                <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </button>
+            )}
+            {/* Master carton qty — same inline-edit pattern as retail.
+                Surfaced in the header so an incorrect value (which
+                propagates into freight cost-per-unit math) is visible
+                and correctable from the page operators already use. */}
+            {editingCarton ? (
+              <div className="flex items-center gap-1">
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={cartonDraft}
+                  onChange={(e) => setCartonDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveCartonEdit();
+                    if (e.key === "Escape") cancelCartonEdit();
+                  }}
+                  autoFocus
+                  className="h-7 text-xs w-20 tabular-nums"
+                  disabled={updateProduct.isPending}
+                />
+                <span className="text-xs text-muted-foreground">/ctn</span>
+                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={saveCartonEdit} disabled={updateProduct.isPending} title="Save (Enter)">
+                  <Check className="h-3.5 w-3.5 text-green-400" />
+                </Button>
+                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={cancelCartonEdit} disabled={updateProduct.isPending} title="Cancel (Escape)">
+                  <X className="h-3.5 w-3.5 text-muted-foreground" />
+                </Button>
+                {cartonError && (
+                  <span className="text-[11px] text-red-400 ml-1" title={cartonError}>
+                    {cartonError}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={startCartonEdit}
+                className="group inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground tabular-nums"
+                title="Click to edit master carton qty"
+              >
+                {product.standard_quantity_per_carton ?? "—"}/ctn
                 <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
               </button>
             )}
