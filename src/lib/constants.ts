@@ -45,6 +45,11 @@ export const FREIGHT_STATUSES = {
   high_risk: { label: "High Risk", color: "text-red-400", bgColor: "bg-red-400/10" },
   cleared_customs: { label: "Cleared Customs", color: "text-yellow-400", bgColor: "bg-yellow-400/10" },
   tracking: { label: "Tracking", color: "text-cyan-400", bgColor: "bg-cyan-400/10" },
+  // Out for Delivery — carrier has handed the package to a driver for
+  // final delivery. Sits between tracking (in motion at a facility)
+  // and delivered (in operator's hands). Set automatically by
+  // tracking-reconcile when the carrier flips its own status.
+  out_for_delivery: { label: "Out for Delivery", color: "text-blue-400", bgColor: "bg-blue-400/10" },
   delivered: { label: "Delivered", color: "text-green-400", bgColor: "bg-green-400/10" },
 } as const;
 

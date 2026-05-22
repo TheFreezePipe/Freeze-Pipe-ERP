@@ -129,10 +129,13 @@ export default function FreightDashboard() {
     // prefixed numbers that aren't pure-digit.
     const STATUS_TIER: Record<string, number> = {
       high_risk: 0,
-      tracking: 1,
-      cleared_customs: 2,
-      on_the_water: 3,
-      pending: 4,
+      // out_for_delivery beats tracking because the package is literally
+      // on a truck for the operator — most actionable non-emergency state.
+      out_for_delivery: 1,
+      tracking: 2,
+      cleared_customs: 3,
+      on_the_water: 4,
+      pending: 5,
     };
     function cmpShipmentNumber(a: string | null, b: string | null): number {
       if (!a) return 1;

@@ -263,7 +263,13 @@ export default function FreightNew() {
         shipment: {
           shipment_number: shipmentNumber,
           freight_type: freightType,
-          status: "on_the_water",
+          // Pending until a tracking number is on the shipment. With
+          // tracking present at creation, jump straight to on_the_water.
+          // A DB trigger (auto_promote_pending_on_tracking) also covers
+          // the later-add case so admin inline-edits or scripts promote
+          // automatically — this duplication keeps the create-with-tracking
+          // path from going through a pending blink.
+          status: trackingNumber.trim() ? "on_the_water" : "pending",
           carrier_name: carrierName || null,
           broker_name: null,
           forwarder_code: forwarderCode || null,

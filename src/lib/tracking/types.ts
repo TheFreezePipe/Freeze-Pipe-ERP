@@ -47,6 +47,7 @@ export interface ReconciledEta {
     | "high_risk"
     | "cleared_customs"
     | "tracking"
+    | "out_for_delivery"
     | "delivered";
 }
 

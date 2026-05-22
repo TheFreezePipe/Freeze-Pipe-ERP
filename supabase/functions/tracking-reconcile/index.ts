@@ -51,7 +51,7 @@ const SYSTEM_ACTOR_ID = "00000000-0000-0000-0000-000000000001";
 // Types (mirrored from src/lib/tracking/types.ts)
 // -----------------------------------------------------------------------------
 type TrackingStatus = "not_received" | "in_transit" | "out_for_delivery" | "delivered";
-type FreightStatus = "on_the_water" | "high_risk" | "cleared_customs" | "tracking" | "delivered";
+type FreightStatus = "pending" | "on_the_water" | "high_risk" | "cleared_customs" | "tracking" | "out_for_delivery" | "delivered";
 
 interface TrackingUpdate {
   status: TrackingStatus;
@@ -305,10 +305,23 @@ function reconcile(shipment: Shipment, update: TrackingUpdate): {
       actualArrival = update.deliveredAt ?? today;
       if (!isOverridden) newStatus = "delivered";
       break;
-    case "in_transit":
     case "out_for_delivery":
+      // Carrier has the package on a delivery vehicle. Distinct from
+      // generic "in transit" because the receiving team wants to know
+      // a delivery is incoming TODAY, for prep + dock planning.
       if (update.carrierEta) newEta = update.carrierEta;
-      if (!isOverridden && shipment.status !== "delivered") newStatus = "tracking";
+      if (!isOverridden && shipment.status !== "delivered") {
+        newStatus = "out_for_delivery";
+      }
+      break;
+    case "in_transit":
+      if (update.carrierEta) newEta = update.carrierEta;
+      if (!isOverridden && shipment.status !== "delivered" && shipment.status !== "out_for_delivery") {
+        // Don't regress out_for_delivery back to tracking if a later
+        // scan event reports a generic in_transit status — that would
+        // be a false demotion.
+        newStatus = "tracking";
+      }
       break;
     case "not_received": {
       const daysUntil = diffDays(etaOriginal, today);

@@ -46,6 +46,7 @@ import type { FreightLineItemWithProduct } from "@/lib/hooks";
  * dot to make the binary "tracking yet or not?" answer visible at a glance.
  */
 const FREIGHT_STATUS_PILL: Record<string, { label: string; dot: string; text: string }> = {
+  out_for_delivery:{ label: "Out for delivery", dot: "bg-emerald-400", text: "text-emerald-300" },
   tracking:        { label: "Tracking",        dot: "bg-green-400", text: "text-green-300" },
   cleared_customs: { label: "Customs cleared", dot: "bg-cyan-400",  text: "text-cyan-300" },
   on_the_water:    { label: "On the water",    dot: "bg-blue-400",  text: "text-blue-300" },

@@ -9,6 +9,7 @@ type ShipmentStatus =
   | "high_risk"
   | "cleared_customs"
   | "tracking"
+  | "out_for_delivery"
   | "delivered";
 
 /** How many days before arrival a carrier is expected to have the shipment in its system. */
@@ -74,16 +75,32 @@ export function reconcileEta(shipment: FreightShipment, update: TrackingUpdate):
       }
       break;
     }
-    case "in_transit":
     case "out_for_delivery": {
+      // Carrier has the package on a delivery vehicle. Distinct from
+      // generic in_transit because the receiving team wants the "incoming
+      // today" signal for dock prep. Won't regress an already-delivered
+      // shipment; doesn't fire when a manual override is active.
+      if (update.carrierEta) {
+        newEta = update.carrierEta;
+      }
+      if (!isManuallyOverridden && shipment.status !== "delivered") {
+        newStatus = "out_for_delivery";
+      }
+      break;
+    }
+    case "in_transit": {
       if (update.carrierEta) {
         newEta = update.carrierEta;
       }
       // Auto-advance to "tracking" when the carrier confirms receipt and is
-      // actively moving the package. Manual overrides block this. (high_risk
-      // gets blocked too, since users set high_risk via the manual override
-      // flow which sets `status_overridden_at`.)
-      if (!isManuallyOverridden && shipment.status !== "delivered") {
+      // actively moving the package. Manual overrides block this. Don't
+      // regress out_for_delivery → tracking if a later in-transit scan
+      // arrives — that would falsely demote a hot shipment.
+      if (
+        !isManuallyOverridden
+        && shipment.status !== "delivered"
+        && shipment.status !== "out_for_delivery"
+      ) {
         newStatus = "tracking";
       }
       break;

@@ -20,6 +20,7 @@ const TIMELINE_STEPS: { status: FreightStatus; label: string }[] = [
   { status: "on_the_water", label: "On the Water" },
   { status: "cleared_customs", label: "Cleared Customs" },
   { status: "tracking", label: "Tracking" },
+  { status: "out_for_delivery", label: "Out for Delivery" },
   { status: "delivered", label: "Delivered" },
 ];
 
@@ -182,7 +183,7 @@ export default function FreightDetail() {
   const typeInfo = FREIGHT_TYPES[shipment.freight_type as keyof typeof FREIGHT_TYPES];
   const isHighRisk = shipment.status === "high_risk";
 
-  const statusOrder: FreightStatus[] = ["on_the_water", "cleared_customs", "tracking", "delivered"];
+  const statusOrder: FreightStatus[] = ["on_the_water", "cleared_customs", "tracking", "out_for_delivery", "delivered"];
   const currentIndex = isHighRisk ? 0 : statusOrder.indexOf(shipment.status as FreightStatus);
 
   const totalCostLineItems = lineItemsRaw.reduce((s, li) => s + (li.unit_cost ?? 0) * li.quantity, 0);
