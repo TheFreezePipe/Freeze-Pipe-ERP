@@ -37,7 +37,18 @@ export default function ManufacturingDashboard() {
 
   const pipelineRows = useMemo(() => {
     return inventory
-      .filter(inv => inv.product?.category === "fillable")
+      // Fillable SKUs only — the manufacturing pipeline is about
+      // filling/finishing work, which non-fillable products skip.
+      // Coils are excluded too: technically fillable (they hold
+      // glycerin and need to be processed) but they're sold as spare
+      // / replacement parts and managed on a separate replenishment
+      // cadence, not by daily manufacturing prioritization. Including
+      // them dominated the urgency list with low-volume coil SKUs
+      // and pushed the more actionable bong/pipe rows down.
+      .filter(inv =>
+        inv.product?.category === "fillable"
+        && inv.product?.display_category !== "Coils"
+      )
       .map(inv => {
         const product = inv.product;
         const prefilledRaw = inv.warehouse_prefilled_raw ?? 0;
