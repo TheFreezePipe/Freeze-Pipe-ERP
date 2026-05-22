@@ -106,20 +106,18 @@ export default function Performance() {
           icon={Boxes}
           iconColor="text-orange-400"
         />
+        {/* Avg Tasks / Hr — disabled pending the Homebase API integration.
+            The aggregate code can compute a fallback from task time-spans,
+            but that estimate isn't trustworthy enough to display as an
+            operational metric. Greyed out until labor hours flow from the
+            real time-clock source. */}
         <StatCard
           title="Avg Tasks / Hr"
-          value={kpis.avgTasksPerHour > 0 ? kpis.avgTasksPerHour.toFixed(2) : "-"}
-          subtitle={
-            kpis.totalLaborHours > 0
-              ? `${kpis.totalLaborHours.toFixed(1)}h · ${
-                  kpis.laborHoursSource === "homebase" ? "Homebase" :
-                  kpis.laborHoursSource === "mixed" ? "Homebase + task time" :
-                  "Task time"
-                }`
-              : "No labor hours"
-          }
+          value="—"
+          subtitle="Awaiting Homebase API integration"
           icon={Gauge}
           iconColor="text-purple-400"
+          disabled
         />
       </div>
 

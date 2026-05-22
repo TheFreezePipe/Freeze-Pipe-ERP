@@ -48,7 +48,12 @@ export function TeamLeaderboard({ summaries, rangeLabel }: Props) {
                 <th className="px-3 py-2">Team Member</th>
                 <th className="px-3 py-2 text-right">Items Processed</th>
                 <th className="px-3 py-2 text-right">Tasks</th>
-                <th className="px-3 py-2 text-right">Tasks/Hr</th>
+                <th
+                  className="px-3 py-2 text-right text-muted-foreground/40"
+                  title="Awaiting Homebase API integration"
+                >
+                  Tasks/Hr
+                </th>
                 <th className="px-4 py-2">Task Types</th>
               </tr>
             </thead>
@@ -62,17 +67,17 @@ export function TeamLeaderboard({ summaries, rangeLabel }: Props) {
                   <td className="px-4 py-3 text-muted-foreground tabular-nums">#{i + 1}</td>
                   <td className="px-3 py-3">
                     <p className="font-medium">{s.employeeName}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {s.laborHours.toFixed(1)}h
-                      <span className="ml-1 text-muted-foreground/60">
-                        ({s.laborHoursSource === "homebase" ? "Homebase" : "task time"})
-                      </span>
-                    </p>
+                    {/* Labor hours subtitle hidden until Homebase API is
+                        wired up — task-time fallback isn't accurate
+                        enough to display. */}
                   </td>
                   <td className="px-3 py-3 text-right tabular-nums font-semibold">{s.itemsProcessed.toLocaleString()}</td>
                   <td className="px-3 py-3 text-right tabular-nums">{s.totalTasks}</td>
-                  <td className="px-3 py-3 text-right tabular-nums">
-                    {s.tasksPerHour > 0 ? s.tasksPerHour.toFixed(2) : <span className="text-muted-foreground/50">-</span>}
+                  <td
+                    className="px-3 py-3 text-right tabular-nums text-muted-foreground/40 italic"
+                    title="Awaiting Homebase API integration"
+                  >
+                    —
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-1">
@@ -135,12 +140,25 @@ function EmployeeDetailDialog({ summary, onClose, rangeLabel }: DialogProps) {
           <p className="text-xs text-muted-foreground">{rangeLabel}</p>
         </DialogHeader>
 
-        {/* Overview stats */}
+        {/* Overview stats — Labor Hours + Tasks/Hr are greyed pending
+            Homebase API integration. The aggregate code computes a
+            fallback from task spans but that estimate isn't reliable
+            enough to display as a metric. */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
           <Stat label="Items Processed" value={summary.itemsProcessed.toLocaleString()} />
           <Stat label="Tasks" value={summary.totalTasks.toString()} />
-          <Stat label="Labor Hours" value={`${summary.laborHours.toFixed(1)}h`} sub={summary.laborHoursSource === "homebase" ? "Homebase" : "Task time"} />
-          <Stat label="Tasks / Hr" value={summary.tasksPerHour > 0 ? summary.tasksPerHour.toFixed(2) : "-"} />
+          <Stat
+            label="Labor Hours"
+            value="—"
+            sub="Awaiting Homebase API"
+            disabled
+          />
+          <Stat
+            label="Tasks / Hr"
+            value="—"
+            sub="Awaiting Homebase API"
+            disabled
+          />
         </div>
 
         {/* Tasks table */}
@@ -227,12 +245,20 @@ function EmployeeDetailDialog({ summary, onClose, rangeLabel }: DialogProps) {
   );
 }
 
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function Stat({ label, value, sub, disabled }: { label: string; value: string; sub?: string; disabled?: boolean }) {
   return (
-    <div className="rounded-md border border-border/60 bg-muted/30 p-2">
+    <div
+      className={`rounded-md border border-border/60 bg-muted/30 p-2 ${disabled ? "opacity-50" : ""}`}
+      title={disabled ? "This metric is awaiting a data source — not yet operational" : undefined}
+    >
       <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className="text-lg font-bold tabular-nums">{value}</p>
-      {sub && <p className="text-[10px] text-muted-foreground/70 flex items-center justify-center gap-1"><Clock className="h-2.5 w-2.5" />{sub}</p>}
+      <p className={`text-lg font-bold tabular-nums ${disabled ? "text-muted-foreground" : ""}`}>{value}</p>
+      {sub && (
+        <p className={`text-[10px] text-muted-foreground/70 flex items-center justify-center gap-1 ${disabled ? "italic" : ""}`}>
+          <Clock className="h-2.5 w-2.5" />
+          {sub}
+        </p>
+      )}
     </div>
   );
 }
