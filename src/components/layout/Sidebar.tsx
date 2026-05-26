@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useAuth, type UserRole } from "@/lib/auth-context";
+import { useShouldShowMaterialsFeature } from "@/lib/feature-flags";
 import {
   LayoutDashboard,
   Factory,
@@ -17,6 +18,7 @@ import {
   ClipboardList,
   PackageOpen,
   Building2,
+  Beaker,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -58,6 +60,10 @@ const navGroups: NavGroup[] = [
   {
     label: "Inventory",
     items: [
+      // Materials — feature-flagged. Listed first per spec ("tab above
+      // Stock Levels"). Removed from the rendered list for users who
+      // aren't in the feature-flag allow-list (see render logic below).
+      { to: "/inventory/materials", label: "Materials", icon: Beaker, roles: ["admin", "manager"] },
       { to: "/inventory", label: "Stock Levels", icon: Package, roles: ["admin", "manager"] },
       { to: "/inventory/factory-orders", label: "Factory Orders", icon: Truck, roles: ["admin", "manager"] },
       // Quality Issues shelved out of scope. Route + page + RPCs remain wired
@@ -99,6 +105,9 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse, onNavClick
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const collapsed = controlledCollapsed ?? internalCollapsed;
   const { role } = useAuth();
+  // Feature flags. When a flagged feature is released, delete the
+  // hook call + the filter rule below + the import.
+  const showMaterials = useShouldShowMaterialsFeature();
 
   function handleCollapse() {
     const next = !collapsed;
@@ -106,11 +115,17 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse, onNavClick
     onCollapse?.(next);
   }
 
-  // Filter nav groups based on user role
+  // Filter nav groups based on user role + per-feature flags
   const filteredGroups = navGroups
     .map(group => ({
       ...group,
-      items: group.items.filter(item => item.roles.includes(role)),
+      items: group.items.filter(item => {
+        if (!item.roles.includes(role)) return false;
+        // Feature-flag gate: hide Materials tab for everyone except
+        // the allow-listed user during development.
+        if (item.to === "/inventory/materials" && !showMaterials) return false;
+        return true;
+      }),
     }))
     .filter(group => group.items.length > 0);
 

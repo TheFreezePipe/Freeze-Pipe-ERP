@@ -11,3 +11,4 @@ export * from "./use-supplier-portal";
 export * from "./use-suppliers";
 export * from "./use-sku-economics";
 export * from "./use-shipstation-aliases";
+export * from "./use-materials";

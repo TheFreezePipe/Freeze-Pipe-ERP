@@ -21,6 +21,10 @@ import InventoryDashboard from "@/pages/inventory/InventoryDashboard";
 import FactoryOrders from "@/pages/inventory/FactoryOrders";
 import AdminFactoryOrderDetail from "@/pages/inventory/FactoryOrderDetail";
 import QualityIssues from "@/pages/inventory/QualityIssues";
+// Feature-flagged page — Materials catalog. Visible only to Chase
+// during development. Drop the import + route block + sidebar entry
+// to remove access entirely.
+import MaterialsList from "@/pages/inventory/MaterialsList";
 import SKUList from "@/pages/economics/SKUList";
 import SKUDetail from "@/pages/economics/SKUDetail";
 import SuppliersList from "@/pages/economics/SuppliersList";
@@ -131,6 +135,15 @@ export default function App() {
               } />
 
               {/* Inventory - admin & manager only */}
+              {/* Materials catalog — feature-flagged inside the page
+                  itself (only Chase's UUID renders content; others see
+                  an "unavailable" placeholder). Listed before the
+                  /inventory route so a URL-typed visit lands cleanly. */}
+              <Route path="/inventory/materials" element={
+                <RequireRole allowed={["admin", "manager"]}>
+                  <MaterialsList />
+                </RequireRole>
+              } />
               <Route path="/inventory" element={
                 <RequireRole allowed={["admin", "manager"]}>
                   <InventoryDashboard />

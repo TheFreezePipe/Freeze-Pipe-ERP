@@ -129,6 +129,37 @@ export function displayCategoryRank(
   return idx === undefined ? DISPLAY_CATEGORY_PRIORITY.length + 1 : idx;
 }
 
+// Material categories — consumables tracking (migration
+// 20260526000001_materials_consumables_tracking). Distinct taxonomy
+// from DISPLAY_CATEGORIES above; materials are non-sellable inputs
+// (glycerin, caps, boxes, etc.) and don't share the sellable-product
+// hierarchy. Priority order reflects operational urgency: things that
+// block production (Filling Materials, Caps) before things that block
+// fulfillment (Packaging).
+export const MATERIAL_CATEGORIES = [
+  "Filling Materials",
+  "Caps",
+  "Packaging",
+  "Other",
+] as const;
+
+export type MaterialCategory = (typeof MATERIAL_CATEGORIES)[number];
+
+const MATERIAL_CATEGORY_PRIORITY_INDEX: ReadonlyMap<string, number> = new Map(
+  MATERIAL_CATEGORIES.map((c, i) => [c.toLowerCase(), i]),
+);
+
+/**
+ * Sort key for ordering material rows by operational priority. Unknown
+ * categories return a value past the end so they sort to the bottom
+ * (same convention as displayCategoryRank for SKUs).
+ */
+export function materialCategoryRank(category: string | null | undefined): number {
+  if (!category) return MATERIAL_CATEGORIES.length + 1;
+  const idx = MATERIAL_CATEGORY_PRIORITY_INDEX.get(category.toLowerCase());
+  return idx === undefined ? MATERIAL_CATEGORIES.length + 1 : idx;
+}
+
 // FACTORIES / Factory type retired when the hardcoded nancy/yx enum was
 // replaced by the suppliers table (migration 017+). If you need a label for
 // a supplier, look it up on the suppliers row directly.
