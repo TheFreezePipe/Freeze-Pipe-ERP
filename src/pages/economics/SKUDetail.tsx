@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, EyeOff, Eye, Plus, Trash2, Star, StarOff, Pencil, Check, X, Tag } from "lucide-react";
+import { ArrowLeft, EyeOff, Eye, Plus, Trash2, Star, StarOff, Pencil, Check, X, Tag, Beaker } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useState, useMemo, useEffect, useRef } from "react";
 import {
@@ -29,7 +29,12 @@ import {
   useSkuAliases,
   useRegisterSkuAlias,
   useUnregisterSkuAlias,
+  useMaterials,
+  useSkuMaterialConsumption,
+  useUpsertSkuMaterialConsumption,
+  useDeleteSkuMaterialConsumption,
 } from "@/lib/hooks";
+import { useShouldShowMaterialsFeature } from "@/lib/feature-flags";
 import { DEFAULT_CC_FEE_RATE } from "@/lib/inventory-math";
 
 const COLORS = ["hsl(205,94%,56%)", "hsl(142,71%,45%)", "hsl(31,97%,56%)", "hsl(270,67%,56%)"];
@@ -317,6 +322,17 @@ export default function SKUDetail() {
   // or remove a stale one. Hooks are admin/manager gated server-side via
   // SECURITY DEFINER, plus the SELECT policy restricts reads to the same
   // roles, so non-elevated users won't even see the section.
+  // Materials recipe — feature-flagged. Only renders if Chase sees the
+  // Materials feature. When the feature graduates, drop the flag check.
+  const showMaterials = useShouldShowMaterialsFeature();
+  const materialsQ = useMaterials();
+  const recipesQ = useSkuMaterialConsumption(showMaterials ? (skuId ?? null) : null);
+  const upsertRecipe = useUpsertSkuMaterialConsumption();
+  const deleteRecipe = useDeleteSkuMaterialConsumption();
+  const [newRecipeMaterialId, setNewRecipeMaterialId] = useState<string>("");
+  const [newRecipeQty, setNewRecipeQty] = useState<string>("");
+  const [recipeError, setRecipeError] = useState<string | null>(null);
+
   const aliasesQ = useSkuAliases(skuId ?? null);
   const registerAlias = useRegisterSkuAlias();
   const unregisterAlias = useUnregisterSkuAlias();
@@ -649,6 +665,65 @@ export default function SKUDetail() {
       );
     } catch (err) {
       setAliasError(err instanceof Error ? err.message : "Failed to remove alias");
+    }
+  }
+
+  // --- Materials recipe handlers ---
+  async function handleAddRecipe() {
+    if (!skuId) return;
+    setRecipeError(null);
+    if (!newRecipeMaterialId) {
+      setRecipeError("Pick a material");
+      return;
+    }
+    const qty = parseFloat(newRecipeQty);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      setRecipeError("Quantity per unit must be a positive number");
+      return;
+    }
+    try {
+      await upsertRecipe.mutateAsync({
+        skuId,
+        materialId: newRecipeMaterialId,
+        quantityPerUnit: qty,
+      });
+      setNewRecipeMaterialId("");
+      setNewRecipeQty("");
+    } catch (err) {
+      setRecipeError(err instanceof Error ? err.message : "Failed to save recipe");
+    }
+  }
+  function autoFillGlycerinSuggestion() {
+    // Suggested glycerin quantity = (glycerin_cost_us $/unit) / (glycerin
+    // material unit_cost $/L). Only fills the form; user reviews + saves.
+    // Won't overwrite a recipe that already exists for glycerin — the
+    // existing-recipe check below the form skips this CTA in that case.
+    if (!economicsQ.data) return;
+    const glycerin = (materialsQ.data ?? []).find((m) => m.code === "GLYCERIN");
+    if (!glycerin) {
+      setRecipeError("No GLYCERIN material in catalog");
+      return;
+    }
+    const costPerUnit = economicsQ.data.glycerin_cost_us ?? 0;
+    if (costPerUnit <= 0) {
+      setRecipeError("This SKU has no glycerin cost recorded — set it in Manufacturing Cost first");
+      return;
+    }
+    if (glycerin.unit_cost <= 0) {
+      setRecipeError("Glycerin material has no unit_cost set — fill it in on the Materials tab first");
+      return;
+    }
+    const suggestedQty = Math.round((costPerUnit / glycerin.unit_cost) * 10000) / 10000;
+    setNewRecipeMaterialId(glycerin.id);
+    setNewRecipeQty(String(suggestedQty));
+    setRecipeError(null);
+  }
+  async function handleRemoveRecipe(id: string, label: string) {
+    if (!window.confirm(`Remove "${label}" from this SKU's recipe?`)) return;
+    try {
+      await deleteRecipe.mutateAsync({ id });
+    } catch (err) {
+      setRecipeError(err instanceof Error ? err.message : "Failed to remove recipe");
     }
   }
 
@@ -1382,6 +1457,138 @@ export default function SKUDetail() {
             )}
             {aliasFlash && !aliasError && (
               <p className="text-xs text-green-400">{aliasFlash}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Materials Used (Recipe) — feature-flagged. Defines how much of
+          each material gets consumed when this SKU is finished. Feeds
+          the pipeline-consumption math + projected-runway forecast on
+          the Materials catalog. */}
+      {showMaterials && canManageAliases && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Beaker className="h-4 w-4 text-muted-foreground" />
+              Materials Used (Recipe)
+            </CardTitle>
+            <CardDescription>
+              How much of each consumable input is used per finished unit.
+              These quantities drive material-inventory runway forecasts.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {recipesQ.isLoading ? (
+              <p className="text-sm text-muted-foreground italic">Loading…</p>
+            ) : (recipesQ.data ?? []).length === 0 ? (
+              <p className="text-sm text-muted-foreground italic">
+                No materials wired up for this SKU yet. Add one below.
+              </p>
+            ) : (
+              <div className="rounded-md border border-border overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2">Material</th>
+                      <th className="px-3 py-2 text-right">Qty per Unit</th>
+                      <th className="px-3 py-2">Unit</th>
+                      <th className="px-3 py-2 w-8"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(recipesQ.data ?? []).map((r) => (
+                      <tr key={r.id} className="border-t border-border">
+                        <td className="px-3 py-2">
+                          <span className="font-mono text-xs">{r.material?.code ?? r.material_id.slice(0, 8)}</span>
+                          {r.material?.name && (
+                            <span className="ml-2 text-xs text-muted-foreground">{r.material.name}</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">{r.quantity_per_unit}</td>
+                        <td className="px-3 py-2 text-xs text-muted-foreground">
+                          {r.material?.unit_of_measure ?? ""}
+                        </td>
+                        <td className="px-3 py-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            disabled={deleteRecipe.isPending}
+                            onClick={() => handleRemoveRecipe(r.id, r.material?.code ?? "this recipe")}
+                            title="Remove from recipe"
+                          >
+                            <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Add-recipe form */}
+            <div className="flex items-end gap-2 pt-2">
+              <div className="flex-1 space-y-1">
+                <Label className="text-xs">Material</Label>
+                <Select value={newRecipeMaterialId} onValueChange={setNewRecipeMaterialId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pick a material" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(materialsQ.data ?? [])
+                      .filter((m) => !(recipesQ.data ?? []).some((r) => r.material_id === m.id))
+                      .map((m) => (
+                        <SelectItem key={m.id} value={m.id}>
+                          <span className="font-mono text-xs">{m.code}</span>
+                          <span className="ml-2 text-muted-foreground">{m.name}</span>
+                          <span className="ml-2 text-[10px] text-muted-foreground">({m.unit_of_measure})</span>
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="w-32 space-y-1">
+                <Label className="text-xs">Qty per unit</Label>
+                <Input
+                  type="number"
+                  step="0.0001"
+                  min={0}
+                  value={newRecipeQty}
+                  onChange={(e) => setNewRecipeQty(e.target.value)}
+                  placeholder="e.g. 0.05"
+                />
+              </div>
+              <Button
+                size="sm"
+                disabled={!newRecipeMaterialId || !newRecipeQty.trim() || upsertRecipe.isPending}
+                onClick={handleAddRecipe}
+              >
+                <Plus className="mr-1 h-3.5 w-3.5" />
+                Add
+              </Button>
+            </div>
+
+            {/* Glycerin auto-fill — only show if this SKU has glycerin
+                cost recorded AND no glycerin recipe exists yet. Pre-fills
+                the form with the suggested qty derived from sku_economics
+                ÷ glycerin's $/L; operator reviews and saves manually. */}
+            {economicsQ.data
+              && (economicsQ.data.glycerin_cost_us ?? 0) > 0
+              && !(recipesQ.data ?? []).some((r) => r.material?.code === "GLYCERIN") && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={autoFillGlycerinSuggestion}
+                className="text-xs text-muted-foreground"
+              >
+                Suggest glycerin qty from cost data
+              </Button>
+            )}
+
+            {recipeError && (
+              <p className="text-xs text-red-400">{recipeError}</p>
             )}
           </CardContent>
         </Card>

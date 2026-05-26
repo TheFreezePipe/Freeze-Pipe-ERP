@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -20,12 +21,31 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Beaker, Package, Boxes } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Plus, Beaker, Package, Boxes, ClipboardCheck, AlertTriangle } from "lucide-react";
+import { GlycerinBarrels } from "@/components/materials/GlycerinBarrels";
 import {
   useMaterials,
   useUpsertMaterial,
+  useBulkMaterialCycleCount,
+  useAllRecipes,
+  useInventory,
   type MaterialWithLevel,
+  type MaterialCycleCountReason,
 } from "@/lib/hooks";
+import {
+  computeAllMaterialRunways,
+  type MaterialRunwayResult,
+} from "@/lib/materials/runway";
 import {
   MATERIAL_CATEGORIES,
   materialCategoryRank,
@@ -47,14 +67,51 @@ import { useAuth } from "@/lib/auth-context";
 export default function MaterialsList() {
   const navigate = useNavigate();
   const showFlag = useShouldShowMaterialsFeature();
-  const { isAdmin, isManager } = useAuth();
+  const { isAdmin, isManager, profile } = useAuth();
   const canEdit = isAdmin || isManager;
 
   const { data: materials = [], isLoading } = useMaterials();
+  const { data: allRecipes = [] } = useAllRecipes();
+  const { data: inventory = [] } = useInventory();
+  const bulkCycleCount = useBulkMaterialCycleCount();
+
+  // Runway forecast — computed once per (materials, recipes, inventory)
+  // change. Per-row reads are O(1) Map lookups.
+  const runways = useMemo(() => {
+    return computeAllMaterialRunways({
+      materials,
+      allRecipes,
+      fillableInventory: inventory
+        .filter((inv) => inv.product?.category === "fillable")
+        .map((inv) => ({
+          product: {
+            id: inv.product!.id,
+            category: inv.product!.category,
+            monthly_demand: inv.product!.monthly_demand,
+          },
+          inventory: {
+            warehouse_raw: inv.warehouse_raw,
+            warehouse_prefilled_raw: inv.warehouse_prefilled_raw,
+            warehouse_in_production: inv.warehouse_in_production,
+          },
+        })),
+    });
+  }, [materials, allRecipes, inventory]);
 
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [dialogOpen, setDialogOpen] = useState(false);
+
+  // ===== Cycle Count state =====
+  // Same shape and bug-fix lineage as the SKU cycle count: only emit
+  // deltas for materials the operator actually edited. `editValues` is
+  // keyed by material_id; an undefined value means "not touched."
+  const [cycleMode, setCycleMode] = useState(false);
+  const [editValues, setEditValues] = useState<Record<string, number>>({});
+  const [reasonDialogOpen, setReasonDialogOpen] = useState(false);
+  const [reasonChoice, setReasonChoice] = useState<MaterialCycleCountReason>("recount");
+  const [reasonNotes, setReasonNotes] = useState("");
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Defense-in-depth: if a non-Chase user hits this URL directly,
   // bounce them away. The nav also hides the tab for them but a
@@ -65,6 +122,95 @@ export default function MaterialsList() {
         This feature isn't available yet.
       </div>
     );
+  }
+
+  function enterCycleMode() {
+    setCycleMode(true);
+    setEditValues({});
+    setSaveError(null);
+  }
+  function exitCycleMode() {
+    setCycleMode(false);
+    setEditValues({});
+    setReasonDialogOpen(false);
+    setSaveError(null);
+  }
+  function setCount(materialId: string, raw: string) {
+    // Parse to number, allow blank → undefined (means "not touched").
+    if (raw.trim() === "") {
+      setEditValues((prev) => {
+        const next = { ...prev };
+        delete next[materialId];
+        return next;
+      });
+      return;
+    }
+    const n = parseFloat(raw);
+    if (!Number.isFinite(n)) return;
+    setEditValues((prev) => ({ ...prev, [materialId]: Math.max(0, n) }));
+  }
+  function computeAdjustments(): Array<{ materialId: string; delta: number }> {
+    const out: Array<{ materialId: string; delta: number }> = [];
+    for (const [materialId, newVal] of Object.entries(editValues)) {
+      if (newVal === undefined) continue;
+      const m = materials.find((x) => x.id === materialId);
+      if (!m) continue;
+      const oldVal = m.inventory?.on_hand_qty ?? 0;
+      const delta = newVal - oldVal;
+      if (delta !== 0) out.push({ materialId, delta });
+    }
+    return out;
+  }
+  function openReasonDialog() {
+    const adj = computeAdjustments();
+    if (adj.length === 0) {
+      // No actual changes — just exit edit mode silently.
+      exitCycleMode();
+      return;
+    }
+    setSaveError(null);
+    setReasonChoice("recount");
+    setReasonNotes("");
+    setReasonDialogOpen(true);
+  }
+  async function confirmSave() {
+    if (!profile?.id) {
+      setSaveError("Not authenticated");
+      return;
+    }
+    const adjustments = computeAdjustments();
+    try {
+      const result = await bulkCycleCount.mutateAsync({
+        adjustments,
+        reason: reasonChoice,
+        notes: reasonNotes.trim() || null,
+        actorId: profile.id,
+      });
+      if (!result.ok) {
+        if (result.failures.length > 0) {
+          setSaveError(
+            `${result.failures.length} adjustment(s) rejected (no changes saved): ` +
+            result.failures
+              .map((f) => {
+                const code = f.material_code ?? f.material_id.slice(0, 8);
+                if (f.reason === "would_go_negative") {
+                  return `${code}: would go negative (current ${f.current ?? 0}, delta ${f.delta ?? 0})`;
+                }
+                return `${code}: ${f.reason}`;
+              })
+              .join("; "),
+          );
+        } else {
+          setSaveError(result.error || "Save failed");
+        }
+        return;
+      }
+      // Success — close dialog AND exit edit mode AND clear drafts
+      setReasonDialogOpen(false);
+      exitCycleMode();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Save failed");
+    }
   }
 
   const filtered = useMemo(() => {
@@ -99,13 +245,99 @@ export default function MaterialsList() {
             Non-sellable inputs: glycerin, caps, boxes, etc.
           </p>
         </div>
-        {canEdit && (
-          <Button onClick={() => setDialogOpen(true)}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            Add Material
-          </Button>
+        {canEdit && !cycleMode && (
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={enterCycleMode}>
+              <ClipboardCheck className="mr-1.5 h-4 w-4" />
+              Cycle Count
+            </Button>
+            <Button onClick={() => setDialogOpen(true)}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              Add Material
+            </Button>
+          </div>
         )}
       </div>
+
+      {/* Glycerin barrel hero — only when glycerin exists in the catalog
+          AND we have on-hand data to visualize. Hidden in cycle-count
+          mode to keep focus on the editing flow. */}
+      {!cycleMode && (() => {
+        const glycerin = materials.find((m) => m.code === "GLYCERIN");
+        if (!glycerin) return null;
+        const onHand = glycerin.inventory?.on_hand_qty ?? 0;
+        const runway = runways.get(glycerin.id);
+        return (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Beaker className="h-4 w-4 text-cyan-400" />
+                Glycerin on Hand
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <GlycerinBarrels
+                onHandLiters={onHand}
+                dailyConsumptionLiters={runway?.dailyConsumption ?? null}
+              />
+            </CardContent>
+          </Card>
+        );
+      })()}
+
+      {/* Low-stock alerts — surfaces any material below its reorder
+          point. One row each, clickable to scroll to the material in
+          the list. Skipped in cycle-count mode for focus. */}
+      {!cycleMode && (() => {
+        const lowStock = materials.filter((m) => {
+          const onHand = m.inventory?.on_hand_qty ?? 0;
+          return m.reorder_point_qty != null && onHand < m.reorder_point_qty;
+        });
+        if (lowStock.length === 0) return null;
+        return (
+          <div className="rounded-lg border border-red-500/50 bg-red-500/5 px-4 py-3 space-y-2">
+            <div className="flex items-center gap-2 text-sm font-medium text-red-300">
+              <AlertTriangle className="h-4 w-4" />
+              {lowStock.length} material{lowStock.length === 1 ? "" : "s"} below reorder point
+            </div>
+            <ul className="text-xs text-red-300/80 space-y-0.5 ml-6">
+              {lowStock.map((m) => {
+                const onHand = m.inventory?.on_hand_qty ?? 0;
+                return (
+                  <li key={m.id}>
+                    <span className="font-mono">{m.code}</span> — {onHand} {m.unit_of_measure} on hand
+                    (reorder at {m.reorder_point_qty})
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        );
+      })()}
+
+      {/* Cycle Count edit-mode banner — same UX as the SKU cycle count.
+          Edit-mode replaces filters with the count-entry workflow; you
+          either save (opens reason dialog) or cancel. */}
+      {cycleMode && (
+        <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 px-4 py-3 flex items-center gap-3">
+          <ClipboardCheck className="h-4 w-4 text-amber-400 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-amber-100">Cycle Count Mode</p>
+            <p className="text-xs text-amber-300/80">
+              Enter the actual on-hand quantity for any material you're
+              counting. Leave others blank — only changed values get logged.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button variant="outline" size="sm" onClick={exitCycleMode} disabled={bulkCycleCount.isPending}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={openReasonDialog} disabled={bulkCycleCount.isPending}>
+              Save Cycle Count
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Filter bar */}
       <div className="flex items-end gap-3 flex-wrap">
@@ -156,21 +388,34 @@ export default function MaterialsList() {
                   <th className="px-3 py-2">Name</th>
                   <th className="px-3 py-2">Category</th>
                   <th className="px-3 py-2 text-right">On Hand</th>
+                  {cycleMode && (
+                    <th className="px-3 py-2 text-right bg-amber-500/5">Actual Count</th>
+                  )}
                   <th className="px-3 py-2">Unit</th>
-                  <th className="px-3 py-2 text-right">Unit Cost</th>
-                  <th className="px-3 py-2 text-right">$ On Hand</th>
-                  <th className="px-3 py-2 text-right">Reorder Pt</th>
-                  <th
-                    className="px-3 py-2 text-right text-muted-foreground/40"
-                    title="Awaiting recipe + pipeline data (Phase 5)"
-                  >
-                    Days Runway
-                  </th>
+                  {!cycleMode && <th className="px-3 py-2 text-right">Unit Cost</th>}
+                  {!cycleMode && <th className="px-3 py-2 text-right">$ On Hand</th>}
+                  {!cycleMode && <th className="px-3 py-2 text-right">Reorder Pt</th>}
+                  {!cycleMode && (
+                    <th
+                      className="px-3 py-2 text-right text-muted-foreground/40"
+                      title="Awaiting recipe + pipeline data (Phase 5)"
+                    >
+                      Days Runway
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((m) => (
-                  <MaterialRow key={m.id} material={m} onClick={() => navigate(`/inventory/materials/${m.id}`)} />
+                  <MaterialRow
+                    key={m.id}
+                    material={m}
+                    cycleMode={cycleMode}
+                    editValue={editValues[m.id]}
+                    runway={runways.get(m.id) ?? null}
+                    onCountChange={(v) => setCount(m.id, v)}
+                    onClick={cycleMode ? undefined : () => navigate(`/inventory/materials/${m.id}`)}
+                  />
                 ))}
               </tbody>
             </table>
@@ -184,6 +429,87 @@ export default function MaterialsList() {
         onClose={() => setDialogOpen(false)}
       />
 
+      {/* Cycle count reason dialog — preventDefault on the AlertDialogAction
+          to keep the dialog open through the async save, so any error from
+          the RPC is actually visible (same fix pattern as the SKU cycle
+          count from 2026-05-14). */}
+      <AlertDialog open={reasonDialogOpen} onOpenChange={(o) => { if (!o) setReasonDialogOpen(false); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Record cycle count reason</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p className="text-sm">
+                  Pick the closest reason for the adjustment. Notes are
+                  optional but recommended for future audits.
+                </p>
+                {(() => {
+                  const adj = computeAdjustments();
+                  return (
+                    <div className="rounded-md border border-border/60 bg-muted/30 p-2 text-xs">
+                      <p className="font-medium mb-1">
+                        {adj.length} adjustment{adj.length === 1 ? "" : "s"} will be logged:
+                      </p>
+                      <ul className="space-y-0.5 max-h-32 overflow-y-auto">
+                        {adj.map((a) => {
+                          const m = materials.find((x) => x.id === a.materialId);
+                          return (
+                            <li key={a.materialId} className="tabular-nums">
+                              <span className="font-medium">{m?.code ?? a.materialId.slice(0, 8)}</span>
+                              {" · "}
+                              <span className={a.delta > 0 ? "text-green-400" : "text-red-400"}>
+                                {a.delta > 0 ? "+" : ""}{a.delta} {m?.unit_of_measure ?? ""}
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  );
+                })()}
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Reason</label>
+                  <Select value={reasonChoice} onValueChange={(v) => setReasonChoice(v as MaterialCycleCountReason)}>
+                    <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="recount">Recount</SelectItem>
+                      <SelectItem value="spillage">Spillage</SelectItem>
+                      <SelectItem value="damage">Damage</SelectItem>
+                      <SelectItem value="receiving">Receiving</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Notes (optional)</label>
+                  <Textarea
+                    value={reasonNotes}
+                    onChange={(e) => setReasonNotes(e.target.value)}
+                    rows={2}
+                    placeholder="Any context worth preserving"
+                  />
+                </div>
+                {saveError && (
+                  <p className="text-xs text-red-400">{saveError}</p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setSaveError(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmSave();
+              }}
+              disabled={bulkCycleCount.isPending}
+            >
+              {bulkCycleCount.isPending ? "Saving…" : "Record adjustment"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-300/80">
         <span className="font-medium">In-progress feature:</span> this tab is visible only to admin user during development. Cycle counts, recipes, and runway forecasting are landing in subsequent phases.
       </div>
@@ -193,10 +519,18 @@ export default function MaterialsList() {
 
 function MaterialRow({
   material,
+  cycleMode,
+  editValue,
+  runway,
+  onCountChange,
   onClick,
 }: {
   material: MaterialWithLevel;
-  onClick: () => void;
+  cycleMode: boolean;
+  editValue: number | undefined;
+  runway: MaterialRunwayResult | null;
+  onCountChange: (raw: string) => void;
+  onClick?: () => void;
 }) {
   const onHand = material.inventory?.on_hand_qty ?? 0;
   const dollarsOnHand = onHand * material.unit_cost;
@@ -210,9 +544,14 @@ function MaterialRow({
         ? Boxes
         : Package;
 
+  // Delta preview during cycle count — green for increases, red for
+  // decreases. Helps the operator catch obvious typos before saving.
+  const delta = editValue !== undefined ? editValue - onHand : 0;
+  const deltaStr = delta > 0 ? `+${delta}` : delta < 0 ? `${delta}` : "";
+
   return (
     <tr
-      className="border-b border-border/50 hover:bg-muted/40 cursor-pointer"
+      className={`border-b border-border/50 ${onClick ? "hover:bg-muted/40 cursor-pointer" : ""}`}
       onClick={onClick}
     >
       <td className="px-4 py-3 font-mono text-xs">{material.code}</td>
@@ -235,28 +574,90 @@ function MaterialRow({
       <td className={`px-3 py-3 text-right tabular-nums font-medium ${belowReorder ? "text-red-400" : ""}`}>
         {onHand.toLocaleString(undefined, { maximumFractionDigits: 2 })}
       </td>
+      {cycleMode && (
+        <td className="px-3 py-3 text-right bg-amber-500/5">
+          <div className="inline-flex items-center gap-2 justify-end">
+            <Input
+              type="number"
+              step="0.01"
+              min={0}
+              className="h-8 w-28 text-right tabular-nums"
+              placeholder="(blank = skip)"
+              value={editValue === undefined ? "" : editValue}
+              onChange={(e) => onCountChange(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+            />
+            {deltaStr && (
+              <span
+                className={`text-xs tabular-nums w-16 text-left ${
+                  delta > 0 ? "text-green-400" : "text-red-400"
+                }`}
+              >
+                {deltaStr}
+              </span>
+            )}
+          </div>
+        </td>
+      )}
       <td className="px-3 py-3 text-xs text-muted-foreground">{material.unit_of_measure}</td>
-      <td className="px-3 py-3 text-right tabular-nums">
-        {material.unit_cost > 0
-          ? `$${material.unit_cost.toFixed(2)}`
-          : <span className="text-muted-foreground/50">—</span>}
-      </td>
-      <td className="px-3 py-3 text-right tabular-nums">
-        {dollarsOnHand > 0
-          ? `$${dollarsOnHand.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
-          : <span className="text-muted-foreground/50">—</span>}
-      </td>
-      <td className="px-3 py-3 text-right tabular-nums">
-        {material.reorder_point_qty != null
-          ? material.reorder_point_qty.toLocaleString(undefined, { maximumFractionDigits: 2 })
-          : <span className="text-muted-foreground/50">—</span>}
-      </td>
-      <td
-        className="px-3 py-3 text-right tabular-nums text-muted-foreground/40 italic"
-        title="Awaiting recipe + pipeline data (Phase 5)"
-      >
-        —
-      </td>
+      {!cycleMode && (
+        <td className="px-3 py-3 text-right tabular-nums">
+          {material.unit_cost > 0
+            ? `$${material.unit_cost.toFixed(2)}`
+            : <span className="text-muted-foreground/50">—</span>}
+        </td>
+      )}
+      {!cycleMode && (
+        <td className="px-3 py-3 text-right tabular-nums">
+          {dollarsOnHand > 0
+            ? `$${dollarsOnHand.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+            : <span className="text-muted-foreground/50">—</span>}
+        </td>
+      )}
+      {!cycleMode && (
+        <td className="px-3 py-3 text-right tabular-nums">
+          {material.reorder_point_qty != null
+            ? material.reorder_point_qty.toLocaleString(undefined, { maximumFractionDigits: 2 })
+            : <span className="text-muted-foreground/50">—</span>}
+        </td>
+      )}
+      {!cycleMode && (
+        <td className="px-3 py-3 text-right tabular-nums">
+          {runway && runway.consumptionSource === "demand_recipe" && runway.currentRunwayDays != null ? (
+            <span
+              className={
+                runway.currentRunwayDays < 14
+                  ? "text-red-400"
+                  : runway.currentRunwayDays < 30
+                    ? "text-yellow-400"
+                    : "text-green-400"
+              }
+              title={
+                `Current: ${runway.currentRunwayDays}d at ${runway.dailyConsumption.toFixed(2)} ${material.unit_of_measure}/day\n` +
+                `If pipeline (${runway.pipelineConsumptionQty.toFixed(0)} ${material.unit_of_measure}) finishes: ${runway.pipelineRunwayDays}d`
+              }
+            >
+              {runway.currentRunwayDays}d
+              <span className="ml-1 text-[10px] text-muted-foreground">
+                ({runway.pipelineRunwayDays}d w/ pipeline)
+              </span>
+            </span>
+          ) : (
+            <span
+              className="text-muted-foreground/50 italic text-xs"
+              title={
+                runway?.consumptionSource === "no_recipes"
+                  ? "No SKUs reference this material yet — add to a recipe on the SKU detail page"
+                  : runway?.consumptionSource === "no_demand"
+                    ? "Recipe exists but referenced SKUs have no monthly demand recorded"
+                    : "—"
+              }
+            >
+              {runway?.consumptionSource === "no_recipes" ? "no recipes" : "—"}
+            </span>
+          )}
+        </td>
+      )}
     </tr>
   );
 }

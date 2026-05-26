@@ -169,3 +169,188 @@ export function useUpsertMaterial() {
     },
   });
 }
+
+/**
+ * Bulk cycle count for materials. Mirrors useBulkCycleCount on the SKU
+ * side: all-or-nothing validation, single-transaction apply, append-only
+ * audit row per change, no inventory-shift side effects beyond updating
+ * material_inventory_levels.
+ *
+ * Adjustments are SIGNED deltas (new_count - current_count). Only emit
+ * one per material the operator actually touched — never zero-fill the
+ * unedited rows. This is the same bug class as the SKU cycle-count fix
+ * from 2026-05-14.
+ */
+export type MaterialCycleCountReason =
+  | "spillage"
+  | "damage"
+  | "receiving"
+  | "recount"
+  | "other";
+
+export type MaterialCycleCountResult =
+  | {
+      ok: true;
+      applied: number;
+      adjustments: Array<{ material_id: string; delta: number; new_value: number }>;
+    }
+  | {
+      ok: false;
+      error: string;
+      failures: Array<{
+        material_id: string;
+        material_code?: string;
+        reason: string;
+        delta?: number;
+        current?: number;
+      }>;
+    };
+
+/**
+ * Recipe entry: how much of each material does one finished unit of a
+ * given SKU consume? Used by the SKU detail page (admin/manager only)
+ * to define and edit per-SKU material requirements. The Materials list
+ * page reads these in aggregate to compute pipeline_consumption for
+ * the runway forecast (Phase 5).
+ */
+export interface SkuMaterialConsumption {
+  id: string;
+  sku_id: string;
+  material_id: string;
+  quantity_per_unit: number;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type SkuMaterialConsumptionRow = SkuMaterialConsumption & {
+  material: Pick<Material, "id" | "code" | "name" | "category" | "unit_of_measure"> | null;
+};
+
+export function useSkuMaterialConsumption(skuId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["sku-material-consumption", skuId],
+    enabled: !!skuId,
+    queryFn: async (): Promise<SkuMaterialConsumptionRow[]> => {
+      const { data, error } = await supabase
+        .from("sku_material_consumption")
+        .select("*, material:materials(id, code, name, category, unit_of_measure)")
+        .eq("sku_id", skuId!)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as unknown as SkuMaterialConsumptionRow[];
+    },
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * Upsert a (sku_id, material_id) recipe row. Unique constraint on the
+ * pair means there's only ever one row per combination — onConflict
+ * lets the same form action handle "add new" and "edit existing"
+ * without the caller needing to know which it is.
+ */
+export function useUpsertSkuMaterialConsumption() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: {
+      skuId: string;
+      materialId: string;
+      quantityPerUnit: number;
+      notes?: string | null;
+    }) => {
+      const { error } = await supabase
+        .from("sku_material_consumption")
+        .upsert(
+          {
+            sku_id: params.skuId,
+            material_id: params.materialId,
+            quantity_per_unit: params.quantityPerUnit,
+            notes: params.notes ?? null,
+          },
+          { onConflict: "sku_id,material_id" },
+        );
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sku-material-consumption"] });
+    },
+  });
+}
+
+/**
+ * All recipes across the catalog, flat. Used by the runway calculation
+ * which needs to walk every SKU's recipe to estimate daily consumption
+ * + pipeline consumption per material. Returns the minimal shape needed
+ * for that math; if you want display-ready joined data per SKU use
+ * useSkuMaterialConsumption(skuId) instead.
+ */
+export function useAllRecipes() {
+  return useQuery({
+    queryKey: ["sku-material-consumption", "all"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("sku_material_consumption")
+        .select("sku_id, material_id, quantity_per_unit");
+      if (error) throw error;
+      return (data ?? []) as unknown as Array<{
+        sku_id: string;
+        material_id: string;
+        quantity_per_unit: number;
+      }>;
+    },
+    staleTime: 60_000,
+  });
+}
+
+export function useDeleteSkuMaterialConsumption() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: { id: string }) => {
+      const { error } = await supabase
+        .from("sku_material_consumption")
+        .delete()
+        .eq("id", params.id);
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sku-material-consumption"] });
+    },
+  });
+}
+
+export function useBulkMaterialCycleCount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: {
+      adjustments: Array<{ materialId: string; delta: number }>;
+      reason: MaterialCycleCountReason;
+      notes?: string | null;
+      actorId: string;
+    }): Promise<MaterialCycleCountResult> => {
+      const payload = params.adjustments
+        .filter((a) => a.delta !== 0)
+        .map((a) => ({ material_id: a.materialId, delta: a.delta }));
+      const { data, error } = await supabase.rpc("rpc_bulk_material_cycle_count", {
+        p_adjustments: payload,
+        p_reason: params.reason,
+        p_notes: params.notes ?? "",
+        p_actor_id: params.actorId,
+      });
+      if (error) {
+        return {
+          ok: false,
+          error: error.message,
+          failures: [],
+        };
+      }
+      return data as MaterialCycleCountResult;
+    },
+    onSuccess: (result) => {
+      if (result.ok) {
+        qc.invalidateQueries({ queryKey: ["materials"] });
+        // Future: invalidate material_transactions queries when those exist.
+      }
+    },
+  });
+}
