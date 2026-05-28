@@ -230,11 +230,16 @@ export default function FreightNew() {
       return;
     }
 
-    // Flatten to line_items. Aggregate by SKU to satisfy the unique (shipment, sku)
-    // index from migration 013 — if a SKU appears across multiple carton groups,
-    // sum its quantity into a single line item. quantity_prefilled rolls up
-    // the same way: only entries flagged pre_filled contribute.
-    const bySku = new Map<
+    // Flatten to line_items. The unique index on the table is now
+    // (shipment, sku, source_factory_order_item_id) per migration
+    // 20260528000001 — same SKU shipped from different FOs lands as
+    // separate rows, each with its own factory-order attribution.
+    // Aggregate by the composite key so two carton groups sharing
+    // both (sku, source_FO) still merge, but two groups with the same
+    // SKU pointing at different FOs stay separate.
+    const lineKey = (sku_id: string, source: string | null) =>
+      `${sku_id}__${source ?? "null"}`;
+    const byKey = new Map<
       string,
       {
         sku_id: string;
@@ -249,14 +254,9 @@ export default function FreightNew() {
          * vs a real $0 cost. Never a fabricated fallback. */
         unit_cost: number | null;
         retail_value: number;
-        /** Source factory_order_item_id, carried through aggregation.
-         * First non-null wins when multiple carton groups share a SKU
-         * (the unique (shipment, sku) index forces aggregation to one
-         * line item anyway). If the operator needs to split a SKU
-         * across multiple FOs in one shipment, they'd need to take the
-         * proportionally-larger qty on the more important FO and leave
-         * the others manually noted in the shipment notes. Rare case;
-         * not optimizing for it in MVP. */
+        /** Source factory_order_item_id. Part of the dedupe key now —
+         * different source FOs produce different line items. NULL is
+         * still valid (no FO link, e.g. spot purchases). */
         source_factory_order_item_id: string | null;
       }
     >();
@@ -266,16 +266,11 @@ export default function FreightNew() {
         const product = products.find((p) => p.id === s.sku_id);
         const fillable = product?.category === "fillable";
         const prefilledQty = fillable && s.pre_filled ? s.quantity : 0;
-        const existing = bySku.get(s.sku_id);
+        const key = lineKey(s.sku_id, s.source_factory_order_item_id);
+        const existing = byKey.get(key);
         if (existing) {
           existing.quantity += s.quantity;
           existing.quantity_prefilled += prefilledQty;
-          // First non-null source FO wins. If two carton groups for the
-          // same SKU disagree, keep the earlier; the agg-into-one-line
-          // constraint means we can't honor both.
-          if (!existing.source_factory_order_item_id && s.source_factory_order_item_id) {
-            existing.source_factory_order_item_id = s.source_factory_order_item_id;
-          }
         } else {
           // primaryCostBySkuId is undefined while the query loads. We treat
           // an undefined map and a missing entry the same — null cost. The
@@ -283,7 +278,7 @@ export default function FreightNew() {
           // legitimately ship a SKU that has no primary supplier cost yet.
           const primary = primaryCostBySkuId?.get(s.sku_id);
           const unitCost = primary?.unit_cost ?? null;
-          bySku.set(s.sku_id, {
+          byKey.set(key, {
             sku_id: s.sku_id,
             quantity: s.quantity,
             quantity_prefilled: prefilledQty,
@@ -323,7 +318,7 @@ export default function FreightNew() {
           total_cartons: totals.totalCartons,
           notes: notes || null,
         },
-        lineItems: Array.from(bySku.values()).map((row) => ({
+        lineItems: Array.from(byKey.values()).map((row) => ({
           sku_id: row.sku_id,
           quantity: row.quantity,
           // Non-fillable SKUs carry NULL so the SKU detail prefill stats

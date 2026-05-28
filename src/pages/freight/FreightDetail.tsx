@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +13,7 @@ import { useShipmentTracking } from "@/lib/tracking/use-shipment-tracking";
 import { etaDriftDays } from "@/lib/tracking/reconcile";
 import { getCarrierTrackingUrl } from "@/lib/tracking/carrier-urls";
 import { StatusSelectWithOverride } from "@/components/freight/StatusSelectWithOverride";
-import { useFreightShipment, useFreightLineItems, useUpdateFreightShipment } from "@/lib/hooks";
+import { useFreightShipment, useFreightLineItems, useUpdateFreightShipment, useFactoryOrders } from "@/lib/hooks";
 import { useAuth } from "@/lib/auth-context";
 
 const TIMELINE_STEPS: { status: FreightStatus; label: string }[] = [
@@ -32,6 +32,19 @@ export default function FreightDetail() {
 
   const { data: shipment, isLoading: shipmentLoading } = useFreightShipment(id ?? "");
   const { data: lineItemsRaw = [], isLoading: lineItemsLoading } = useFreightLineItems(id);
+  // Factory orders — needed to surface a "from FO-X" subtitle on each
+  // line item that has a source_factory_order_item_id. Building a tiny
+  // lookup map below is cheaper than per-row hooks.
+  const { data: factoryOrders = [] } = useFactoryOrders();
+  const foItemIdToOrder = useMemo(() => {
+    const map = new Map<string, { id: string; number: string | null }>();
+    for (const order of factoryOrders) {
+      for (const item of order.items ?? []) {
+        map.set(item.id, { id: order.id, number: order.order_number });
+      }
+    }
+    return map;
+  }, [factoryOrders]);
 
   const tracking = useShipmentTracking(shipment);
   const updateShipment = useUpdateFreightShipment();
@@ -537,11 +550,30 @@ export default function FreightDetail() {
               </tr>
             </thead>
             <tbody>
-              {lineItemsRaw.map(li => (
+              {lineItemsRaw.map(li => {
+                const sourceFo = li.source_factory_order_item_id
+                  ? foItemIdToOrder.get(li.source_factory_order_item_id)
+                  : null;
+                return (
                 <tr key={li.id} className="border-b border-border/50">
                   <td className="px-4 py-3">
                     <p className="font-medium">{li.product?.sku ?? li.sku_id}</p>
                     <p className="text-xs text-muted-foreground">{li.product?.product_name ?? ""}</p>
+                    {/* When this line is linked to a specific factory
+                        order item, show "from FO-X" so the operator
+                        knows which order's stock this represents. Two
+                        rows with the same SKU but different source FOs
+                        will read clearly as the intended split. */}
+                    {sourceFo && (
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/inventory/factory-orders/${sourceFo.id}`)}
+                        className="text-[10px] text-cyan-400 hover:underline mt-0.5"
+                        title="Open the source factory order"
+                      >
+                        from {sourceFo.number ?? sourceFo.id.slice(0, 8)}
+                      </button>
+                    )}
                   </td>
                   <td className="px-3 py-3 text-right tabular-nums">{li.quantity}</td>
                   <td className="px-3 py-3 text-right tabular-nums">${(li.unit_cost ?? 0).toFixed(2)}</td>
@@ -549,7 +581,8 @@ export default function FreightDetail() {
                   <td className="px-3 py-3 text-right tabular-nums">${(li.retail_value ?? 0).toFixed(2)}</td>
                   <td className="px-4 py-3 text-right tabular-nums font-medium text-primary">${((li.retail_value ?? 0) * li.quantity).toLocaleString()}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </CardContent>
