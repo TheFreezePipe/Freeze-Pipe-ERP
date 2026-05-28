@@ -19,10 +19,12 @@ import { ArrowLeft, Plus, Trash2, Ship, Plane, Package, PackagePlus } from "luci
 import {
   useProducts,
   useFactoryOrders,
+  useFreightLineItems,
   useCreateFreightShipment,
   useAllPrimarySkuSupplierCosts,
 } from "@/lib/hooks";
 import { freightShipmentSchema, safeValidate } from "@/lib/schemas";
+import { getOpenFactoryItemsForSku } from "@/lib/freight/open-factory-items";
 import { cn } from "@/lib/utils";
 
 /** A single SKU entry within a carton group */
@@ -31,6 +33,12 @@ interface CartonSKU {
   sku_id: string;
   quantity: number;
   pre_filled: boolean;
+  /** Optional factory_order_item this entry's units are coming from.
+   *  When set, the resulting freight_line_item carries the FK so the
+   *  factory order's "shipped" rollup includes these units. NULL is
+   *  valid for spot purchases, pre-bootstrap orders, or any case the
+   *  operator doesn't want to attribute. */
+  source_factory_order_item_id: string | null;
 }
 
 /** A carton group = N identical cartons, each containing the same SKU(s) */
@@ -48,6 +56,11 @@ export default function FreightNew() {
   const navigate = useNavigate();
   const { data: products = [] } = useProducts();
   const { data: factoryOrders = [] } = useFactoryOrders();
+  // Existing freight line items — needed to compute "already shipped"
+  // per factory_order_item so the FO picker can show accurate remaining
+  // quantities (otherwise we'd suggest pulling from an FO that's already
+  // been fully shipped via a previous freight).
+  const { data: freightLineItems = [] } = useFreightLineItems();
   // Per-SKU primary supplier unit cost map. Used to populate
   // freight_line_items.unit_cost with real numbers instead of the
   // hardcoded 0 that previously zeroed out every freight movement's
@@ -114,7 +127,7 @@ export default function FreightNew() {
     setCartonGroups(prev => [...prev, {
       id: nextId(),
       carton_qty: 1,
-      skus: [{ id: nextId(), sku_id: "", quantity: 0, pre_filled: false }],
+      skus: [{ id: nextId(), sku_id: "", quantity: 0, pre_filled: false, source_factory_order_item_id: null }],
       notes: "",
     }]);
   }
@@ -133,7 +146,7 @@ export default function FreightNew() {
   function addSKUToGroup(groupId: string) {
     setCartonGroups(prev => prev.map(g =>
       g.id === groupId
-        ? { ...g, skus: [...g.skus, { id: nextId(), sku_id: "", quantity: 0, pre_filled: false }] }
+        ? { ...g, skus: [...g.skus, { id: nextId(), sku_id: "", quantity: 0, pre_filled: false, source_factory_order_item_id: null }] }
         : g
     ));
   }
@@ -147,7 +160,12 @@ export default function FreightNew() {
     }).filter(g => g.skus.length > 0));
   }
 
-  function updateSKUEntry(groupId: string, skuEntryId: string, field: "sku_id" | "quantity" | "pre_filled", value: string | number | boolean) {
+  function updateSKUEntry(
+    groupId: string,
+    skuEntryId: string,
+    field: "sku_id" | "quantity" | "pre_filled" | "source_factory_order_item_id",
+    value: string | number | boolean | null,
+  ) {
     setCartonGroups(prev => prev.map(g => {
       if (g.id !== groupId) return g;
       return {
@@ -155,8 +173,12 @@ export default function FreightNew() {
         skus: g.skus.map(s => {
           if (s.id !== skuEntryId) return s;
           const updated = { ...s, [field]: value };
-          // Reset pre_filled when SKU changes
-          if (field === "sku_id") updated.pre_filled = false;
+          // Reset dependent fields when SKU changes — pre_filled and the
+          // FO link both reference SKU-specific data that doesn't carry.
+          if (field === "sku_id") {
+            updated.pre_filled = false;
+            updated.source_factory_order_item_id = null;
+          }
           return updated;
         }),
       };
@@ -227,6 +249,15 @@ export default function FreightNew() {
          * vs a real $0 cost. Never a fabricated fallback. */
         unit_cost: number | null;
         retail_value: number;
+        /** Source factory_order_item_id, carried through aggregation.
+         * First non-null wins when multiple carton groups share a SKU
+         * (the unique (shipment, sku) index forces aggregation to one
+         * line item anyway). If the operator needs to split a SKU
+         * across multiple FOs in one shipment, they'd need to take the
+         * proportionally-larger qty on the more important FO and leave
+         * the others manually noted in the shipment notes. Rare case;
+         * not optimizing for it in MVP. */
+        source_factory_order_item_id: string | null;
       }
     >();
     for (const group of cartonGroups) {
@@ -239,6 +270,12 @@ export default function FreightNew() {
         if (existing) {
           existing.quantity += s.quantity;
           existing.quantity_prefilled += prefilledQty;
+          // First non-null source FO wins. If two carton groups for the
+          // same SKU disagree, keep the earlier; the agg-into-one-line
+          // constraint means we can't honor both.
+          if (!existing.source_factory_order_item_id && s.source_factory_order_item_id) {
+            existing.source_factory_order_item_id = s.source_factory_order_item_id;
+          }
         } else {
           // primaryCostBySkuId is undefined while the query loads. We treat
           // an undefined map and a missing entry the same — null cost. The
@@ -253,6 +290,7 @@ export default function FreightNew() {
             is_fillable: fillable,
             unit_cost: unitCost,
             retail_value: product?.retail_price ?? 0,
+            source_factory_order_item_id: s.source_factory_order_item_id,
           });
         }
       }
@@ -294,6 +332,11 @@ export default function FreightNew() {
           quantity_prefilled: row.is_fillable ? row.quantity_prefilled : null,
           unit_cost: row.unit_cost,
           retail_value: row.retail_value,
+          // Link this line back to its source factory order item, when
+          // the operator picked one. Lights up the factory order's
+          // shipped/finished/in-production progress bar (already wired
+          // up in FactoryOrders.tsx to read this FK).
+          source_factory_order_item_id: row.source_factory_order_item_id,
         })),
       });
       navigate(`/freight/${created.id}`);
@@ -514,9 +557,21 @@ export default function FreightNew() {
                       {group.skus.map((skuEntry) => {
                         const product = products.find(p => p.id === skuEntry.sku_id);
                         const isFillable = product?.category === "fillable";
+                        // Open factory-order items for the picker, computed
+                        // per-row. Empty when no SKU selected yet.
+                        const openFoItems = skuEntry.sku_id
+                          ? getOpenFactoryItemsForSku(skuEntry.sku_id, factoryOrders, freightLineItems)
+                          : [];
+                        const pickedFoItem = openFoItems.find(
+                          (f) => f.factory_order_item_id === skuEntry.source_factory_order_item_id,
+                        );
+                        const totalUnitsInCartonGroup = skuEntry.quantity * group.carton_qty;
+                        const exceedsRemaining =
+                          pickedFoItem != null
+                          && totalUnitsInCartonGroup > pickedFoItem.remaining;
                         return (
+                          <div key={skuEntry.id} className="space-y-1">
                           <div
-                            key={skuEntry.id}
                             className="grid grid-cols-1 sm:grid-cols-[1fr_90px_auto_32px] gap-2 items-center"
                           >
                             <Select
@@ -586,6 +641,63 @@ export default function FreightNew() {
                             ) : (
                               <div className="h-9 w-9" />
                             )}
+                          </div>
+                          {/* Factory-order picker — only when a SKU is
+                              selected AND that SKU has any open FO items.
+                              Empty SKUs OR SKUs with no open FOs skip the
+                              picker entirely (no clutter for spot purchases
+                              or pre-bootstrap orders). The "(No FO link)"
+                              choice always stays available even when FOs
+                              exist, for shipments not tied to one. */}
+                          {skuEntry.sku_id && openFoItems.length > 0 && (
+                            <div className="flex items-center gap-2 pl-1 text-xs">
+                              <span className="text-muted-foreground shrink-0">From:</span>
+                              <Select
+                                value={skuEntry.source_factory_order_item_id ?? "__none__"}
+                                onValueChange={(v) =>
+                                  updateSKUEntry(
+                                    group.id,
+                                    skuEntry.id,
+                                    "source_factory_order_item_id",
+                                    v === "__none__" ? null : v,
+                                  )
+                                }
+                              >
+                                <SelectTrigger className="h-7 text-xs flex-1">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__none__">
+                                    <span className="text-muted-foreground">No factory order link</span>
+                                  </SelectItem>
+                                  {openFoItems.map((fo) => (
+                                    <SelectItem
+                                      key={fo.factory_order_item_id}
+                                      value={fo.factory_order_item_id}
+                                    >
+                                      <span className="font-mono">{fo.factory_order_number ?? fo.factory_order_id.slice(0, 8)}</span>
+                                      <span className="ml-2 text-muted-foreground">
+                                        {fo.remaining} of {fo.quantity_ordered} open
+                                      </span>
+                                      {fo.expected_completion && (
+                                        <span className="ml-2 text-muted-foreground">
+                                          · ETA {fo.expected_completion}
+                                        </span>
+                                      )}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              {exceedsRemaining && (
+                                <span
+                                  className="text-amber-400 text-[10px]"
+                                  title={`Picked FO has ${pickedFoItem!.remaining} units remaining but this line ships ${totalUnitsInCartonGroup}`}
+                                >
+                                  ⚠ exceeds remaining ({pickedFoItem!.remaining})
+                                </span>
+                              )}
+                            </div>
+                          )}
                           </div>
                         );
                       })}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Beaker, Package, Boxes, ClipboardCheck, AlertTriangle } from "lucide-react";
+import { Plus, Beaker, Package, Boxes, ClipboardCheck, AlertTriangle, Pencil } from "lucide-react";
 import { GlycerinBarrels } from "@/components/materials/GlycerinBarrels";
 import {
   useMaterials,
@@ -100,7 +100,9 @@ export default function MaterialsList() {
 
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [dialogOpen, setDialogOpen] = useState(false);
+  // Dialog: undefined = closed, null = add mode (empty form), Material =
+  // edit mode (form prefilled). Single state covers both flows.
+  const [editingMaterial, setEditingMaterial] = useState<MaterialWithLevel | null | undefined>(undefined);
 
   // ===== Cycle Count state =====
   // Same shape and bug-fix lineage as the SKU cycle count: only emit
@@ -251,7 +253,7 @@ export default function MaterialsList() {
               <ClipboardCheck className="mr-1.5 h-4 w-4" />
               Cycle Count
             </Button>
-            <Button onClick={() => setDialogOpen(true)}>
+            <Button onClick={() => setEditingMaterial(null)}>
               <Plus className="mr-1.5 h-4 w-4" />
               Add Material
             </Button>
@@ -403,6 +405,7 @@ export default function MaterialsList() {
                       Days Runway
                     </th>
                   )}
+                  {!cycleMode && canEdit && <th className="px-3 py-2 w-10"></th>}
                 </tr>
               </thead>
               <tbody>
@@ -411,9 +414,11 @@ export default function MaterialsList() {
                     key={m.id}
                     material={m}
                     cycleMode={cycleMode}
+                    canEdit={canEdit}
                     editValue={editValues[m.id]}
                     runway={runways.get(m.id) ?? null}
                     onCountChange={(v) => setCount(m.id, v)}
+                    onEdit={() => setEditingMaterial(m)}
                     onClick={cycleMode ? undefined : () => navigate(`/inventory/materials/${m.id}`)}
                   />
                 ))}
@@ -423,10 +428,12 @@ export default function MaterialsList() {
         </CardContent>
       </Card>
 
-      {/* Add Material dialog */}
-      <AddMaterialDialog
-        open={dialogOpen}
-        onClose={() => setDialogOpen(false)}
+      {/* Material form dialog — handles both add (editingMaterial=null)
+          and edit (editingMaterial=Material) flows via a single state. */}
+      <MaterialFormDialog
+        open={editingMaterial !== undefined}
+        material={editingMaterial ?? null}
+        onClose={() => setEditingMaterial(undefined)}
       />
 
       {/* Cycle count reason dialog — preventDefault on the AlertDialogAction
@@ -520,16 +527,20 @@ export default function MaterialsList() {
 function MaterialRow({
   material,
   cycleMode,
+  canEdit,
   editValue,
   runway,
   onCountChange,
+  onEdit,
   onClick,
 }: {
   material: MaterialWithLevel;
   cycleMode: boolean;
+  canEdit: boolean;
   editValue: number | undefined;
   runway: MaterialRunwayResult | null;
   onCountChange: (raw: string) => void;
+  onEdit: () => void;
   onClick?: () => void;
 }) {
   const onHand = material.inventory?.on_hand_qty ?? 0;
@@ -658,6 +669,19 @@ function MaterialRow({
           )}
         </td>
       )}
+      {!cycleMode && canEdit && (
+        <td className="px-3 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={onEdit}
+            title="Edit material"
+          >
+            <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+          </Button>
+        </td>
+      )}
     </tr>
   );
 }
@@ -676,10 +700,52 @@ const blankForm = {
   notes: "",
 };
 
-function AddMaterialDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+/**
+ * Material form dialog — single component for both add and edit flows.
+ *   - `material = null` → add mode (empty form, INSERT on save)
+ *   - `material = Material` → edit mode (prefilled, UPDATE on save)
+ *
+ * The hook (useUpsertMaterial) handles which DB operation runs based
+ * on whether `id` is passed to the mutation.
+ */
+function MaterialFormDialog({
+  open,
+  material,
+  onClose,
+}: {
+  open: boolean;
+  material: MaterialWithLevel | null;
+  onClose: () => void;
+}) {
   const upsert = useUpsertMaterial();
+  const isEdit = material !== null;
   const [form, setForm] = useState(blankForm);
   const [error, setError] = useState<string | null>(null);
+
+  // Hydrate the form whenever the dialog opens with a (different)
+  // material to edit. Empty when adding. We re-check whenever the
+  // material id changes to support quickly editing one then another.
+  useEffect(() => {
+    if (!open) return;
+    if (material) {
+      setForm({
+        code: material.code,
+        name: material.name,
+        category: material.category,
+        unit_of_measure: material.unit_of_measure,
+        unit_cost: material.unit_cost > 0 ? String(material.unit_cost) : "",
+        reorder_point_qty: material.reorder_point_qty != null ? String(material.reorder_point_qty) : "",
+        lead_time_days: material.lead_time_days != null ? String(material.lead_time_days) : "",
+        dim_length_in: material.dim_length_in != null ? String(material.dim_length_in) : "",
+        dim_width_in: material.dim_width_in != null ? String(material.dim_width_in) : "",
+        dim_height_in: material.dim_height_in != null ? String(material.dim_height_in) : "",
+        notes: material.notes ?? "",
+      });
+    } else {
+      setForm(blankForm);
+    }
+    setError(null);
+  }, [open, material]);
 
   function set<K extends keyof typeof blankForm>(key: K, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -712,6 +778,8 @@ function AddMaterialDialog({ open, onClose }: { open: boolean; onClose: () => vo
 
     try {
       await upsert.mutateAsync({
+        // Passing id triggers UPDATE; omitting it triggers INSERT.
+        id: material?.id,
         code: form.code.trim(),
         name: form.name.trim(),
         category: form.category,
@@ -738,9 +806,11 @@ function AddMaterialDialog({ open, onClose }: { open: boolean; onClose: () => vo
     <Dialog open={open} onOpenChange={(o) => { if (!o) close(); }}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add Material</DialogTitle>
+          <DialogTitle>{isEdit ? "Edit Material" : "Add Material"}</DialogTitle>
           <DialogDescription>
-            New consumable input. Dimensions are optional and only used for box-type materials (mapped to ShipStation orders).
+            {isEdit
+              ? "Update this material's catalog metadata. On-hand qty is changed via the Cycle Count flow, not this dialog."
+              : "New consumable input. Dimensions are optional and only used for box-type materials (mapped to ShipStation orders)."}
           </DialogDescription>
         </DialogHeader>
 
@@ -809,7 +879,7 @@ function AddMaterialDialog({ open, onClose }: { open: boolean; onClose: () => vo
         <DialogFooter>
           <Button variant="outline" onClick={close} disabled={upsert.isPending}>Cancel</Button>
           <Button onClick={save} disabled={upsert.isPending}>
-            {upsert.isPending ? "Saving…" : "Create"}
+            {upsert.isPending ? "Saving…" : isEdit ? "Save Changes" : "Create"}
           </Button>
         </DialogFooter>
       </DialogContent>

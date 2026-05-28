@@ -20,6 +20,7 @@ import {
 import {
   useFactoryOrders,
   useFreightLineItems,
+  useFreightShipments,
   useProducts,
   useProductBoms,
   useFactoryOrderComponentStatus,
@@ -70,6 +71,10 @@ export default function FactoryOrderDetail() {
   const navigate = useNavigate();
   const { data: orders = [], isLoading } = useFactoryOrders();
   const { data: freightLines = [] } = useFreightLineItems();
+  // Freight shipments are needed so the "Linked Freight" section can
+  // render shipment_number / status / ETA for each freight that has
+  // a line tracing back to this order's items.
+  const { data: freight = [] } = useFreightShipments();
   const { data: boms = [] } = useProductBoms();
   // Catalog-backed lookup; covers component SKUs not yet ordered as a
   // line item (which would otherwise show as truncated UUIDs).
@@ -717,6 +722,14 @@ export default function FactoryOrderDetail() {
                 <th className="py-2">SKU</th>
                 <th className="py-2 text-right">Ordered</th>
                 {!editMode && <th className="py-2 text-right">Finished</th>}
+                {!editMode && (
+                  <th
+                    className="py-2 text-right"
+                    title="Units of this line that have been put on a freight shipment (sums across all linked shipments)"
+                  >
+                    Shipped
+                  </th>
+                )}
                 {!editMode && <th className="py-2 text-right">Unit cost</th>}
                 {!editMode && <th className="py-2 text-right">Line value</th>}
                 {editMode && <th className="py-2 w-10"></th>}
@@ -881,6 +894,26 @@ export default function FactoryOrderDetail() {
                           {(it.quantity_finished ?? 0).toLocaleString()}
                         </td>
                         <td className="py-2 text-right tabular-nums">
+                          {(() => {
+                            const linked = freightMap.get(it.id) ?? [];
+                            const shipped = linked.reduce((s, l) => s + (l.quantity ?? 0), 0);
+                            if (shipped === 0) {
+                              return <span className="text-muted-foreground/50">—</span>;
+                            }
+                            const pct = it.quantity_ordered > 0
+                              ? Math.round((shipped / it.quantity_ordered) * 100)
+                              : 0;
+                            return (
+                              <span title={`${linked.length} freight shipment(s) link to this line`}>
+                                {shipped.toLocaleString()}
+                                <span className="text-[10px] text-muted-foreground ml-1">
+                                  ({pct}%)
+                                </span>
+                              </span>
+                            );
+                          })()}
+                        </td>
+                        <td className="py-2 text-right tabular-nums">
                           {unitCost > 0 ? `$${unitCost.toFixed(2)}` : "—"}
                         </td>
                         <td className="py-2 text-right tabular-nums">
@@ -893,12 +926,107 @@ export default function FactoryOrderDetail() {
               )}
             </tbody>
           </table>
-          {/* Note about freightMap — currently unused on this page but threaded
-              through for parity with the list-page rollup math when we extend
-              the table to show shipped/in-transit columns. */}
-          <p className="hidden">{freightMap.size}</p>
         </CardContent>
       </Card>
+
+      {/* Linked Freight — every freight_line_item whose
+          source_factory_order_item_id points at one of this order's
+          line items. Groups by shipment so each unique freight is a
+          single card row with the per-line breakdown nested. Read-
+          only; clicking a shipment navigates to its detail page. */}
+      {(() => {
+        type LinkedRow = {
+          shipment_id: string;
+          shipment_number: string | null;
+          freight_type: string;
+          status: string;
+          eta: string | null;
+          lines: Array<{
+            factory_item_id: string;
+            sku_text: string;
+            quantity: number;
+          }>;
+        };
+        const linkedByShipment = new Map<string, LinkedRow>();
+        for (const fItem of items) {
+          const lines = freightMap.get(fItem.id) ?? [];
+          for (const line of lines) {
+            const shipment = freight.find((f) => f.id === line.freight_shipment_id);
+            if (!shipment) continue;
+            const existing = linkedByShipment.get(shipment.id);
+            const skuText = fItem.product?.sku ?? fItem.sku_id.slice(0, 8);
+            if (existing) {
+              existing.lines.push({
+                factory_item_id: fItem.id,
+                sku_text: skuText,
+                quantity: line.quantity ?? 0,
+              });
+            } else {
+              linkedByShipment.set(shipment.id, {
+                shipment_id: shipment.id,
+                shipment_number: shipment.shipment_number,
+                freight_type: shipment.freight_type,
+                status: shipment.status,
+                eta: shipment.eta,
+                lines: [{
+                  factory_item_id: fItem.id,
+                  sku_text: skuText,
+                  quantity: line.quantity ?? 0,
+                }],
+              });
+            }
+          }
+        }
+        const linkedRows = Array.from(linkedByShipment.values());
+        if (linkedRows.length === 0) return null;
+        return (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                Linked Freight Shipments
+                <Badge variant="outline" className="text-[10px]">
+                  {linkedRows.length}
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-1.5">
+              {linkedRows.map((row) => (
+                <div
+                  key={row.shipment_id}
+                  className="rounded-md border border-border/50 px-3 py-2 hover:bg-muted/30 cursor-pointer"
+                  onClick={() => navigate(`/freight/${row.shipment_id}`)}
+                >
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="font-mono font-medium">
+                      {row.shipment_number ?? row.shipment_id.slice(0, 8)}
+                    </span>
+                    <Badge variant="outline" className="text-[10px]">
+                      {row.freight_type}
+                    </Badge>
+                    <Badge variant="outline" className="text-[10px]">
+                      {row.status.replace("_", " ")}
+                    </Badge>
+                    {row.eta && (
+                      <span className="text-xs text-muted-foreground">
+                        ETA {row.eta}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {row.lines.map((l, i) => (
+                      <span key={`${l.factory_item_id}-${i}`}>
+                        {i > 0 && " · "}
+                        <span className="tabular-nums">{l.quantity.toLocaleString()}</span>{" "}
+                        <span className="font-mono">{l.sku_text}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        );
+      })()}
     </div>
   );
 }
