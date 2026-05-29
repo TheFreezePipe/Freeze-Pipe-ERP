@@ -560,10 +560,17 @@ export default function FreightNew() {
                         const pickedFoItem = openFoItems.find(
                           (f) => f.factory_order_item_id === skuEntry.source_factory_order_item_id,
                         );
-                        const totalUnitsInCartonGroup = skuEntry.quantity * group.carton_qty;
+                        // Comparing the SKU entry's qty directly against the
+                        // picked FO's remaining. The qty input represents
+                        // TOTAL units of this SKU in this carton group
+                        // (NOT per-carton — system stores it that way at
+                        // insert time, and the form footer + total reflect
+                        // the same interpretation). Multiplying by
+                        // group.carton_qty here would over-count and
+                        // produce spurious "exceeds remaining" warnings.
                         const exceedsRemaining =
                           pickedFoItem != null
-                          && totalUnitsInCartonGroup > pickedFoItem.remaining;
+                          && skuEntry.quantity > pickedFoItem.remaining;
                         return (
                           <div key={skuEntry.id} className="space-y-1">
                           <div
@@ -686,7 +693,7 @@ export default function FreightNew() {
                               {exceedsRemaining && (
                                 <span
                                   className="text-amber-400 text-[10px]"
-                                  title={`Picked FO has ${pickedFoItem!.remaining} units remaining but this line ships ${totalUnitsInCartonGroup}`}
+                                  title={`Picked FO has ${pickedFoItem!.remaining} units remaining but this line ships ${skuEntry.quantity}`}
                                 >
                                   ⚠ exceeds remaining ({pickedFoItem!.remaining})
                                 </span>
