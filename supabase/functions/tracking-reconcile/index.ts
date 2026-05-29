@@ -324,8 +324,20 @@ function reconcile(shipment: Shipment, update: TrackingUpdate): {
       }
       break;
     case "not_received": {
-      const daysUntil = diffDays(etaOriginal, today);
-      if (daysUntil <= window) newEta = addDays(today, window);
+      // If the carrier returned an ETA (FedEx and UPS both publish the
+      // service-level commitment even before pickup — e.g., "OC" / "SH" /
+      // unknown-but-not-yet-in-transit codes), trust it. Only fall back to
+      // the window-push heuristic when we have zero signal from the carrier.
+      // Without this guard, a FedEx package that's been picked up but whose
+      // status code we haven't mapped yet (e.g., "LO" before this commit)
+      // gets its ETA pushed to (today + receive_window) every reconciler
+      // tick, masking the carrier's real commitment date.
+      if (update.carrierEta) {
+        newEta = update.carrierEta;
+      } else {
+        const daysUntil = diffDays(etaOriginal, today);
+        if (daysUntil <= window) newEta = addDays(today, window);
+      }
       break;
     }
   }
@@ -456,11 +468,20 @@ function mapFedExStatusCode(code: string | undefined): TrackingStatus {
     case "DE":                                                   // Delivery exception (still in flight)
     case "CC":                                                   // Cleared customs
     case "SF":                                                   // At sort facility
+    case "LO":                                                   // Left origin facility
+    case "OF":                                                   // At FedEx destination facility
+    case "HL":                                                   // Hold at location (still in flight, waiting for pickup)
+    case "OX":                                                   // Shipment exception — still in transit
       return "in_transit";
     case "OC":                                                   // Order created (info received, not yet picked up)
     case "SH":                                                   // Shipment info sent — not yet picked up
     case "CA":                                                   // Cancelled
+      return "not_received";
     default:
+      // Surface unknown codes in logs so we can add mappings rather than
+      // silently treating them as "not_received" (which causes the
+      // reconciler to drop the carrier's ETA in favor of a window push).
+      console.warn(`Unknown FedEx status code "${code}"; treating as not_received. Add mapping in mapFedExStatusCode().`);
       return "not_received";
   }
 }
