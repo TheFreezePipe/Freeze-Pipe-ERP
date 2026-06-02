@@ -106,9 +106,15 @@ function rollupForItem(
 
   const reportedFinished = item.quantity_finished ?? 0;
   const statusImpliesFinished = parent.status === "finished" || parent.status === "shipped";
+  // Shipped units have necessarily been finished — you can't ship what
+  // isn't made. So completion is at least the shipped count, even when the
+  // order is still 'ordered' and quantity_finished was never backfilled
+  // (common once freight is attributed before the FO status is advanced).
+  // Without this floor, shipped units get double-counted: once as `shipped`
+  // and again as `inProduction`, rendering a half-grey/half-amber bar.
   const effectiveFinished = statusImpliesFinished
     ? Math.max(reportedFinished, total - breakage)
-    : reportedFinished;
+    : Math.max(reportedFinished, shippedQty);
 
   const finishedAwaiting = Math.max(0, effectiveFinished - shippedQty);
   const inProduction = Math.max(0, total - effectiveFinished - breakage);

@@ -83,9 +83,13 @@ function rollupForItem(
   //      per-item backfill imply the non-breakage balance is finished.
   const reportedFinished = item.quantity_finished ?? 0;
   const statusImpliesFinished = parent.status === "finished" || parent.status === "shipped";
+  // Shipped units have necessarily been finished — floor completion at the
+  // shipped count so shipped units aren't double-counted as in-production
+  // (which renders a half-grey/half-amber bar) when quantity_finished
+  // wasn't backfilled before freight was attributed.
   const effectiveFinished = statusImpliesFinished
     ? Math.max(reportedFinished, total - breakage)
-    : reportedFinished;
+    : Math.max(reportedFinished, shippedQty);
 
   const finishedAwaiting = Math.max(0, effectiveFinished - shippedQty);
   const inProduction = Math.max(0, total - effectiveFinished - breakage);
