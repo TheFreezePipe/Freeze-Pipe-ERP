@@ -27,18 +27,25 @@ import { freightShipmentSchema, safeValidate } from "@/lib/schemas";
 import { getOpenFactoryItemsForSku } from "@/lib/freight/open-factory-items";
 import { cn } from "@/lib/utils";
 
-/** A single SKU entry within a carton group */
+/** One allocation of a SKU's units to a source factory order (or none).
+ *  A SKU line is split across several of these when a single shipment
+ *  carries the same SKU from more than one order. */
+interface SkuAllocation {
+  id: string;
+  quantity: number;
+  /** factory_order_item these units come from. NULL = no tracked order
+   *  (spot purchase / pre-bootstrap / untracked older order). */
+  source_factory_order_item_id: string | null;
+}
+
+/** A single SKU entry within a carton group. Units live in `allocations`
+ *  — length 1 for the common single-source case, more when the operator
+ *  splits the SKU across multiple factory orders. */
 interface CartonSKU {
   id: string;
   sku_id: string;
-  quantity: number;
   pre_filled: boolean;
-  /** Optional factory_order_item this entry's units are coming from.
-   *  When set, the resulting freight_line_item carries the FK so the
-   *  factory order's "shipped" rollup includes these units. NULL is
-   *  valid for spot purchases, pre-bootstrap orders, or any case the
-   *  operator doesn't want to attribute. */
-  source_factory_order_item_id: string | null;
+  allocations: SkuAllocation[];
 }
 
 /** A carton group = N identical cartons, each containing the same SKU(s) */
@@ -51,6 +58,21 @@ interface CartonGroup {
 
 let idCounter = 0;
 function nextId() { return `item-${++idCounter}`; }
+
+/** A fresh, empty SKU entry with a single empty allocation. */
+function newCartonSku(): CartonSKU {
+  return {
+    id: nextId(),
+    sku_id: "",
+    pre_filled: false,
+    allocations: [{ id: nextId(), quantity: 0, source_factory_order_item_id: null }],
+  };
+}
+
+/** Total units across a SKU entry's allocations. */
+function skuTotal(s: CartonSKU): number {
+  return s.allocations.reduce((sum, a) => sum + (a.quantity || 0), 0);
+}
 
 export default function FreightNew() {
   const navigate = useNavigate();
@@ -117,7 +139,7 @@ export default function FreightNew() {
     let totalUnits = 0;
     for (const group of cartonGroups) {
       totalCartons += group.carton_qty;
-      for (const sku of group.skus) totalUnits += sku.quantity;
+      for (const sku of group.skus) totalUnits += skuTotal(sku);
     }
     return { totalCartons, totalUnits };
   }, [cartonGroups]);
@@ -127,7 +149,7 @@ export default function FreightNew() {
     setCartonGroups(prev => [...prev, {
       id: nextId(),
       carton_qty: 1,
-      skus: [{ id: nextId(), sku_id: "", quantity: 0, pre_filled: false, source_factory_order_item_id: null }],
+      skus: [newCartonSku()],
       notes: "",
     }]);
   }
@@ -146,7 +168,7 @@ export default function FreightNew() {
   function addSKUToGroup(groupId: string) {
     setCartonGroups(prev => prev.map(g =>
       g.id === groupId
-        ? { ...g, skus: [...g.skus, { id: nextId(), sku_id: "", quantity: 0, pre_filled: false, source_factory_order_item_id: null }] }
+        ? { ...g, skus: [...g.skus, newCartonSku()] }
         : g
     ));
   }
@@ -160,11 +182,11 @@ export default function FreightNew() {
     }).filter(g => g.skus.length > 0));
   }
 
-  function updateSKUEntry(
+  function updateSKUField(
     groupId: string,
     skuEntryId: string,
-    field: "sku_id" | "quantity" | "pre_filled" | "source_factory_order_item_id",
-    value: string | number | boolean | null,
+    field: "sku_id" | "pre_filled",
+    value: string | boolean,
   ) {
     setCartonGroups(prev => prev.map(g => {
       if (g.id !== groupId) return g;
@@ -172,14 +194,66 @@ export default function FreightNew() {
         ...g,
         skus: g.skus.map(s => {
           if (s.id !== skuEntryId) return s;
-          const updated = { ...s, [field]: value };
-          // Reset dependent fields when SKU changes — pre_filled and the
-          // FO link both reference SKU-specific data that doesn't carry.
           if (field === "sku_id") {
-            updated.pre_filled = false;
-            updated.source_factory_order_item_id = null;
+            // SKU changed — pre_filled and FO links reference SKU-specific
+            // data that doesn't carry. Collapse back to a single allocation,
+            // preserving any quantity the operator already typed.
+            const keptQty = skuTotal(s);
+            return {
+              ...s,
+              sku_id: value as string,
+              pre_filled: false,
+              allocations: [{ id: nextId(), quantity: keptQty, source_factory_order_item_id: null }],
+            };
           }
-          return updated;
+          return { ...s, pre_filled: value as boolean };
+        }),
+      };
+    }));
+  }
+
+  // --- Allocation actions within a SKU entry ---
+  function updateAllocation(
+    groupId: string,
+    skuEntryId: string,
+    allocId: string,
+    field: "quantity" | "source_factory_order_item_id",
+    value: number | string | null,
+  ) {
+    setCartonGroups(prev => prev.map(g => {
+      if (g.id !== groupId) return g;
+      return {
+        ...g,
+        skus: g.skus.map(s => s.id !== skuEntryId ? s : {
+          ...s,
+          allocations: s.allocations.map(a => a.id === allocId ? { ...a, [field]: value } : a),
+        }),
+      };
+    }));
+  }
+
+  function addAllocation(groupId: string, skuEntryId: string) {
+    setCartonGroups(prev => prev.map(g => {
+      if (g.id !== groupId) return g;
+      return {
+        ...g,
+        skus: g.skus.map(s => s.id !== skuEntryId ? s : {
+          ...s,
+          allocations: [...s.allocations, { id: nextId(), quantity: 0, source_factory_order_item_id: null }],
+        }),
+      };
+    }));
+  }
+
+  function removeAllocation(groupId: string, skuEntryId: string, allocId: string) {
+    setCartonGroups(prev => prev.map(g => {
+      if (g.id !== groupId) return g;
+      return {
+        ...g,
+        skus: g.skus.map(s => {
+          if (s.id !== skuEntryId) return s;
+          if (s.allocations.length <= 1) return s; // never drop the last
+          return { ...s, allocations: s.allocations.filter(a => a.id !== allocId) };
         }),
       };
     }));
@@ -221,8 +295,8 @@ export default function FreightNew() {
         cartonQty: g.carton_qty,
         notes: g.notes || undefined,
         skus: g.skus
-          .filter(s => s.sku_id)
-          .map(s => ({ skuId: s.sku_id, quantity: s.quantity, preFilled: s.pre_filled })),
+          .filter(s => s.sku_id && skuTotal(s) > 0)
+          .map(s => ({ skuId: s.sku_id, quantity: skuTotal(s), preFilled: s.pre_filled })),
       })),
     });
     if (!validation.ok) {
@@ -262,31 +336,37 @@ export default function FreightNew() {
     >();
     for (const group of cartonGroups) {
       for (const s of group.skus) {
-        if (!s.sku_id || s.quantity <= 0) continue;
+        if (!s.sku_id) continue;
         const product = products.find((p) => p.id === s.sku_id);
         const fillable = product?.category === "fillable";
-        const prefilledQty = fillable && s.pre_filled ? s.quantity : 0;
-        const key = lineKey(s.sku_id, s.source_factory_order_item_id);
-        const existing = byKey.get(key);
-        if (existing) {
-          existing.quantity += s.quantity;
-          existing.quantity_prefilled += prefilledQty;
-        } else {
-          // primaryCostBySkuId is undefined while the query loads. We treat
-          // an undefined map and a missing entry the same — null cost. The
-          // submit handler doesn't block on the query because the user can
-          // legitimately ship a SKU that has no primary supplier cost yet.
-          const primary = primaryCostBySkuId?.get(s.sku_id);
-          const unitCost = primary?.unit_cost ?? null;
-          byKey.set(key, {
-            sku_id: s.sku_id,
-            quantity: s.quantity,
-            quantity_prefilled: prefilledQty,
-            is_fillable: fillable,
-            unit_cost: unitCost,
-            retail_value: product?.retail_price ?? 0,
-            source_factory_order_item_id: s.source_factory_order_item_id,
-          });
+        // Each allocation becomes its own contribution, keyed by
+        // (sku, source_FO). Two allocations to the same source (or both
+        // unlinked) merge; allocations to different orders stay separate.
+        for (const alloc of s.allocations) {
+          if (alloc.quantity <= 0) continue;
+          const prefilledQty = fillable && s.pre_filled ? alloc.quantity : 0;
+          const key = lineKey(s.sku_id, alloc.source_factory_order_item_id);
+          const existing = byKey.get(key);
+          if (existing) {
+            existing.quantity += alloc.quantity;
+            existing.quantity_prefilled += prefilledQty;
+          } else {
+            // primaryCostBySkuId is undefined while the query loads. We treat
+            // an undefined map and a missing entry the same — null cost. The
+            // submit handler doesn't block on the query because the user can
+            // legitimately ship a SKU that has no primary supplier cost yet.
+            const primary = primaryCostBySkuId?.get(s.sku_id);
+            const unitCost = primary?.unit_cost ?? null;
+            byKey.set(key, {
+              sku_id: s.sku_id,
+              quantity: alloc.quantity,
+              quantity_prefilled: prefilledQty,
+              is_fillable: fillable,
+              unit_cost: unitCost,
+              retail_value: product?.retail_price ?? 0,
+              source_factory_order_item_id: alloc.source_factory_order_item_id,
+            });
+          }
         }
       }
     }
@@ -341,7 +421,7 @@ export default function FreightNew() {
   }
 
   const isValid = shipmentNumber && freightType &&
-    cartonGroups.some(g => g.carton_qty > 0 && g.skus.some(s => s.sku_id && s.quantity > 0));
+    cartonGroups.some(g => g.carton_qty > 0 && g.skus.some(s => s.sku_id && skuTotal(s) > 0));
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -503,7 +583,7 @@ export default function FreightNew() {
               <>
                 {cartonGroups.map((group, gi) => {
                   const isMixed = group.skus.length > 1;
-                  const groupUnits = group.skus.reduce((s, sk) => s + sk.quantity, 0);
+                  const groupUnits = group.skus.reduce((s, sk) => s + skuTotal(sk), 0);
                   return (
                     <div
                       key={group.id}
@@ -552,25 +632,58 @@ export default function FreightNew() {
                       {group.skus.map((skuEntry) => {
                         const product = products.find(p => p.id === skuEntry.sku_id);
                         const isFillable = product?.category === "fillable";
-                        // Open factory-order items for the picker, computed
+                        // Open factory-order items for the picker(s), computed
                         // per-row. Empty when no SKU selected yet.
                         const openFoItems = skuEntry.sku_id
                           ? getOpenFactoryItemsForSku(skuEntry.sku_id, factoryOrders, freightLineItems)
                           : [];
-                        const pickedFoItem = openFoItems.find(
-                          (f) => f.factory_order_item_id === skuEntry.source_factory_order_item_id,
+                        const isSplit = skuEntry.allocations.length > 1;
+                        const lineTotal = skuTotal(skuEntry);
+                        const firstAlloc = skuEntry.allocations[0];
+
+                        // One factory-order <Select> bound to a single
+                        // allocation. Reused by the collapsed "From:" row and
+                        // every row of the split editor.
+                        const renderFoSelect = (alloc: SkuAllocation, compact: boolean) => (
+                          <Select
+                            value={alloc.source_factory_order_item_id ?? "__none__"}
+                            onValueChange={(v) =>
+                              updateAllocation(
+                                group.id, skuEntry.id, alloc.id,
+                                "source_factory_order_item_id", v === "__none__" ? null : v,
+                              )
+                            }
+                          >
+                            <SelectTrigger className={cn("text-xs", compact ? "h-7 flex-1" : "h-8 w-full")}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">
+                                <span className="text-muted-foreground">No order link (spot / old order)</span>
+                              </SelectItem>
+                              {openFoItems.map((fo) => (
+                                <SelectItem key={fo.factory_order_item_id} value={fo.factory_order_item_id}>
+                                  <span className="font-mono">{fo.factory_order_number ?? fo.factory_order_id.slice(0, 8)}</span>
+                                  <span className="ml-2 text-muted-foreground">
+                                    {fo.remaining} of {fo.quantity_ordered} open
+                                  </span>
+                                  {fo.expected_completion && (
+                                    <span className="ml-2 text-muted-foreground">· ETA {fo.expected_completion}</span>
+                                  )}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         );
-                        // Comparing the SKU entry's qty directly against the
-                        // picked FO's remaining. The qty input represents
-                        // TOTAL units of this SKU in this carton group
-                        // (NOT per-carton — system stores it that way at
-                        // insert time, and the form footer + total reflect
-                        // the same interpretation). Multiplying by
-                        // group.carton_qty here would over-count and
-                        // produce spurious "exceeds remaining" warnings.
-                        const exceedsRemaining =
-                          pickedFoItem != null
-                          && skuEntry.quantity > pickedFoItem.remaining;
+
+                        // Per-allocation "exceeds remaining" check. Returns the
+                        // order's remaining count when the allocation overshoots
+                        // it, else null. Warning only (real over-ships happen).
+                        const allocWarning = (alloc: SkuAllocation): number | null => {
+                          const fo = openFoItems.find(f => f.factory_order_item_id === alloc.source_factory_order_item_id);
+                          return fo != null && alloc.quantity > fo.remaining ? fo.remaining : null;
+                        };
+
                         return (
                           <div key={skuEntry.id} className="space-y-1">
                           <div
@@ -578,7 +691,7 @@ export default function FreightNew() {
                           >
                             <Select
                               value={skuEntry.sku_id}
-                              onValueChange={v => updateSKUEntry(group.id, skuEntry.id, "sku_id", v)}
+                              onValueChange={v => updateSKUField(group.id, skuEntry.id, "sku_id", v)}
                             >
                               <SelectTrigger className="h-9">
                                 <SelectValue placeholder="Select SKU...">
@@ -610,20 +723,32 @@ export default function FreightNew() {
                                 })}
                               </SelectContent>
                             </Select>
-                            <Input
-                              type="number"
-                              min={0}
-                              className="h-9"
-                              placeholder="Qty"
-                              value={skuEntry.quantity || ""}
-                              onChange={e => updateSKUEntry(group.id, skuEntry.id, "quantity", parseInt(e.target.value, 10) || 0)}
-                            />
+                            {/* Quantity — editable when single-source; a
+                                read-only total badge when split (the real qty
+                                inputs live in the editor below). */}
+                            {isSplit ? (
+                              <div
+                                className="flex h-9 items-center justify-center rounded-md border border-dashed border-border text-sm tabular-nums text-muted-foreground"
+                                title="Total across the allocations below"
+                              >
+                                {lineTotal.toLocaleString()}
+                              </div>
+                            ) : (
+                              <Input
+                                type="number"
+                                min={0}
+                                className="h-9"
+                                placeholder="Qty"
+                                value={firstAlloc.quantity || ""}
+                                onChange={e => updateAllocation(group.id, skuEntry.id, firstAlloc.id, "quantity", parseInt(e.target.value, 10) || 0)}
+                              />
+                            )}
                             {/* Pre-filled checkbox — only for fillable SKUs */}
                             {isFillable ? (
                               <label className="flex items-center gap-1.5 cursor-pointer select-none whitespace-nowrap">
                                 <Checkbox
                                   checked={skuEntry.pre_filled}
-                                  onCheckedChange={(checked) => updateSKUEntry(group.id, skuEntry.id, "pre_filled", !!checked)}
+                                  onCheckedChange={(checked) => updateSKUField(group.id, skuEntry.id, "pre_filled", !!checked)}
                                 />
                                 <span className="text-xs text-muted-foreground">Filled</span>
                               </label>
@@ -644,60 +769,83 @@ export default function FreightNew() {
                               <div className="h-9 w-9" />
                             )}
                           </div>
-                          {/* Factory-order picker — only when a SKU is
-                              selected AND that SKU has any open FO items.
-                              Empty SKUs OR SKUs with no open FOs skip the
-                              picker entirely (no clutter for spot purchases
-                              or pre-bootstrap orders). The "(No FO link)"
-                              choice always stays available even when FOs
-                              exist, for shipments not tied to one. */}
-                          {skuEntry.sku_id && openFoItems.length > 0 && (
+
+                          {/* Single-source "From:" row — shown when a SKU is
+                              selected, it has open FOs, and it isn't split.
+                              "Split across orders" expands into the editor. */}
+                          {skuEntry.sku_id && openFoItems.length > 0 && !isSplit && (
                             <div className="flex items-center gap-2 pl-1 text-xs">
                               <span className="text-muted-foreground shrink-0">From:</span>
-                              <Select
-                                value={skuEntry.source_factory_order_item_id ?? "__none__"}
-                                onValueChange={(v) =>
-                                  updateSKUEntry(
-                                    group.id,
-                                    skuEntry.id,
-                                    "source_factory_order_item_id",
-                                    v === "__none__" ? null : v,
-                                  )
-                                }
-                              >
-                                <SelectTrigger className="h-7 text-xs flex-1">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="__none__">
-                                    <span className="text-muted-foreground">No factory order link</span>
-                                  </SelectItem>
-                                  {openFoItems.map((fo) => (
-                                    <SelectItem
-                                      key={fo.factory_order_item_id}
-                                      value={fo.factory_order_item_id}
-                                    >
-                                      <span className="font-mono">{fo.factory_order_number ?? fo.factory_order_id.slice(0, 8)}</span>
-                                      <span className="ml-2 text-muted-foreground">
-                                        {fo.remaining} of {fo.quantity_ordered} open
-                                      </span>
-                                      {fo.expected_completion && (
-                                        <span className="ml-2 text-muted-foreground">
-                                          · ETA {fo.expected_completion}
-                                        </span>
-                                      )}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              {exceedsRemaining && (
+                              {renderFoSelect(firstAlloc, true)}
+                              {allocWarning(firstAlloc) != null && (
                                 <span
-                                  className="text-amber-400 text-[10px]"
-                                  title={`Picked FO has ${pickedFoItem!.remaining} units remaining but this line ships ${skuEntry.quantity}`}
+                                  className="text-amber-400 text-[10px] shrink-0"
+                                  title={`Order has ${allocWarning(firstAlloc)} remaining but this line ships ${firstAlloc.quantity}`}
                                 >
-                                  ⚠ exceeds remaining ({pickedFoItem!.remaining})
+                                  ⚠ exceeds ({allocWarning(firstAlloc)})
                                 </span>
                               )}
+                              <button
+                                type="button"
+                                className="text-cyan-400/80 hover:text-cyan-300 shrink-0 whitespace-nowrap"
+                                onClick={() => addAllocation(group.id, skuEntry.id)}
+                              >
+                                Split across orders
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Split editor — distribute this SKU's units across
+                              multiple source orders (+ the no-link bucket). */}
+                          {skuEntry.sku_id && isSplit && (
+                            <div className="ml-1 rounded-md border border-border/70 bg-muted/20 p-2 space-y-1.5">
+                              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                Allocate units across orders
+                              </div>
+                              {skuEntry.allocations.map((alloc) => {
+                                const warn = allocWarning(alloc);
+                                return (
+                                  <div key={alloc.id} className="space-y-0.5">
+                                    <div className="grid grid-cols-[70px_1fr_28px] gap-2 items-center">
+                                      <Input
+                                        type="number"
+                                        min={0}
+                                        className="h-8 text-sm"
+                                        placeholder="Qty"
+                                        value={alloc.quantity || ""}
+                                        onChange={e => updateAllocation(group.id, skuEntry.id, alloc.id, "quantity", parseInt(e.target.value, 10) || 0)}
+                                      />
+                                      {renderFoSelect(alloc, false)}
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-7 text-muted-foreground hover:text-red-400"
+                                        onClick={() => removeAllocation(group.id, skuEntry.id, alloc.id)}
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                      </Button>
+                                    </div>
+                                    {warn != null && (
+                                      <span className="text-amber-400 text-[10px] pl-[78px]">
+                                        ⚠ exceeds remaining ({warn})
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              <div className="flex items-center justify-between pt-0.5">
+                                <button
+                                  type="button"
+                                  className="text-cyan-400/80 hover:text-cyan-300 text-xs"
+                                  onClick={() => addAllocation(group.id, skuEntry.id)}
+                                >
+                                  + Add source
+                                </button>
+                                <span className="text-xs text-muted-foreground tabular-nums">
+                                  Total: {lineTotal.toLocaleString()} units
+                                </span>
+                              </div>
                             </div>
                           )}
                           </div>
