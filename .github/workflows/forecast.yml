@@ -1,0 +1,59 @@
+name: Weekly Demand Forecast
+
+# Recomputes sku_forecasts from the live sales_daily series using the
+# validated Node engine (scripts/forecast-live.cjs -> forecastAtCutoff).
+# Reuses the exact backtested math; a weekly batch is the right cadence
+# (demand doesn't shift fast, and the trailing-30d baseline + nightly
+# sales_daily top-up keep things fresh between runs).
+#
+# Requires repo secret FORECAST_DATABASE_URL = the Supabase pooler
+# connection string (session mode, port 5432). The job dumps sales_daily,
+# runs the engine, and upserts sku_forecasts.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch: {} # allow manual runs
+
+jobs:
+  forecast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Dump sales_daily
+        env:
+          DATABASE_URL: ${{ secrets.FORECAST_DATABASE_URL }}
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "\copy (SELECT ps.sku, ps.display_category, sd.sale_date::text, sd.units FROM public.sales_daily sd JOIN public.product_skus ps ON ps.id = sd.sku_id) TO 'sd.tsv'"
+          wc -l sd.tsv
+
+      - name: Run forecast engine
+        run: node scripts/forecast-live.cjs sd.tsv out.tsv
+
+      - name: Upsert sku_forecasts
+        env:
+          DATABASE_URL: ${{ secrets.FORECAST_DATABASE_URL }}
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE TEMP TABLE _f (sku text, f30 int, lo int, hi int, dp int, lsd date, method text);
+          \copy _f FROM 'out.tsv'
+          INSERT INTO public.sku_forecasts (sku_id, forecast_30d, lower_bound, upper_bound, data_points, last_sale_date, forecast_method, computed_at)
+          SELECT ps.id, _f.f30, _f.lo, _f.hi, _f.dp, _f.lsd, _f.method, now()
+            FROM _f JOIN public.product_skus ps ON lower(ps.sku) = lower(_f.sku)
+          ON CONFLICT (sku_id) DO UPDATE
+            SET forecast_30d = EXCLUDED.forecast_30d,
+                lower_bound = EXCLUDED.lower_bound,
+                upper_bound = EXCLUDED.upper_bound,
+                data_points = EXCLUDED.data_points,
+                last_sale_date = EXCLUDED.last_sale_date,
+                forecast_method = EXCLUDED.forecast_method,
+                computed_at = now();
+          SELECT count(*) AS forecasts_updated FROM public.sku_forecasts;
+          SQL
