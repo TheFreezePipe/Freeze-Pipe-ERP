@@ -16,6 +16,7 @@ import {
   useFreightShipments,
   useFreightLineItems,
   useFactoryOrders,
+  useForecastDemandMap,
 } from "@/lib/hooks";
 
 interface Alert {
@@ -59,6 +60,7 @@ export function AlertsPanel() {
   const { data: freight = [] } = useFreightShipments();
   const { data: freightLines = [] } = useFreightLineItems();
   const { data: factoryOrders = [] } = useFactoryOrders();
+  const forecastMap = useForecastDemandMap();
 
   const alerts = useMemo<Alert[]>(() => {
     // Build per-SKU aggregates once per render — replaces the legacy
@@ -73,7 +75,7 @@ export function AlertsPanel() {
       const product = inv.product;
       if (!product) return;
       const totals = inventoryTotalsReal(inv, inTransitMap, onOrderMap);
-      const demand = getEffectiveDemand(product.id, product.monthly_demand);
+      const demand = getEffectiveDemand(product.id, product.monthly_demand, forecastMap);
       const warehouseDOS = computeDOS(totals.warehouseTotal, demand);
 
       if (warehouseDOS < ALERT_LOW_STOCK_DOS) {
@@ -102,7 +104,7 @@ export function AlertsPanel() {
       }
 
       // Compare forecast vs static demand
-      const forecastDemand = getEffectiveDemand(product.id, product.monthly_demand);
+      const forecastDemand = getEffectiveDemand(product.id, product.monthly_demand, forecastMap);
       const staticDemand = product.monthly_demand;
       if (forecastDemand !== staticDemand && staticDemand > 0) {
         const ratio = forecastDemand / staticDemand;
@@ -149,7 +151,7 @@ export function AlertsPanel() {
 
     const order = { red: 0, orange: 1, yellow: 2, blue: 3, green: 4 };
     return result.sort((a, b) => order[a.severity] - order[b.severity]);
-  }, [inventory, freight, freightLines, factoryOrders]);
+  }, [inventory, freight, freightLines, factoryOrders, forecastMap]);
 
   if (alerts.length === 0) {
     return (

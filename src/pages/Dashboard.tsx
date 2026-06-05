@@ -9,12 +9,13 @@ import { CategoryDemandChart } from "@/components/dashboard/CategoryDemandChart"
 import { AlertsPanel } from "@/components/dashboard/AlertsPanel";
 import { FreightCostChart } from "@/components/freight/FreightCostChart";
 import { useMemo } from "react";
-import { useFreightShipments, useFreightLineItems, useProducts } from "@/lib/hooks";
+import { useFreightShipments, useFreightLineItems, useProducts, useForecastDemandMap } from "@/lib/hooks";
 
 export default function Dashboard() {
   const { data: freight = [] } = useFreightShipments();
   const { data: freightLineItems = [] } = useFreightLineItems();
   const { data: products = [] } = useProducts();
+  const forecastMap = useForecastDemandMap();
 
   const stats = useMemo(() => {
     const highRiskItems = freightLineItems.filter(li => {
@@ -33,7 +34,7 @@ export default function Dashboard() {
     let totalForecast = 0;
     products.forEach(p => {
       totalStatic += p.monthly_demand;
-      totalForecast += getEffectiveDemand(p.id, p.monthly_demand);
+      totalForecast += getEffectiveDemand(p.id, p.monthly_demand, forecastMap);
     });
     const demandRatio = totalStatic > 0 ? Math.round((totalForecast / totalStatic) * 100) : 100;
 
@@ -45,7 +46,7 @@ export default function Dashboard() {
       airValue,
       demandRatio,
     };
-  }, [freight, freightLineItems, products]);
+  }, [freight, freightLineItems, products, forecastMap]);
 
   return (
     <div className="space-y-6">

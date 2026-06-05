@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { computeDOS, NO_DEMAND_DOS } from "@/lib/inventory-math";
 import { displayCategoryRank } from "@/lib/constants";
-import { getEffectiveDemand, getProductForecast } from "@/lib/demand";
+import { getEffectiveDemand } from "@/lib/demand";
 import {
   buildInTransitMap,
   buildOnOrderMap,
@@ -21,7 +21,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useUrlFilter, useUrlBoolFilter } from "@/lib/use-url-filter";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { ProductSKU, InventoryLevel, FreightShipment } from "@/types/database";
-import { useInventory, useBulkCycleCount, useFreightShipments, useFreightLineItems, useFactoryOrders, type CycleCountField, type CycleCountReason } from "@/lib/hooks";
+import { useInventory, useBulkCycleCount, useFreightShipments, useFreightLineItems, useFactoryOrders, useForecastDemandMap, type CycleCountField, type CycleCountReason } from "@/lib/hooks";
 import { useAuth } from "@/lib/auth-context";
 import {
   AlertDialog,
@@ -217,6 +217,7 @@ export default function InventoryDashboard() {
   const { data: freightShipments = [] } = useFreightShipments();
   const { data: freightLineItems = [] } = useFreightLineItems();
   const { data: factoryOrders = [] } = useFactoryOrders();
+  const forecastMap = useForecastDemandMap();
 
   // Shared per-SKU maps. Rebuilt whenever any of the three real sources
   // change. Replaces the legacy `inventory_levels.in_transit_* / nancy_* /
@@ -283,8 +284,10 @@ export default function InventoryDashboard() {
       .map(inv => {
         const product = inv.product;
         const totals = inventoryTotalsReal(inv, inTransitMap, onOrderMap);
-        const demand = getEffectiveDemand(product.id, product.monthly_demand);
-        const forecast = getProductForecast(product.id);
+        const demand = getEffectiveDemand(product.id, product.monthly_demand, forecastMap);
+        // "forecast" gates the "F" badge: true when the live forecast (not
+        // the trailing-30d baseline) is driving this SKU's demand.
+        const forecast = forecastMap.has(product.id);
         const allocation = getSKUAllocation(product.id);
         const overallDOS = computeDOS(totals.totalUnits, demand);
         const warehouseDOS = computeDOS(totals.warehouseTotal, demand);
@@ -303,7 +306,7 @@ export default function InventoryDashboard() {
         if (pa !== pb) return pa - pb;
         return a.warehouseDOS - b.warehouseDOS;
       });
-  }, [inventory, inTransitMap, onOrderMap]);
+  }, [inventory, inTransitMap, onOrderMap, forecastMap]);
 
   const filteredRows = useMemo(() => {
     return rows.filter(({ product }) => {

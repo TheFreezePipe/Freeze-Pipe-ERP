@@ -12,7 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import { InventoryProjectionChart } from "./InventoryProjectionChart";
 import { Button } from "@/components/ui/button";
 import { computeDOS } from "@/lib/inventory-math";
-import { getEffectiveDemand, getProductForecast } from "@/lib/demand";
+import { getEffectiveDemand } from "@/lib/demand";
 import {
   buildInTransitMap,
   buildOnOrderMap,
@@ -30,6 +30,8 @@ import {
   useFreightShipments,
   useFreightLineItems,
   useFactoryOrders,
+  useSkuForecastMap,
+  useForecastDemandMap,
 } from "@/lib/hooks";
 import { useState, useMemo } from "react";
 import { Warehouse, Ship, Factory, EyeOff, Eye, Check, Archive, ArchiveRestore, AlertTriangle } from "lucide-react";
@@ -67,16 +69,18 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
   const { data: shipments = [] } = useFreightShipments();
   const { data: freightLines = [] } = useFreightLineItems();
   const { data: factoryOrders = [] } = useFactoryOrders();
+  const forecastRowMap = useSkuForecastMap();
+  const forecastMap = useForecastDemandMap();
   const totals = useMemo(() => {
     const inTransitMap = buildInTransitMap(shipments, freightLines);
     const onOrderMap = buildOnOrderMap(factoryOrders, freightLines);
     return inventoryTotalsReal(inventory, inTransitMap, onOrderMap);
   }, [inventory, shipments, freightLines, factoryOrders]);
-  const forecastData = getProductForecast(product.id);
+  const forecastData = forecastRowMap.get(product.id);
   // Order of precedence: demand override > forecast > monthly_demand baseline.
   const effectiveDemand =
     currentOverride?.monthly_demand
-    ?? getEffectiveDemand(product.id, product.monthly_demand);
+    ?? getEffectiveDemand(product.id, product.monthly_demand, forecastMap);
   const [forecastOverride, setForecastOverride] = useState<string>(
     currentOverride?.monthly_demand != null ? String(currentOverride.monthly_demand) : "",
   );
@@ -240,9 +244,9 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
               <p className="text-lg font-bold tabular-nums">
                 {forecastData ? (
                   <span>
-                    {forecastData.forecastedDemand30d}/mo
+                    {forecastData.forecast_30d}/mo
                     <span className="text-xs text-muted-foreground ml-1">
-                      ({forecastData.lowerBound}-{forecastData.upperBound})
+                      ({forecastData.lower_bound}-{forecastData.upper_bound})
                     </span>
                   </span>
                 ) : (

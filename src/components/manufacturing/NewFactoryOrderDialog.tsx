@@ -34,6 +34,7 @@ import {
   useFreightLineItems,
   useFactoryOrders,
   useAllPrimarySkuSupplierCosts,
+  useForecastDemandMap,
 } from "@/lib/hooks";
 
 /**
@@ -80,6 +81,7 @@ export function NewFactoryOrderDialog({ open, onOpenChange }: Props) {
   // Primary supplier unit_cost per SKU — what `rawCostFor` should
   // return when real cost data exists. Pre-imported via migration 045.
   const { data: primaryCostBySkuId } = useAllPrimarySkuSupplierCosts();
+  const forecastMap = useForecastDemandMap();
   const createFactoryOrder = useCreateFactoryOrder();
 
   // Per-SKU aggregates derived from live sources. Replaces reads of the
@@ -150,7 +152,7 @@ export function NewFactoryOrderDialog({ open, onOpenChange }: Props) {
 
   function dosFor(skuId: string, extraUnits = 0): number {
     const product = products.find((p) => p.id === skuId);
-    const demand = getEffectiveDemand(skuId, product?.monthly_demand);
+    const demand = getEffectiveDemand(skuId, product?.monthly_demand, forecastMap);
     return computeDOS(currentUnitsFor(skuId) + extraUnits, demand);
   }
 
@@ -196,7 +198,7 @@ export function NewFactoryOrderDialog({ open, onOpenChange }: Props) {
 
     const candidates = activeProducts
       .map((p) => {
-        const demand = getEffectiveDemand(p.id, p.monthly_demand);
+        const demand = getEffectiveDemand(p.id, p.monthly_demand, forecastMap);
         const dailyDemand = demand / 30;
         const currentDOS = dosFor(p.id);
         const shortfallDays = Math.max(0, TARGET_DOS - currentDOS);

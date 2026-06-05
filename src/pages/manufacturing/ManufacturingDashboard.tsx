@@ -7,11 +7,12 @@ import { computeManufacturingPriority } from "@/lib/inventory-math";
 import { getEffectiveDemand } from "@/lib/demand";
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
-import { useInventory, useTaskLogs } from "@/lib/hooks";
+import { useInventory, useTaskLogs, useForecastDemandMap } from "@/lib/hooks";
 
 export default function ManufacturingDashboard() {
   const { data: inventory = [], isLoading: inventoryLoading } = useInventory();
   const { data: taskLogs = [], isLoading: logsLoading } = useTaskLogs(200);
+  const forecastMap = useForecastDemandMap();
 
   const stats = useMemo(() => {
     const raw = inventory.reduce((s, i) => s + i.warehouse_raw, 0);
@@ -58,13 +59,13 @@ export default function ManufacturingDashboard() {
           prefilledRaw,
           inv.warehouse_in_production,
           inv.warehouse_finished,
-          getEffectiveDemand(product.id, product.monthly_demand),
+          getEffectiveDemand(product.id, product.monthly_demand, forecastMap),
           product.abc_classification,
         );
         return { inv, product, total, priority };
       })
       .sort((a, b) => b.priority.score - a.priority.score);
-  }, [inventory]);
+  }, [inventory, forecastMap]);
 
   // DOS color tiers — green > 40d, yellow 20-40, red < 10d. Centralized
   // constants so adjusting the bands is a one-line change.
@@ -172,7 +173,7 @@ export default function ManufacturingDashboard() {
                           </span>
                         </TooltipTrigger>
                         <TooltipContent className="text-xs">
-                          <p>{priority.finishedDOS} days of finished stock at {getEffectiveDemand(product.id, product.monthly_demand)}/mo demand</p>
+                          <p>{priority.finishedDOS} days of finished stock at {getEffectiveDemand(product.id, product.monthly_demand, forecastMap)}/mo demand</p>
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>

@@ -16,6 +16,7 @@ import {
   useAllSkuEconomics,
   useAllPrimarySkuSupplierCosts,
   useCreateProduct,
+  useForecastDemandMap,
 } from "@/lib/hooks";
 import type { ProductSKU } from "@/types/database";
 
@@ -34,6 +35,7 @@ const emptyForm = {
 export default function SKUList() {
   const navigate = useNavigate();
   const { data: products = [] } = useProducts();
+  const forecastMap = useForecastDemandMap();
   // Batch-fetch the per-SKU economics + primary supplier cost. Used to
   // compute Total D2C and Contribution Margin inline; previously these
   // columns were hardcoded to "—".
@@ -276,7 +278,7 @@ export default function SKUList() {
                   product.retail_price ?? 0,
                   product.category,
                 );
-                const demand = getEffectiveDemand(product.id, product.monthly_demand);
+                const demand = getEffectiveDemand(product.id, product.monthly_demand, forecastMap);
                 // Per-unit margin in dollars and the monthly contribution
                 // that volume × margin produces. Both only meaningful when
                 // we have a real economics row + a positive retail price.
