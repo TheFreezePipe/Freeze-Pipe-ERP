@@ -25,6 +25,7 @@ import {
 } from "@/lib/hooks";
 import { freightShipmentSchema, safeValidate } from "@/lib/schemas";
 import { getOpenFactoryItemsForSku } from "@/lib/freight/open-factory-items";
+import { buildOnOrderMap } from "@/lib/inventory-aggregates";
 import { cn } from "@/lib/utils";
 
 /** One allocation of a SKU's units to a source factory order (or none).
@@ -107,21 +108,17 @@ export default function FreightNew() {
   // Carton groups
   const [cartonGroups, setCartonGroups] = useState<CartonGroup[]>([]);
 
-  // Map of sku_id -> units on open (non-shipped) factory orders.
-  // SKUs with open orders are surfaced first in the dropdown because
-  // those are the ones most likely to actually be loaded onto this shipment.
-  const openFactoryUnitsBySKU = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const order of factoryOrders) {
-      if (order.status === "shipped") continue;
-      for (const item of order.items ?? []) {
-        const open = Math.max(0, item.quantity_ordered - (item.quantity_finished ?? 0));
-        if (open === 0) continue;
-        map.set(item.sku_id, (map.get(item.sku_id) ?? 0) + open);
-      }
-    }
-    return map;
-  }, [factoryOrders]);
+  // Map of sku_id -> units still on order, NET of anything already committed
+  // to a freight shipment. Uses the app's canonical on-order definition
+  // (buildOnOrderMap) so this "on order" badge matches the dashboard /
+  // inventory pages AND the per-row "From:" picker below: once units are
+  // placed on a freight line they leave the on-order bucket (they're now in
+  // transit), so they no longer show here. SKUs with open orders are surfaced
+  // first in the dropdown because those are most likely loaded onto a shipment.
+  const openFactoryUnitsBySKU = useMemo(
+    () => buildOnOrderMap(factoryOrders, freightLineItems),
+    [factoryOrders, freightLineItems],
+  );
 
   const availableSKUs = useMemo(() => {
     const active = products.filter(p => p.is_active);
