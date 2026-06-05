@@ -1736,4 +1736,9 @@ export function getForecast(catalogSkuId: string): SKUForecast | undefined {
   console.log('\nDone!');
 }
 
-main();
+// Export the resolver so the one-time sales_daily backfill can reuse the
+// exact, tested SKU-resolution logic (legacy aliases, bundles, kits, base
+// mapping) instead of reimplementing it. Only run main() when invoked
+// directly (node build-forecast.cjs), not when required as a module.
+module.exports = { resolveShipStationSku, catalogBySkuLower };
+if (require.main === module) main();
