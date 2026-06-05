@@ -18,7 +18,26 @@
  * with new SKU launch curve adjustment.
  */
 
-import { skuForecasts, type SKUForecast } from "./forecast-data";
+// The legacy static forecast engine (forecast-data.ts) was removed: it was
+// keyed on numeric demo ids that never matched the app's real UUIDs, so
+// these lookups always returned undefined in production. Replaced with an
+// empty set so the (demo-based) fallback branches below behave exactly as
+// they did in prod. NOTE: this entire module is demo-data-based and is
+// effectively dead in production (it operates on demoProducts / numeric ids
+// and never matches real SKUs). Slated for removal — see cleanup note.
+type SKUForecast = {
+  catalogSkuId: string;
+  forecastedDemand30d: number;
+  lowerBound: number;
+  upperBound: number;
+  seasonalIndex: number;
+  categorySeasonalIndex?: number;
+  trendMultiplier: number;
+  forecastMethod?: string;
+  velocityShare?: number;
+  dataPoints?: number;
+};
+const skuForecasts: SKUForecast[] = [];
 
 // ============================================================
 // Category groupings — matches Retail Value by Category chart
