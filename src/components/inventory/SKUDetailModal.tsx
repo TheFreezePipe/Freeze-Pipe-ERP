@@ -229,7 +229,7 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
           <h3 className="text-sm font-medium">Monthly Demand</h3>
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <Label className="text-xs text-muted-foreground">Static (ShipStation)</Label>
+              <Label className="text-xs text-muted-foreground">ShipStation (30-day trailing)</Label>
               <p className="text-lg font-bold tabular-nums">{product.monthly_demand}/mo</p>
             </div>
             <div>
