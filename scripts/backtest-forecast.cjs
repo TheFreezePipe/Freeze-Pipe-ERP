@@ -646,4 +646,8 @@ function main() {
   }
 }
 
-main();
+// Export the forecast harness so a re-backtest can run it against the
+// fresh sales_daily series (instead of the original CSV). Only run main()
+// when invoked directly.
+module.exports = { forecastAtCutoff, getActuals, CATEGORY_MAP };
+if (require.main === module) main();
