@@ -5,7 +5,6 @@ import { getEffectiveDemand } from "@/lib/demand";
 import { RetailValueSummaryBar } from "@/components/dashboard/RetailValueSummaryBar";
 import { RetailValueChart } from "@/components/dashboard/RetailValueChart";
 import { ManufacturingCompletionChart } from "@/components/dashboard/ManufacturingCompletionChart";
-import { CategoryDemandChart } from "@/components/dashboard/CategoryDemandChart";
 import { AlertsPanel } from "@/components/dashboard/AlertsPanel";
 import { FreightCostChart } from "@/components/freight/FreightCostChart";
 import { useMemo } from "react";
@@ -78,9 +77,9 @@ export default function Dashboard() {
           iconColor="text-cyan-400"
         />
         <StatCard
-          title="Demand vs Forecast"
+          title="Forecast vs Recent"
           value={`${stats.demandRatio}%`}
-          subtitle={stats.demandRatio > 100 ? "Above forecast" : stats.demandRatio < 100 ? "Below forecast" : "On target"}
+          subtitle={stats.demandRatio > 100 ? "Demand trending up" : stats.demandRatio < 100 ? "Demand trending down" : "Steady"}
           icon={TrendingUp}
           iconColor={stats.demandRatio > 110 ? "text-yellow-400" : "text-green-400"}
         />
@@ -99,27 +98,15 @@ export default function Dashboard() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Retail Value by Category</CardTitle>
-            <p className="text-xs text-muted-foreground">Stacked by inventory location</p>
-          </CardHeader>
-          <CardContent>
-            <RetailValueChart />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">30-Day Demand Forecast</CardTitle>
-            <p className="text-xs text-muted-foreground">Category-level demand with cannibalization adjustment &middot; hover for details</p>
-          </CardHeader>
-          <CardContent>
-            <CategoryDemandChart />
-          </CardContent>
-        </Card>
-      </div>
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Retail Value &amp; 30-Day Demand by Category</CardTitle>
+          <p className="text-xs text-muted-foreground">Inventory value stacked by location, with the blue bar showing forecasted 30-day demand (at retail) for coverage at a glance</p>
+        </CardHeader>
+        <CardContent>
+          <RetailValueChart />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="pb-2">

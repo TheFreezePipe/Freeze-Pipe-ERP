@@ -15,7 +15,6 @@ import {
   buildOnOrderMap,
   inventoryTotalsReal,
 } from "@/lib/inventory-aggregates";
-import { getSKUAllocation, shouldHideSKU } from "@/lib/category-demand";
 import { SKUDetailModal } from "@/components/inventory/SKUDetailModal";
 import { useMemo, useState, useEffect } from "react";
 import { useUrlFilter, useUrlBoolFilter } from "@/lib/use-url-filter";
@@ -280,7 +279,6 @@ export default function InventoryDashboard() {
 
   const rows = useMemo(() => {
     return inventory
-      .filter(inv => !shouldHideSKU(inv.sku_id))
       .map(inv => {
         const product = inv.product;
         const totals = inventoryTotalsReal(inv, inTransitMap, onOrderMap);
@@ -288,12 +286,11 @@ export default function InventoryDashboard() {
         // "forecast" gates the "F" badge: true when the live forecast (not
         // the trailing-30d baseline) is driving this SKU's demand.
         const forecast = forecastMap.has(product.id);
-        const allocation = getSKUAllocation(product.id);
         const overallDOS = computeDOS(totals.totalUnits, demand);
         const warehouseDOS = computeDOS(totals.warehouseTotal, demand);
         const transitDOS = computeDOS(totals.transitTotal, demand);
         const onOrderDOS = computeDOS(totals.onOrderTotal, demand);
-        return { inv, product, totals, overallDOS, warehouseDOS, transitDOS, onOrderDOS, demand, forecast, allocation };
+        return { inv, product, totals, overallDOS, warehouseDOS, transitDOS, onOrderDOS, demand, forecast };
       })
       // Sort by display_category in the operational priority order
       // requested by Chase 2026-05-07. Within a category, lowest
@@ -637,7 +634,7 @@ export default function InventoryDashboard() {
                   )}
                 </thead>
                 <tbody>
-                  {filteredRows.map(({ inv, product, totals, overallDOS, warehouseDOS, transitDOS, onOrderDOS, demand, forecast, allocation }) => (
+                  {filteredRows.map(({ inv, product, totals, overallDOS, warehouseDOS, transitDOS, onOrderDOS, demand, forecast }) => (
                     <tr
                       key={inv.id}
                       className={`border-b border-border/50 hover:bg-muted/50 ${editMode ? "" : "cursor-pointer"}`}
@@ -697,13 +694,7 @@ export default function InventoryDashboard() {
                                 <span className="font-medium">{demand}</span>
                                 <span className="ml-0.5 text-[10px] text-blue-400">F</span>
                                 <span className="absolute bottom-full right-0 mb-1 hidden group-hover:block z-20 whitespace-nowrap rounded bg-popover border border-border px-2 py-1 text-xs shadow-md">
-                                  <span className="block">Forecast: {demand}/mo · Static: {product.monthly_demand}/mo</span>
-                                  {allocation && (
-                                    <span className="block text-purple-400">
-                                      {allocation.sharePct}% of {allocation.category} demand
-                                      {allocation.isNewLaunch && " (new launch)"}
-                                    </span>
-                                  )}
+                                  <span className="block">Forecast: {demand}/mo · Recent (30d): {product.monthly_demand}/mo</span>
                                 </span>
                               </span>
                             ) : (
