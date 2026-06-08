@@ -43,6 +43,26 @@ export function computeDOS(units: number, monthlyDemand: number): number {
 }
 
 /**
+ * How much manufacturing work a pre-filled raw unit still represents,
+ * expressed as a fraction of a fully-raw unit (0 = no work / treat as
+ * finished, 1 = same work as raw).
+ *
+ * Pre-filled raw arrived already filled and only needs a fast
+ * ready-to-sell (RTS) step before it can ship — genuinely less work than
+ * raw/WIP, but NOT zero. This used to be treated as 0 (pre-filled raw was
+ * lumped wholly into "finished"), which meant a SKU that was ENTIRELY
+ * pre-filled raw scored an unfilled ratio of 0 and therefore a priority
+ * score of 0 — sinking to the very bottom of the list. The manufacturing
+ * team never saw it, so the RTS step never happened and the shipping team
+ * sat on orders waiting for "finished" units that nobody was making
+ * (e.g. E-Rig-Attachment). A small non-zero weight surfaces these SKUs.
+ *
+ * Tunable: raise toward raw/WIP urgency, lower toward "as good as
+ * finished." 0.25 ≈ "a quarter of the work of a raw unit."
+ */
+export const PREFILLED_RAW_REMAINING_WORK = 0.25;
+
+/**
  * Manufacturing Priority Score
  *
  * Ranks fillable SKUs by how urgently they need manufacturing work today.
@@ -50,14 +70,17 @@ export function computeDOS(units: number, monthlyDemand: number): number {
  *
  * Formula:  demand_pressure × unfilled_ratio × abc_weight
  *
- *   demand_pressure  = daily_demand / max(finished, 1)
+ *   demand_pressure  = daily_demand / max(effective_finished, 1)
  *     → How fast finished stock is depleting. A SKU selling 15/day with
  *       only 60 finished scores 4× higher than one selling 6/day with 144
- *       finished.
+ *       finished. effective_finished = finished + the "done" share of
+ *       pre-filled raw (see PREFILLED_RAW_REMAINING_WORK).
  *
- *   unfilled_ratio   = (raw + wip) / max(raw + wip + finished, 1)
- *     → What share of warehouse stock still needs manufacturing. Surfaces
- *       SKUs with large backlogs of unfinished work.
+ *   unfilled_ratio   = unfilled / max(total_warehouse, 1)
+ *     → What share of warehouse stock still needs manufacturing. Here
+ *       unfilled = raw + wip + (PREFILLED_RAW_REMAINING_WORK × pre-filled
+ *       raw), so an all-pre-filled-raw SKU earns a small but non-zero
+ *       ratio instead of 0.
  *
  *   abc_weight       = A: 1.5 | B: 1.0 | C: 0.5
  *     → Business-importance multiplier so higher-revenue SKUs break ties.
@@ -71,11 +94,16 @@ export function computeManufacturingPriority(
   abc: string | null,
 ): { score: number; finishedDOS: number; unfilledPct: number } {
   const dailyDemand = monthlyDemand / 30;
-  // "Unfilled" = needs filling work. Pre-filled raw is excluded — those
-  // units arrived already filled and just need RTSing (a fast skip-the-WIP
-  // step), so they're effectively as good as finished for priority/DOS.
-  const unfilled = raw + wip;
-  const effectiveFinished = finished + prefilledRaw;
+  // "Unfilled" = needs manufacturing work. Pre-filled raw is split between
+  // the two buckets: it only needs a fast ready-to-sell step, so most of it
+  // counts as effectively finished, but a small fraction
+  // (PREFILLED_RAW_REMAINING_WORK) stays as "unfilled" so the RTS work still
+  // registers as something to do. Splitting (rather than counting it wholly
+  // as finished) is what keeps an all-pre-filled-raw SKU from scoring 0 and
+  // disappearing from the priority list. The split conserves total units.
+  const prefilledWork = PREFILLED_RAW_REMAINING_WORK * prefilledRaw;
+  const unfilled = raw + wip + prefilledWork;
+  const effectiveFinished = finished + (prefilledRaw - prefilledWork);
   const totalWarehouse = unfilled + effectiveFinished;
   const finishedDOS = effectiveFinished / Math.max(dailyDemand, 0.01);
 
