@@ -5,9 +5,10 @@ import { getEffectiveDemand } from "@/lib/demand";
 import { RetailValueSummaryBar } from "@/components/dashboard/RetailValueSummaryBar";
 import { RetailValueChart } from "@/components/dashboard/RetailValueChart";
 import { ManufacturingCompletionChart } from "@/components/dashboard/ManufacturingCompletionChart";
+import { ManufacturingCompletionModal } from "@/components/dashboard/ManufacturingCompletionModal";
 import { AlertsPanel } from "@/components/dashboard/AlertsPanel";
 import { FreightCostChart } from "@/components/freight/FreightCostChart";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useFreightShipments, useFreightLineItems, useProducts, useForecastDemandMap } from "@/lib/hooks";
 
 export default function Dashboard() {
@@ -15,6 +16,7 @@ export default function Dashboard() {
   const { data: freightLineItems = [] } = useFreightLineItems();
   const { data: products = [] } = useProducts();
   const forecastMap = useForecastDemandMap();
+  const [mfgOpen, setMfgOpen] = useState(false);
 
   const stats = useMemo(() => {
     const highRiskItems = freightLineItems.filter(li => {
@@ -88,13 +90,22 @@ export default function Dashboard() {
       <Card>
         <CardContent className="pt-6 space-y-6">
           <RetailValueSummaryBar />
-          <div className="border-t border-border/50 pt-5">
-            <div className="mb-3">
-              <p className="text-sm font-medium">Manufacturing Completion</p>
-              <p className="text-xs text-muted-foreground">Fillable warehouse inventory progress</p>
+          <button
+            type="button"
+            onClick={() => setMfgOpen(true)}
+            className="group w-full border-t border-border/50 pt-5 text-left rounded-md transition-colors hover:bg-muted/20 cursor-pointer"
+          >
+            <div className="mb-3 flex items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-medium">Manufacturing Completion</p>
+                <p className="text-xs text-muted-foreground">Fillable warehouse inventory progress</p>
+              </div>
+              <span className="text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 shrink-0">
+                View details &rarr;
+              </span>
             </div>
             <ManufacturingCompletionChart />
-          </div>
+          </button>
         </CardContent>
       </Card>
 
@@ -176,6 +187,8 @@ export default function Dashboard() {
           )}
         </CardContent>
       </Card>
+
+      <ManufacturingCompletionModal open={mfgOpen} onOpenChange={setMfgOpen} />
     </div>
   );
 }
