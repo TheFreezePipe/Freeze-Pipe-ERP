@@ -15,7 +15,11 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { useMemo, useState } from "react";
-import { useInventory, useManufacturingCompletionHistory } from "@/lib/hooks";
+import {
+  useInventory,
+  useManufacturingCompletionHistory,
+  useManufacturingClearEstimate,
+} from "@/lib/hooks";
 import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +46,9 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
   const { data: inventory = [] } = useInventory();
   const [days, setDays] = useState(30);
   const { data: history = [], isLoading } = useManufacturingCompletionHistory(days);
+  // Days-to-clear uses a fixed trailing-30d throughput basis, independent of
+  // the chart range toggle above.
+  const { data: estimate } = useManufacturingClearEstimate(30);
 
   // Current snapshot across fillable SKUs (stages + per-SKU breakdown).
   const snap = useMemo(() => {
@@ -100,29 +107,25 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
     };
   }, [inventory]);
 
-  // Time-to-clear: least-squares slope of the unfilled series over the
-  // selected window. Negative slope = backlog shrinking → project days to
-  // clear the current unfilled count at that net pace.
+  // Days-to-clear: throughput-based queue drain. Total fillable units that
+  // still need to be made ready (on-hand unfilled + pre-filled, plus inbound
+  // freight) divided by the team's combined make-ready rate (rtsing +
+  // prefilled_rtsing, trailing 30 days). Folds manufacturing + RTS into one
+  // figure. Null rate = no recent completion activity to estimate from.
   const clear = useMemo(() => {
-    if (history.length < 2) return null;
-    const n = history.length;
-    const ys = history.map((h) => h.unfilled_units);
-    const meanX = (n - 1) / 2;
-    const meanY = ys.reduce((s, v) => s + v, 0) / n;
-    let num = 0;
-    let den = 0;
-    for (let i = 0; i < n; i++) {
-      num += (i - meanX) * (ys[i] - meanY);
-      den += (i - meanX) ** 2;
-    }
-    const slope = den === 0 ? 0 : num / den; // units/day change in unfilled
-    const current = ys[n - 1];
-    if (slope < -0.05) {
-      return { trend: "down" as const, perDay: -slope, daysToClear: current / -slope };
-    }
-    if (slope > 0.05) return { trend: "up" as const, perDay: slope };
-    return { trend: "flat" as const, perDay: 0 };
-  }, [history]);
+    if (!estimate) return null;
+    const onHand = estimate.unfilled_now + estimate.prefilled_now;
+    const inbound = estimate.incoming_raw + estimate.incoming_prefilled;
+    const totalWork = onHand + inbound;
+    const rate = estimate.rtsing_per_day + estimate.prefilled_rtsing_per_day;
+    return {
+      totalWork,
+      onHand,
+      inbound,
+      rate,
+      days: rate > 0 ? totalWork / rate : null,
+    };
+  }, [estimate]);
 
   const stages =
     snap.total > 0
@@ -157,29 +160,25 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
               </p>
             </div>
             <div className="text-right">
-              {clear?.trend === "down" && (
+              {clear && clear.days != null ? (
                 <>
-                  <p className="text-sm font-semibold text-green-400 tabular-nums">
-                    ~{Math.ceil(clear.daysToClear)} days to clear
+                  <p className="text-sm font-semibold text-foreground tabular-nums">
+                    ~{Math.ceil(clear.days)} days to clear
                   </p>
                   <p className="text-[11px] text-muted-foreground">
-                    backlog shrinking ~{Math.round(clear.perDay)} units/day ({RANGES.find((r) => r.days === days)?.label})
+                    {clear.totalWork.toLocaleString()} to make ready
+                    ({clear.onHand.toLocaleString()} on hand + {clear.inbound.toLocaleString()} inbound)
+                    &divide; {Math.round(clear.rate)}/day
+                  </p>
+                  <p className="text-[10px] text-muted-foreground/70">
+                    at the trailing 30-day rtsing + pre-filled RTS pace
                   </p>
                 </>
-              )}
-              {clear?.trend === "up" && (
-                <>
-                  <p className="text-sm font-semibold text-red-400 tabular-nums">
-                    Backlog growing
-                  </p>
-                  <p className="text-[11px] text-muted-foreground">
-                    +{Math.round(clear.perDay)} unfilled units/day ({RANGES.find((r) => r.days === days)?.label})
-                  </p>
-                </>
-              )}
-              {clear?.trend === "flat" && (
-                <p className="text-[11px] text-muted-foreground">Backlog holding steady this window</p>
-              )}
+              ) : clear ? (
+                <p className="text-[11px] text-muted-foreground">
+                  No recent completion activity to estimate from
+                </p>
+              ) : null}
             </div>
           </div>
 
