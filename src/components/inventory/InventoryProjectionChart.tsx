@@ -136,7 +136,9 @@ export function InventoryProjectionChart({ product, inventory, demandOverride }:
 
   return (
     <ResponsiveContainer width="100%" height={280}>
-      <AreaChart data={combined} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+      {/* top margin leaves headroom for the "Today" / freight-ETA reference
+          line labels (position: "top"), which otherwise clip at the SVG edge. */}
+      <AreaChart data={combined} margin={{ top: 28, right: 10, left: 0, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="hsl(0,0%,18%)" />
         <XAxis
           dataKey="date"
