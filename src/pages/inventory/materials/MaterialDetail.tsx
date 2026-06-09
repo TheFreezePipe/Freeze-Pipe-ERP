@@ -19,6 +19,7 @@ import {
   useProducts,
   useProfiles,
   useMaterialTransactions,
+  useMaterialUsageRates,
 } from "@/lib/hooks";
 import {
   computeMaterialRunway,
@@ -38,12 +39,14 @@ export default function MaterialDetail() {
   const { data: products = [] } = useProducts();
   const { data: profiles = [] } = useProfiles();
   const { data: transactions = [] } = useMaterialTransactions(materialId);
+  const { data: usageRates } = useMaterialUsageRates();
 
   const runway = useMemo(() => {
     if (!material) return null;
     return computeMaterialRunway(material, {
       materials: [material],
       allRecipes,
+      usageRateByMaterial: usageRates,
       fillableInventory: inventory
         .filter((inv) => inv.product?.category === "fillable")
         .map((inv) => ({
@@ -59,7 +62,7 @@ export default function MaterialDetail() {
           },
         })),
     });
-  }, [material, allRecipes, inventory]);
+  }, [material, allRecipes, inventory, usageRates]);
 
   const reorder = useMemo(() => {
     if (!material || !runway) return null;
@@ -123,7 +126,9 @@ export default function MaterialDetail() {
 
   const runwayLabel = (() => {
     if (!runway) return "—";
-    if (runway.consumptionSource === "no_recipes") return "no recipe";
+    if (runway.consumptionSource === "no_recipes") {
+      return material.dim_length_in != null ? "awaiting usage" : "no recipe";
+    }
     if (runway.consumptionSource === "no_demand") return "no demand";
     return runway.currentRunwayDays != null ? `${runway.currentRunwayDays}d` : "—";
   })();
@@ -157,7 +162,11 @@ export default function MaterialDetail() {
         <StatBox
           label="Current Runway"
           value={runwayLabel}
-          sub={runway && runway.dailyConsumption > 0 ? `${fmt(runway.dailyConsumption, 3)} ${unit}/day` : "no burn estimate"}
+          sub={
+            runway && runway.dailyConsumption > 0
+              ? `${fmt(runway.dailyConsumption, 3)} ${unit}/day${runway.consumptionSource === "usage" ? " (recent shipments)" : ""}`
+              : "no burn estimate"
+          }
           tone={
             runway?.currentRunwayDays != null
               ? runway.currentRunwayDays < 14

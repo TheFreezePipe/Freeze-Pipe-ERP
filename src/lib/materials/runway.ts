@@ -30,7 +30,7 @@ export interface MaterialRunwayResult {
   /** True when on_hand < reorder_point_qty. */
   belowReorderPoint: boolean;
   /** Source of the daily-consumption estimate. */
-  consumptionSource: "demand_recipe" | "no_recipes" | "no_demand";
+  consumptionSource: "usage" | "demand_recipe" | "no_recipes" | "no_demand";
 }
 
 export interface RunwayInputs {
@@ -49,6 +49,14 @@ export interface RunwayInputs {
       "warehouse_raw" | "warehouse_prefilled_raw" | "warehouse_in_production"
     >;
   }>;
+  /**
+   * Optional observed daily usage per material (units/day) from real
+   * consumption transactions (e.g. ShipStation box decrements). When a
+   * material has a positive rate here it OVERRIDES the recipe estimate —
+   * observed reality beats modelled demand. This is the source for boxes,
+   * which have no recipes.
+   */
+  usageRateByMaterial?: Map<string, number>;
 }
 
 /**
@@ -61,64 +69,56 @@ export function computeMaterialRunway(
 ): MaterialRunwayResult {
   const onHand = (inputs.materials.find((m) => m.id === material.id))
     ?.inventory?.on_hand_qty ?? 0;
+  const belowReorderPoint =
+    material.reorder_point_qty != null && onHand < material.reorder_point_qty;
 
-  // Build a (sku_id → qty_per_unit_of_THIS_material) map.
+  // Observed trailing usage (e.g. boxes decremented from ShipStation
+  // shipments). Preferred over the recipe estimate when present.
+  const usageDaily = inputs.usageRateByMaterial?.get(material.id) ?? 0;
+
+  // Recipe-based estimate: Σ over fillable SKUs of (daily_demand × recipe_qty),
+  // plus the material qty needed to finish all upstream (raw/prefilled/WIP)
+  // stock. Zero for materials with no recipes (boxes).
   const recipeBySku = new Map<string, number>();
   for (const r of inputs.allRecipes) {
-    if (r.material_id === material.id) {
-      recipeBySku.set(r.sku_id, r.quantity_per_unit);
-    }
+    if (r.material_id === material.id) recipeBySku.set(r.sku_id, r.quantity_per_unit);
   }
-
-  if (recipeBySku.size === 0) {
-    return {
-      materialId: material.id,
-      currentRunwayDays: null,
-      pipelineRunwayDays: null,
-      dailyConsumption: 0,
-      pipelineConsumptionQty: 0,
-      belowReorderPoint:
-        material.reorder_point_qty != null && onHand < material.reorder_point_qty,
-      consumptionSource: "no_recipes",
-    };
-  }
-
-  // Daily consumption: sum across fillable SKUs of (daily_demand × recipe_qty).
-  let dailyConsumption = 0;
+  let recipeDaily = 0;
   let pipelineUnits = 0;
   for (const { product, inventory } of inputs.fillableInventory) {
     const recipeQty = recipeBySku.get(product.id);
     if (!recipeQty) continue;
-    const monthly = product.monthly_demand ?? 0;
-    const daily = monthly / 30;
-    dailyConsumption += daily * recipeQty;
-    // Pipeline = anything still upstream of finished. Prefilled-raw is
-    // technically already filled and won't consume more glycerin, but it
-    // WILL still consume a cap on RTSing. Different materials care
-    // about different stages; simplest accurate model is to count all
-    // upstream stock as "will consume material at recipe rate" since
-    // recipes are per-finished-unit and every upstream unit becomes a
-    // finished unit eventually.
+    recipeDaily += ((product.monthly_demand ?? 0) / 30) * recipeQty;
     const upstream = (inventory.warehouse_raw ?? 0)
       + (inventory.warehouse_prefilled_raw ?? 0)
       + (inventory.warehouse_in_production ?? 0);
     pipelineUnits += upstream * recipeQty;
   }
 
-  // No demand recorded anywhere → can't divide.
-  if (dailyConsumption <= 0) {
+  // Source precedence: observed usage > recipe estimate > none.
+  let dailyConsumption: number;
+  let consumptionSource: MaterialRunwayResult["consumptionSource"];
+  if (usageDaily > 0) {
+    dailyConsumption = usageDaily;
+    consumptionSource = "usage";
+  } else if (recipeDaily > 0) {
+    dailyConsumption = recipeDaily;
+    consumptionSource = "demand_recipe";
+  } else {
     return {
       materialId: material.id,
       currentRunwayDays: null,
       pipelineRunwayDays: null,
       dailyConsumption: 0,
       pipelineConsumptionQty: pipelineUnits,
-      belowReorderPoint:
-        material.reorder_point_qty != null && onHand < material.reorder_point_qty,
-      consumptionSource: "no_demand",
+      belowReorderPoint,
+      // No recipes AND no observed usage → nothing to go on yet.
+      consumptionSource: recipeBySku.size === 0 ? "no_recipes" : "no_demand",
     };
   }
 
+  // Usage-driven materials (boxes) have pipelineUnits = 0, so pipeline
+  // runway collapses to current runway — there's no upstream pipeline.
   const currentRunwayDays = onHand / dailyConsumption;
   // Pipeline runway: how long until the on-hand stock is depleted
   // assuming we use it to finish the entire current pipeline.
@@ -143,9 +143,8 @@ export function computeMaterialRunway(
     pipelineRunwayDays: Math.round(pipelineRunwayDays * 10) / 10,
     dailyConsumption: Math.round(dailyConsumption * 1000) / 1000,
     pipelineConsumptionQty: Math.round(pipelineUnits * 100) / 100,
-    belowReorderPoint:
-      material.reorder_point_qty != null && onHand < material.reorder_point_qty,
-    consumptionSource: "demand_recipe",
+    belowReorderPoint,
+    consumptionSource,
   };
 }
 

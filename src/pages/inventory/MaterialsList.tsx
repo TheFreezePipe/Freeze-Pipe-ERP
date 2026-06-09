@@ -40,6 +40,7 @@ import {
   useAllRecipes,
   useInventory,
   useUnmatchedShipstationBoxes,
+  useMaterialUsageRates,
   type MaterialWithLevel,
   type MaterialCycleCountReason,
 } from "@/lib/hooks";
@@ -75,6 +76,7 @@ export default function MaterialsList() {
   const { data: allRecipes = [] } = useAllRecipes();
   const { data: inventory = [] } = useInventory();
   const { data: unmatchedBoxes = [] } = useUnmatchedShipstationBoxes();
+  const { data: usageRates } = useMaterialUsageRates();
   const bulkCycleCount = useBulkMaterialCycleCount();
 
   // Runway forecast — computed once per (materials, recipes, inventory)
@@ -83,6 +85,7 @@ export default function MaterialsList() {
     return computeAllMaterialRunways({
       materials,
       allRecipes,
+      usageRateByMaterial: usageRates,
       fillableInventory: inventory
         .filter((inv) => inv.product?.category === "fillable")
         .map((inv) => ({
@@ -98,7 +101,7 @@ export default function MaterialsList() {
           },
         })),
     });
-  }, [materials, allRecipes, inventory]);
+  }, [materials, allRecipes, inventory, usageRates]);
 
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -659,7 +662,7 @@ function MaterialRow({
       )}
       {!cycleMode && (
         <td className="px-3 py-3 text-right tabular-nums">
-          {runway && runway.consumptionSource === "demand_recipe" && runway.currentRunwayDays != null ? (
+          {runway && (runway.consumptionSource === "demand_recipe" || runway.consumptionSource === "usage") && runway.currentRunwayDays != null ? (
             <span
               className={
                 runway.currentRunwayDays < 14
@@ -669,27 +672,37 @@ function MaterialRow({
                     : "text-green-400"
               }
               title={
-                `Current: ${runway.currentRunwayDays}d at ${runway.dailyConsumption.toFixed(2)} ${material.unit_of_measure}/day\n` +
-                `If pipeline (${runway.pipelineConsumptionQty.toFixed(0)} ${material.unit_of_measure}) finishes: ${runway.pipelineRunwayDays}d`
+                runway.consumptionSource === "usage"
+                  ? `Current: ${runway.currentRunwayDays}d at ${runway.dailyConsumption.toFixed(2)} ${material.unit_of_measure}/day (based on recent shipments)`
+                  : `Current: ${runway.currentRunwayDays}d at ${runway.dailyConsumption.toFixed(2)} ${material.unit_of_measure}/day\n` +
+                    `If pipeline (${runway.pipelineConsumptionQty.toFixed(0)} ${material.unit_of_measure}) finishes: ${runway.pipelineRunwayDays}d`
               }
             >
               {runway.currentRunwayDays}d
-              <span className="ml-1 text-[10px] text-muted-foreground">
-                ({runway.pipelineRunwayDays}d w/ pipeline)
-              </span>
+              {runway.consumptionSource === "demand_recipe" && (
+                <span className="ml-1 text-[10px] text-muted-foreground">
+                  ({runway.pipelineRunwayDays}d w/ pipeline)
+                </span>
+              )}
             </span>
           ) : (
             <span
               className="text-muted-foreground/50 italic text-xs"
               title={
                 runway?.consumptionSource === "no_recipes"
-                  ? "No SKUs reference this material yet — add to a recipe on the SKU detail page"
+                  ? material.dim_length_in != null
+                    ? "Box usage will populate from ShipStation shipments"
+                    : "No SKUs reference this material yet — add to a recipe on the SKU detail page"
                   : runway?.consumptionSource === "no_demand"
                     ? "Recipe exists but referenced SKUs have no monthly demand recorded"
                     : "—"
               }
             >
-              {runway?.consumptionSource === "no_recipes" ? "no recipes" : "—"}
+              {runway?.consumptionSource === "no_recipes"
+                ? material.dim_length_in != null
+                  ? "awaiting usage"
+                  : "no recipes"
+                : "—"}
             </span>
           )}
         </td>

@@ -86,6 +86,31 @@ export function useMaterials(opts: { includeArchived?: boolean } = {}) {
 }
 
 /**
+ * Per-material observed daily usage (Map material_id → units/day) from real
+ * consumption transactions, e.g. ShipStation box decrements. Powers
+ * usage-driven runway/reorder for materials that aren't recipe-driven
+ * (boxes). Empty until consumption history accrues.
+ */
+export function useMaterialUsageRates(days = 30) {
+  return useQuery({
+    queryKey: ["material-usage-rates", days],
+    queryFn: async (): Promise<Map<string, number>> => {
+      const { data, error } = await supabase.rpc("rpc_material_usage_rates", {
+        p_days: days,
+      });
+      if (error) throw error;
+      const m = new Map<string, number>();
+      // deno-lint-ignore no-explicit-any
+      for (const r of (data ?? []) as any[]) {
+        m.set(r.material_id as string, Number(r.daily_usage ?? 0));
+      }
+      return m;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
  * Distinct ShipStation shipment box sizes (going forward) that matched no
  * box in the catalog — surfaced so an operator can add the missing box.
  * Reads the shipstation_unmatched_boxes review view.
