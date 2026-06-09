@@ -12,11 +12,15 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
+  ReferenceLine,
+  Legend,
   ResponsiveContainer,
 } from "recharts";
 import { useMemo, useState } from "react";
 import {
   useInventory,
+  useFreightShipments,
+  useFreightLineItems,
   useManufacturingCompletionHistory,
   useManufacturingClearEstimate,
 } from "@/lib/hooks";
@@ -41,6 +45,7 @@ const WIP_COLOR = "hsl(30, 90%, 55%)"; // in production — WIP
 const PREFILLED_COLOR = "hsl(190, 80%, 55%)"; // pre-filled — needs RTS only
 const FINISHED_COLOR = "hsl(120, 45%, 50%)"; // finished — done
 const PCT_COLOR = "hsl(120, 45%, 50%)";
+const PROJECTED_COLOR = "hsl(270, 67%, 60%)"; // forward projection (dashed)
 
 export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
   const { data: inventory = [] } = useInventory();
@@ -49,6 +54,10 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
   // Days-to-clear uses a fixed trailing-30d throughput basis, independent of
   // the chart range toggle above.
   const { data: estimate } = useManufacturingClearEstimate(30);
+  const { data: shipments = [] } = useFreightShipments();
+  const { data: freightLines = [] } = useFreightLineItems();
+
+  const todayStr = new Date().toISOString().slice(0, 10);
 
   // Current snapshot across fillable SKUs (stages + per-SKU breakdown).
   const snap = useMemo(() => {
@@ -127,6 +136,86 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
     };
   }, [estimate]);
 
+  // Forward 30-day completion-% projection. Each day, fillable freight lands
+  // on its exact ETA (raw -> unfilled, pre-filled -> complete), then rtsing
+  // converts unfilled -> complete at the trailing-30d pace. Only rtsing moves
+  // the ratio (pre-filled is already "complete"); pre-filled RTS is omitted.
+  // Outbound sales are not modeled — this is manufacturing progress on
+  // current + inbound stock. Anchored at today's actual so it meets the
+  // historical line.
+  const projection = useMemo(() => {
+    if (!estimate) return [] as { day: string; projectedPct: number }[];
+
+    const fillableIds = new Set(
+      inventory.filter((i) => i.product?.category === "fillable").map((i) => i.sku_id),
+    );
+
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+    const horizon = new Date();
+    horizon.setDate(horizon.getDate() + 30);
+    const horizonStr = horizon.toISOString().slice(0, 10);
+
+    // Aggregate fillable arrivals by ETA day. Overdue ETAs land "tomorrow";
+    // arrivals beyond the 30-day horizon don't show on this curve.
+    const arrivals = new Map<string, { raw: number; prefilled: number }>();
+    for (const f of shipments) {
+      if (f.status === "delivered" || !f.eta) continue;
+      let etaDay = f.eta.slice(0, 10);
+      if (etaDay < tomorrowStr) etaDay = tomorrowStr;
+      if (etaDay > horizonStr) continue;
+      for (const li of freightLines) {
+        if (li.freight_shipment_id !== f.id || !fillableIds.has(li.sku_id)) continue;
+        const qty = li.quantity ?? 0;
+        const pf = Math.min(Math.max(li.quantity_prefilled ?? 0, 0), qty);
+        const raw = Math.max(qty - pf, 0);
+        const cur = arrivals.get(etaDay) ?? { raw: 0, prefilled: 0 };
+        cur.raw += raw;
+        cur.prefilled += pf;
+        arrivals.set(etaDay, cur);
+      }
+    }
+
+    const rate = estimate.rtsing_per_day; // unfilled -> complete per day
+    let complete = snap.complete;
+    let unfilled = snap.unfilled;
+    const out: { day: string; projectedPct: number }[] = [
+      {
+        day: todayStr,
+        projectedPct: complete + unfilled > 0 ? (complete / (complete + unfilled)) * 100 : 0,
+      },
+    ];
+    for (let d = 1; d <= 30; d++) {
+      const date = new Date();
+      date.setDate(date.getDate() + d);
+      const ds = date.toISOString().slice(0, 10);
+      const arr = arrivals.get(ds);
+      if (arr) {
+        unfilled += arr.raw;
+        complete += arr.prefilled;
+      }
+      const conv = Math.min(rate, unfilled);
+      unfilled -= conv;
+      complete += conv;
+      const total = complete + unfilled;
+      out.push({ day: ds, projectedPct: total > 0 ? (complete / total) * 100 : 0 });
+    }
+    return out;
+  }, [estimate, shipments, freightLines, inventory, snap, todayStr]);
+
+  // Merge history (solid) + projection (dashed) into one series. The "today"
+  // row carries both keys so the two lines visually connect.
+  const chartData = useMemo(() => {
+    const byDate = new Map<string, { day: string; pct?: number; projectedPct?: number }>();
+    for (const h of history) byDate.set(h.day, { day: h.day, pct: h.pct });
+    for (const p of projection) {
+      const ex = byDate.get(p.day) ?? { day: p.day };
+      byDate.set(p.day, { ...ex, projectedPct: p.projectedPct });
+    }
+    return Array.from(byDate.values()).sort((a, b) => a.day.localeCompare(b.day));
+  }, [history, projection]);
+
   const stages =
     snap.total > 0
       ? [
@@ -185,7 +274,12 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
           {/* Completion % over time */}
           <div>
             <div className="mb-2 flex items-center justify-between">
-              <p className="text-sm font-medium">Completion % over time</p>
+              <div>
+                <p className="text-sm font-medium">Completion % — history &amp; 30-day projection</p>
+                <p className="text-[11px] text-muted-foreground">
+                  projection lands freight on its ETA and converts at the trailing-30d rtsing pace
+                </p>
+              </div>
               <div className="flex gap-1">
                 {RANGES.map((r) => (
                   <Button
@@ -200,8 +294,8 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
                 ))}
               </div>
             </div>
-            <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={history} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+            <ResponsiveContainer width="100%" height={230}>
+              <LineChart data={chartData} margin={{ top: 24, right: 12, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(0,0%,18%)" />
                 <XAxis
                   dataKey="day"
@@ -237,10 +331,14 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
                       return v;
                     }
                   }}
-                  formatter={(value: number, _name, item: { payload?: { complete_units?: number; unfilled_units?: number } }) => [
-                    `${Math.round(value)}% — ${(item?.payload?.complete_units ?? 0).toLocaleString()} complete / ${(item?.payload?.unfilled_units ?? 0).toLocaleString()} unfilled`,
-                    "Completion",
-                  ]}
+                  formatter={(value: number, name: string) => [`${Math.round(value)}%`, name]}
+                />
+                <Legend wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
+                <ReferenceLine
+                  x={todayStr}
+                  stroke="hsl(0,0%,75%)"
+                  strokeDasharray="3 3"
+                  label={{ value: "Today", fill: "hsl(0,0%,75%)", fontSize: 10, position: "top" }}
                 />
                 <Line
                   type="monotone"
@@ -248,7 +346,18 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
                   stroke={PCT_COLOR}
                   strokeWidth={2}
                   dot={false}
-                  name="Completion %"
+                  name="Actual"
+                  connectNulls={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="projectedPct"
+                  stroke={PROJECTED_COLOR}
+                  strokeWidth={2}
+                  strokeDasharray="6 4"
+                  dot={false}
+                  name="Projected"
+                  connectNulls={false}
                 />
               </LineChart>
             </ResponsiveContainer>
