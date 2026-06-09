@@ -25,6 +25,7 @@ import QualityIssues from "@/pages/inventory/QualityIssues";
 // during development. Drop the import + route block + sidebar entry
 // to remove access entirely.
 import MaterialsList from "@/pages/inventory/MaterialsList";
+import MaterialDetail from "@/pages/inventory/materials/MaterialDetail";
 import SKUList from "@/pages/economics/SKUList";
 import SKUDetail from "@/pages/economics/SKUDetail";
 import SuppliersList from "@/pages/economics/SuppliersList";
@@ -142,6 +143,11 @@ export default function App() {
               <Route path="/inventory/materials" element={
                 <RequireRole allowed={["admin", "manager"]}>
                   <MaterialsList />
+                </RequireRole>
+              } />
+              <Route path="/inventory/materials/:materialId" element={
+                <RequireRole allowed={["admin", "manager"]}>
+                  <MaterialDetail />
                 </RequireRole>
               } />
               <Route path="/inventory" element={

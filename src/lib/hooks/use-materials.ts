@@ -86,6 +86,74 @@ export function useMaterials(opts: { includeArchived?: boolean } = {}) {
 }
 
 /**
+ * Single material + its current on-hand level, by id. Powers the Material
+ * detail page. Returns null when the id doesn't resolve (deleted/bad URL).
+ */
+export function useMaterial(id: string | null | undefined) {
+  return useQuery({
+    queryKey: ["material", id],
+    enabled: !!id,
+    queryFn: async (): Promise<MaterialWithLevel | null> => {
+      const { data, error } = await supabase
+        .from("materials")
+        .select("*, inventory:material_inventory_levels(*)")
+        .eq("id", id!)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return null;
+      type Joined = Material & {
+        inventory: MaterialInventoryLevel[] | MaterialInventoryLevel | null;
+      };
+      const r = data as unknown as Joined;
+      return {
+        ...r,
+        inventory: Array.isArray(r.inventory) ? (r.inventory[0] ?? null) : r.inventory,
+      };
+    },
+    staleTime: 60_000,
+  });
+}
+
+export interface MaterialTransaction {
+  id: string;
+  material_id: string;
+  transaction_type: string;
+  quantity_change: number;
+  reference_type: string | null;
+  reference_id: string | null;
+  notes: string | null;
+  performed_by: string | null;
+  created_at: string;
+}
+
+/**
+ * Append-only audit history for one material (cycle counts, receipts, and —
+ * once auto-deduction lands — manufacturing consumption). Newest first.
+ * Actor names are resolved by the caller via useProfiles to avoid relying on
+ * a PostgREST FK embed.
+ */
+export function useMaterialTransactions(
+  materialId: string | null | undefined,
+  limit = 50,
+) {
+  return useQuery({
+    queryKey: ["material-transactions", materialId, limit],
+    enabled: !!materialId,
+    queryFn: async (): Promise<MaterialTransaction[]> => {
+      const { data, error } = await supabase
+        .from("material_transactions")
+        .select("*")
+        .eq("material_id", materialId!)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (error) throw error;
+      return (data ?? []) as unknown as MaterialTransaction[];
+    },
+    staleTime: 60_000,
+  });
+}
+
+/**
  * Upsert a material catalog row. INSERT when params.id is undefined,
  * UPDATE when present. Either path writes an inventory_levels row on
  * create so the joined query always returns a paired result.

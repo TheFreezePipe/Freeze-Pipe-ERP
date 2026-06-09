@@ -163,6 +163,72 @@ export function computeAllMaterialRunways(
   return out;
 }
 
+// ===== Reorder helper =====
+
+/** Safety margin (days) before lead-time runs out that still triggers a reorder. */
+const REORDER_SAFETY_DAYS = 14;
+/** Target days of cover (beyond lead time) the suggested order should reach. */
+const REORDER_TARGET_COVER_DAYS = 60;
+
+export interface ReorderSuggestion {
+  shouldReorder: boolean;
+  reason: "below_reorder_point" | "within_lead_time" | "ok" | "no_estimate";
+  /** Suggested order quantity to reach target cover (null when no estimate). */
+  suggestedOrderQty: number | null;
+  /** Days from now by which to place the order to avoid stockout. <=0 = now/overdue. */
+  orderByDays: number | null;
+  targetCoverDays: number;
+  leadTimeDays: number;
+}
+
+/**
+ * Suggest whether/how much to reorder a material.
+ *
+ *   orderByDays   = current runway − lead time   (place by then or you stock
+ *                   out before the replenishment lands)
+ *   suggestedQty  = enough to reach (lead time + target cover) days of demand
+ *
+ * When there's no consumption estimate (no recipe or no demand), only the
+ * manual reorder point can signal — we flag below-ROP but can't size an order.
+ */
+export function computeReorderSuggestion(
+  material: Material,
+  onHand: number,
+  runway: MaterialRunwayResult,
+): ReorderSuggestion {
+  const lead = material.lead_time_days ?? 0;
+  const belowROP =
+    material.reorder_point_qty != null && onHand < material.reorder_point_qty;
+  const daily = runway.dailyConsumption;
+
+  if (daily <= 0) {
+    return {
+      shouldReorder: belowROP,
+      reason: belowROP ? "below_reorder_point" : "no_estimate",
+      suggestedOrderQty: null,
+      orderByDays: null,
+      targetCoverDays: REORDER_TARGET_COVER_DAYS,
+      leadTimeDays: lead,
+    };
+  }
+
+  const runwayDays = onHand / daily;
+  const orderByDays = runwayDays - lead;
+  const within = orderByDays <= REORDER_SAFETY_DAYS;
+  const shouldReorder = belowROP || within;
+  const targetLevel = daily * (lead + REORDER_TARGET_COVER_DAYS);
+  const suggestedOrderQty = Math.max(0, Math.ceil(targetLevel - onHand));
+
+  return {
+    shouldReorder,
+    reason: belowROP ? "below_reorder_point" : within ? "within_lead_time" : "ok",
+    suggestedOrderQty,
+    orderByDays: Math.round(orderByDays * 10) / 10,
+    targetCoverDays: REORDER_TARGET_COVER_DAYS,
+    leadTimeDays: lead,
+  };
+}
+
 // ===== Glycerin barrel visual helpers =====
 
 const BARREL_LITERS = 208; // 55 US gallons in liters, rounded for display
