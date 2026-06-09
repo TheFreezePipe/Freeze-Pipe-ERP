@@ -86,6 +86,30 @@ export function useMaterials(opts: { includeArchived?: boolean } = {}) {
 }
 
 /**
+ * Distinct ShipStation shipment box sizes (going forward) that matched no
+ * box in the catalog — surfaced so an operator can add the missing box.
+ * Reads the shipstation_unmatched_boxes review view.
+ */
+export interface UnmatchedShipstationBox {
+  dims_key: string;
+  shipments: number;
+  last_shipped: string | null;
+}
+export function useUnmatchedShipstationBoxes() {
+  return useQuery({
+    queryKey: ["unmatched-shipstation-boxes"],
+    queryFn: async (): Promise<UnmatchedShipstationBox[]> => {
+      const { data, error } = await supabase
+        .from("shipstation_unmatched_boxes")
+        .select("*");
+      if (error) throw error;
+      return (data ?? []) as unknown as UnmatchedShipstationBox[];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
  * Single material + its current on-hand level, by id. Powers the Material
  * detail page. Returns null when the id doesn't resolve (deleted/bad URL).
  */

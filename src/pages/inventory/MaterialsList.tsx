@@ -39,6 +39,7 @@ import {
   useBulkMaterialCycleCount,
   useAllRecipes,
   useInventory,
+  useUnmatchedShipstationBoxes,
   type MaterialWithLevel,
   type MaterialCycleCountReason,
 } from "@/lib/hooks";
@@ -73,6 +74,7 @@ export default function MaterialsList() {
   const { data: materials = [], isLoading } = useMaterials();
   const { data: allRecipes = [] } = useAllRecipes();
   const { data: inventory = [] } = useInventory();
+  const { data: unmatchedBoxes = [] } = useUnmatchedShipstationBoxes();
   const bulkCycleCount = useBulkMaterialCycleCount();
 
   // Runway forecast — computed once per (materials, recipes, inventory)
@@ -316,6 +318,29 @@ export default function MaterialsList() {
           </div>
         );
       })()}
+
+      {/* Unmatched ShipStation box sizes — shipments whose package
+          dimensions don't match any catalog box, so no box was decremented.
+          Add a box with these dimensions and future shipments auto-match. */}
+      {!cycleMode && unmatchedBoxes.length > 0 && (
+        <div className="rounded-lg border border-amber-500/50 bg-amber-500/5 px-4 py-3 space-y-2">
+          <div className="flex items-center gap-2 text-sm font-medium text-amber-200">
+            <AlertTriangle className="h-4 w-4" />
+            {unmatchedBoxes.length} ShipStation box size{unmatchedBoxes.length === 1 ? "" : "s"} not in the catalog
+          </div>
+          <p className="text-xs text-amber-300/70 ml-6">
+            These shipments didn't decrement any box. Add a box (L×W×H, in inches) matching a size to start tracking it.
+          </p>
+          <ul className="text-xs text-amber-300/80 space-y-0.5 ml-6">
+            {unmatchedBoxes.map((b) => (
+              <li key={b.dims_key}>
+                <span className="font-mono">{b.dims_key}</span> in —{" "}
+                {b.shipments} shipment{b.shipments === 1 ? "" : "s"}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Cycle Count edit-mode banner — same UX as the SKU cycle count.
           Edit-mode replaces filters with the count-entry workflow; you
