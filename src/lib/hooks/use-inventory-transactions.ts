@@ -1,21 +1,78 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { InventoryTransaction, ProductSKU, Profile } from "@/types/database";
+import {
+  type ChangeLogFilters,
+  UUID_RE,
+  sanitizeSearch,
+  dayStartIso,
+  dayEndIso,
+  toFilters,
+} from "./change-log-query";
+
+export type { ChangeLogFilters } from "./change-log-query";
 
 export type InventoryTransactionWithDetails = InventoryTransaction & {
   product: ProductSKU | null;
   performed_by_profile: Profile | null;
 };
 
-export function useInventoryTransactions(limit = 200) {
+/**
+ * Inventory-domain side of the Change Log feed.
+ *
+ * Accepts either a bare row limit (legacy callers) or a ChangeLogFilters
+ * object. When filters are supplied they are applied SERVER-SIDE so the
+ * Change Log can search the full transaction history — not just the most
+ * recent N rows. Free-text search resolves matching SKU ids first (embedded
+ * product columns can't be OR-ed with parent columns in one PostgREST call)
+ * and then matches notes / type / field / reference on the parent row.
+ */
+export function useInventoryTransactions(arg: number | ChangeLogFilters = 200) {
+  const { dateFrom, dateTo, type, userId, search, limit = 500 } = toFilters(arg);
   return useQuery({
-    queryKey: ["inventory-transactions", limit],
+    queryKey: [
+      "inventory-transactions",
+      { dateFrom, dateTo, type, userId, search, limit },
+    ],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const cleaned = search ? sanitizeSearch(search) : "";
+
+      // Resolve SKU/name matches to ids so we can match parent rows by
+      // sku_id (capped to keep the generated URL small).
+      let skuIds: string[] = [];
+      if (cleaned) {
+        const { data: skus } = await supabase
+          .from("product_skus")
+          .select("id")
+          .or(`sku.ilike.*${cleaned}*,product_name.ilike.*${cleaned}*`)
+          .limit(50);
+        skuIds = (skus ?? []).map((s) => (s as { id: string }).id);
+      }
+
+      let q = supabase
         .from("inventory_transactions")
         .select("*, product:product_skus(*), performed_by_profile:profiles!performed_by(*)")
         .order("created_at", { ascending: false })
         .limit(limit);
+
+      if (dateFrom) q = q.gte("created_at", dayStartIso(dateFrom));
+      if (dateTo) q = q.lte("created_at", dayEndIso(dateTo));
+      if (type && type !== "all") q = q.eq("transaction_type", type);
+      if (userId === "system") q = q.is("performed_by", null);
+      else if (userId && userId !== "all") q = q.eq("performed_by", userId);
+
+      if (cleaned) {
+        const orParts = [
+          `notes.ilike.*${cleaned}*`,
+          `transaction_type.ilike.*${cleaned}*`,
+          `field_affected.ilike.*${cleaned}*`,
+        ];
+        if (skuIds.length) orParts.push(`sku_id.in.(${skuIds.join(",")})`);
+        if (UUID_RE.test(cleaned)) orParts.push(`reference_id.eq.${cleaned}`);
+        q = q.or(orParts.join(","));
+      }
+
+      const { data, error } = await q;
       if (error) throw error;
       return data as InventoryTransactionWithDetails[];
     },

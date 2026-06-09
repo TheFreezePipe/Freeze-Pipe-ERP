@@ -15,9 +15,10 @@ import {
   useAuditLogs,
   useProfiles,
   type AuditLogEntry,
+  type ChangeLogFilters,
   type InventoryTransactionWithDetails,
 } from "@/lib/hooks";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Search,
   ChevronLeft,
@@ -89,8 +90,6 @@ interface TimelineEntry {
 }
 
 export default function ChangeLog() {
-  const { data: inventoryTxns = [], isLoading: invLoading } = useInventoryTransactions(500);
-  const { data: auditLogs = [], isLoading: auditLoading } = useAuditLogs(500);
   const { data: profiles = [] } = useProfiles();
 
   const [search, setSearch] = useState("");
@@ -100,6 +99,32 @@ export default function ChangeLog() {
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
   const [page, setPage] = useState(0);
+
+  // Debounce free-text search so each keystroke doesn't fire a query.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(id);
+  }, [search]);
+
+  // Date / type / user / search are pushed to the DB so the feed searches
+  // the FULL history, not just a recent client-side window. sourceFilter
+  // stays client-side — it only hides one of the two merged streams.
+  const filters: ChangeLogFilters = useMemo(
+    () => ({
+      dateFrom: dateFrom || undefined,
+      dateTo: dateTo || undefined,
+      type: typeFilter !== "all" ? typeFilter : undefined,
+      userId: userFilter !== "all" ? userFilter : undefined,
+      search: debouncedSearch || undefined,
+      limit: 500,
+    }),
+    [dateFrom, dateTo, typeFilter, userFilter, debouncedSearch],
+  );
+
+  const { data: inventoryTxns = [], isLoading: invLoading } =
+    useInventoryTransactions(filters);
+  const { data: auditLogs = [], isLoading: auditLoading } = useAuditLogs(filters);
 
   function profileName(id: string | null): string {
     if (!id) return "System";
@@ -139,71 +164,23 @@ export default function ChangeLog() {
     );
   }, [inventoryTxns, auditLogs, profiles]);
 
+  // Stable type list for the dropdown: every known type plus anything
+  // present in the current result. Derived from TYPE_COLORS so the options
+  // don't collapse to just the selected type once a filter is applied
+  // (the data is now fetched pre-filtered from the server).
   const allTypes = useMemo(() => {
-    const types = new Set(entries.map((e) => e.type));
-    return Array.from(types).sort();
+    const set = new Set<string>(Object.keys(TYPE_COLORS));
+    for (const e of entries) set.add(e.type);
+    return Array.from(set).sort();
   }, [entries]);
 
+  // Date / type / user / search are applied server-side in the hooks, so the
+  // only remaining client-side filter is the source toggle (which stream to
+  // show). Everything else already arrives filtered from the database.
   const filtered = useMemo(() => {
-    let out = entries;
-
-    if (sourceFilter !== "all") {
-      out = out.filter((e) => e.source === sourceFilter);
-    }
-
-    if (typeFilter !== "all") {
-      out = out.filter((e) => e.type === typeFilter);
-    }
-
-    if (userFilter !== "all") {
-      if (userFilter === "system") {
-        out = out.filter((e) => e.actor_id === null);
-      } else {
-        out = out.filter((e) => e.actor_id === userFilter);
-      }
-    }
-
-    if (dateFrom) {
-      const fromMs = new Date(dateFrom + "T00:00:00").getTime();
-      out = out.filter((e) => new Date(e.created_at).getTime() >= fromMs);
-    }
-
-    if (dateTo) {
-      const toMs = new Date(dateTo + "T23:59:59.999").getTime();
-      out = out.filter((e) => new Date(e.created_at).getTime() <= toMs);
-    }
-
-    if (search) {
-      const q = search.toLowerCase();
-      out = out.filter((e) => {
-        if (e.inventory) {
-          const t = e.inventory;
-          return (
-            t.product?.sku.toLowerCase().includes(q) ||
-            t.product?.product_name.toLowerCase().includes(q) ||
-            t.transaction_type.toLowerCase().includes(q) ||
-            t.notes?.toLowerCase().includes(q) ||
-            t.field_affected.toLowerCase().includes(q) ||
-            t.reference_id?.toLowerCase().includes(q)
-          );
-        }
-        if (e.audit) {
-          const a = e.audit;
-          return (
-            a.action.toLowerCase().includes(q) ||
-            a.target_table.toLowerCase().includes(q) ||
-            a.target_id.toLowerCase().includes(q) ||
-            JSON.stringify(a.details ?? {})
-              .toLowerCase()
-              .includes(q)
-          );
-        }
-        return false;
-      });
-    }
-
-    return out;
-  }, [entries, sourceFilter, typeFilter, userFilter, dateFrom, dateTo, search]);
+    if (sourceFilter === "all") return entries;
+    return entries.filter((e) => e.source === sourceFilter);
+  }, [entries, sourceFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
