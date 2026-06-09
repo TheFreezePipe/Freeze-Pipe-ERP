@@ -60,12 +60,11 @@ const navGroups: NavGroup[] = [
   {
     label: "Inventory",
     items: [
-      // Materials — feature-flagged. Listed first per spec ("tab above
-      // Stock Levels"). Removed from the rendered list for users who
-      // aren't in the feature-flag allow-list (see render logic below).
-      { to: "/inventory/materials", label: "Materials", icon: Beaker, roles: ["admin", "manager"] },
       { to: "/inventory", label: "Stock Levels", icon: Package, roles: ["admin", "manager"] },
       { to: "/inventory/factory-orders", label: "Factory Orders", icon: Truck, roles: ["admin", "manager"] },
+      // Materials — feature-flagged. Removed from the rendered list for users
+      // who aren't in the feature-flag allow-list (see render logic below).
+      { to: "/inventory/materials", label: "Materials", icon: Beaker, roles: ["admin", "manager"] },
       // Quality Issues shelved out of scope. Route + page + RPCs remain wired
       // at /inventory/quality-issues so re-enabling is a one-line change.
     ],
