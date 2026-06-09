@@ -13,6 +13,7 @@ import {
   CartesianGrid,
   Tooltip,
   ReferenceLine,
+  ReferenceDot,
   Legend,
   ResponsiveContainer,
 } from "recharts";
@@ -46,6 +47,8 @@ const PREFILLED_COLOR = "hsl(190, 80%, 55%)"; // pre-filled — needs RTS only
 const FINISHED_COLOR = "hsl(120, 45%, 50%)"; // finished — done
 const PCT_COLOR = "hsl(120, 45%, 50%)";
 const PROJECTED_COLOR = "hsl(270, 67%, 60%)"; // forward projection (dashed)
+const SEA_COLOR = "hsl(200, 80%, 55%)"; // sea freight arrival markers
+const CHART_BG = "hsl(0,0%,10%)"; // matches tooltip/card bg for "hollow" dots
 
 export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
   const { data: inventory = [] } = useInventory();
@@ -143,12 +146,16 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
   // Outbound sales are not modeled — this is manufacturing progress on
   // current + inbound stock. Anchored at today's actual so it meets the
   // historical line.
+  const fillableIds = useMemo(
+    () =>
+      new Set(
+        inventory.filter((i) => i.product?.category === "fillable").map((i) => i.sku_id),
+      ),
+    [inventory],
+  );
+
   const projection = useMemo(() => {
     if (!estimate) return [] as { day: string; projectedPct: number }[];
-
-    const fillableIds = new Set(
-      inventory.filter((i) => i.product?.category === "fillable").map((i) => i.sku_id),
-    );
 
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -202,7 +209,7 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
       out.push({ day: ds, projectedPct: total > 0 ? (complete / total) * 100 : 0 });
     }
     return out;
-  }, [estimate, shipments, freightLines, inventory, snap, todayStr]);
+  }, [estimate, shipments, freightLines, fillableIds, snap, todayStr]);
 
   // Merge history (solid) + projection (dashed) into one series. The "today"
   // row carries both keys so the two lines visually connect.
@@ -215,6 +222,43 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
     }
     return Array.from(byDate.values()).sort((a, b) => a.day.localeCompare(b.day));
   }, [history, projection]);
+
+  // Sea freight arrival markers (only shipments carrying fillable units, since
+  // those are what move this chart). Delivered = actual arrival (filled dot);
+  // in-transit = ETA (hollow dot). Overdue ETAs snap to tomorrow; only dates
+  // inside the visible chart range are kept.
+  const seaArrivals = useMemo(() => {
+    if (chartData.length === 0) return [] as { day: string; arrived: boolean; qty: number; id: string }[];
+    const domainStart = chartData[0].day;
+    const domainEnd = chartData[chartData.length - 1].day;
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+
+    const out: { day: string; arrived: boolean; qty: number; id: string }[] = [];
+    for (const f of shipments) {
+      if (f.freight_type !== "sea") continue;
+      let qty = 0;
+      for (const li of freightLines) {
+        if (li.freight_shipment_id === f.id && fillableIds.has(li.sku_id)) qty += li.quantity ?? 0;
+      }
+      if (qty === 0) continue;
+
+      let day: string | null = null;
+      let arrived = false;
+      if (f.status === "delivered") {
+        const src = f.actual_arrival_date ?? f.eta;
+        day = src ? src.slice(0, 10) : null;
+        arrived = true;
+      } else if (f.eta) {
+        day = f.eta.slice(0, 10);
+        if (day < tomorrowStr) day = tomorrowStr;
+      }
+      if (!day || day < domainStart || day > domainEnd) continue;
+      out.push({ day, arrived, qty, id: f.id });
+    }
+    return out;
+  }, [shipments, freightLines, fillableIds, chartData]);
 
   const stages =
     snap.total > 0
@@ -359,8 +403,38 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
                   name="Projected"
                   connectNulls={false}
                 />
+                {/* Sea freight arrival markers — small dots along the bottom.
+                    Filled = already arrived, hollow = expected (by ETA). */}
+                {seaArrivals.map((m) => (
+                  <ReferenceDot
+                    key={m.id}
+                    x={m.day}
+                    y={4}
+                    r={3.5}
+                    fill={m.arrived ? SEA_COLOR : CHART_BG}
+                    stroke={SEA_COLOR}
+                    strokeWidth={1.5}
+                    ifOverflow="hidden"
+                  />
+                ))}
               </LineChart>
             </ResponsiveContainer>
+            <div className="mt-1 flex items-center justify-end gap-3 text-[10px] text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <span
+                  className="inline-block h-2 w-2 rounded-full"
+                  style={{ backgroundColor: SEA_COLOR }}
+                />
+                sea arrival
+              </span>
+              <span className="flex items-center gap-1">
+                <span
+                  className="inline-block h-2 w-2 rounded-full border"
+                  style={{ borderColor: SEA_COLOR, backgroundColor: "transparent" }}
+                />
+                expected
+              </span>
+            </div>
             {isLoading && (
               <p className="text-center text-xs text-muted-foreground">Loading history…</p>
             )}
