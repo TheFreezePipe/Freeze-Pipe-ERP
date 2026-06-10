@@ -1,7 +1,6 @@
 import { NavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useAuth, type UserRole } from "@/lib/auth-context";
-import { useShouldShowMaterialsFeature } from "@/lib/feature-flags";
 import {
   LayoutDashboard,
   Factory,
@@ -104,9 +103,6 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse, onNavClick
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const collapsed = controlledCollapsed ?? internalCollapsed;
   const { role } = useAuth();
-  // Feature flags. When a flagged feature is released, delete the
-  // hook call + the filter rule below + the import.
-  const showMaterials = useShouldShowMaterialsFeature();
 
   function handleCollapse() {
     const next = !collapsed;
@@ -114,17 +110,11 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse, onNavClick
     onCollapse?.(next);
   }
 
-  // Filter nav groups based on user role + per-feature flags
+  // Filter nav groups based on user role
   const filteredGroups = navGroups
     .map(group => ({
       ...group,
-      items: group.items.filter(item => {
-        if (!item.roles.includes(role)) return false;
-        // Feature-flag gate: hide Materials tab for everyone except
-        // the allow-listed user during development.
-        if (item.to === "/inventory/materials" && !showMaterials) return false;
-        return true;
-      }),
+      items: group.items.filter(item => item.roles.includes(role)),
     }))
     .filter(group => group.items.length > 0);
 

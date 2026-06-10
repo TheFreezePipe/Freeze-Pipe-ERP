@@ -34,7 +34,6 @@ import {
   useUpsertSkuMaterialConsumption,
   useDeleteSkuMaterialConsumption,
 } from "@/lib/hooks";
-import { useShouldShowMaterialsFeature } from "@/lib/feature-flags";
 import { DEFAULT_CC_FEE_RATE } from "@/lib/inventory-math";
 
 const COLORS = ["hsl(205,94%,56%)", "hsl(142,71%,45%)", "hsl(31,97%,56%)", "hsl(270,67%,56%)"];
@@ -322,11 +321,9 @@ export default function SKUDetail() {
   // or remove a stale one. Hooks are admin/manager gated server-side via
   // SECURITY DEFINER, plus the SELECT policy restricts reads to the same
   // roles, so non-elevated users won't even see the section.
-  // Materials recipe — feature-flagged. Only renders if Chase sees the
-  // Materials feature. When the feature graduates, drop the flag check.
-  const showMaterials = useShouldShowMaterialsFeature();
+  // Materials recipe — released with the Materials module (2026-06-10).
   const materialsQ = useMaterials();
-  const recipesQ = useSkuMaterialConsumption(showMaterials ? (skuId ?? null) : null);
+  const recipesQ = useSkuMaterialConsumption(skuId ?? null);
   const upsertRecipe = useUpsertSkuMaterialConsumption();
   const deleteRecipe = useDeleteSkuMaterialConsumption();
   const [newRecipeMaterialId, setNewRecipeMaterialId] = useState<string>("");
@@ -1466,7 +1463,7 @@ export default function SKUDetail() {
           each material gets consumed when this SKU is finished. Feeds
           the pipeline-consumption math + projected-runway forecast on
           the Materials catalog. */}
-      {showMaterials && canManageAliases && (
+      {canManageAliases && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">

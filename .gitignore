@@ -29,3 +29,4 @@ supabase/.temp/
 # Local backups & scratch
 .git.broken/
 tmp/
+.vercel

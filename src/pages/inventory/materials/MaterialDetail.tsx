@@ -25,13 +25,11 @@ import {
   computeMaterialRunway,
   computeReorderSuggestion,
 } from "@/lib/materials/runway";
-import { useShouldShowMaterialsFeature } from "@/lib/feature-flags";
 import { cn } from "@/lib/utils";
 import { format, parseISO } from "date-fns";
 
 export default function MaterialDetail() {
   const { materialId } = useParams<{ materialId: string }>();
-  const showFlag = useShouldShowMaterialsFeature();
 
   const { data: material, isLoading } = useMaterial(materialId);
   const { data: allRecipes = [] } = useAllRecipes();
@@ -99,9 +97,6 @@ export default function MaterialDetail() {
     return profiles.find((p) => p.id === id)?.full_name ?? "Unknown";
   }
 
-  if (!showFlag) {
-    return <div className="p-8 text-sm text-muted-foreground">This feature isn't available yet.</div>;
-  }
   if (isLoading) {
     return <div className="p-8 text-sm text-muted-foreground">Loading material…</div>;
   }

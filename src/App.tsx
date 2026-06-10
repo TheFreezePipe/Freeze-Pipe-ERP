@@ -136,10 +136,9 @@ export default function App() {
               } />
 
               {/* Inventory - admin & manager only */}
-              {/* Materials catalog — feature-flagged inside the page
-                  itself (only Chase's UUID renders content; others see
-                  an "unavailable" placeholder). Listed before the
-                  /inventory route so a URL-typed visit lands cleanly. */}
+              {/* Materials catalog — released to all admin/manager users
+                  (2026-06-10). Listed before the /inventory route so a
+                  URL-typed visit lands cleanly. */}
               <Route path="/inventory/materials" element={
                 <RequireRole allowed={["admin", "manager"]}>
                   <MaterialsList />

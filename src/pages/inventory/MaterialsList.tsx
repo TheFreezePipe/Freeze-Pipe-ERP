@@ -53,22 +53,17 @@ import {
   materialCategoryRank,
   type MaterialCategory,
 } from "@/lib/constants";
-import { useShouldShowMaterialsFeature } from "@/lib/feature-flags";
 import { useAuth } from "@/lib/auth-context";
 
 /**
  * Materials catalog tab — non-sellable consumables tracking.
  *
- * Feature-flagged to Chase only during development (see
- * useShouldShowMaterialsFeature). When the team is ready, delete the
- * flag check and the tab + page become visible to all admin/manager.
- *
- * Phase 2 scope: list view + add/edit. Runway days are placeholder
- * "—" until recipes (Phase 4) and pipeline math (Phase 5) land.
+ * Released to all admin/manager users 2026-06-10. Catalog + cycle counts +
+ * recipes + runway forecasting (recipe-estimated, or observed usage for
+ * boxes via the nightly ShipStation box decrement) are all live.
  */
 export default function MaterialsList() {
   const navigate = useNavigate();
-  const showFlag = useShouldShowMaterialsFeature();
   const { isAdmin, isManager, profile } = useAuth();
   const canEdit = isAdmin || isManager;
 
@@ -119,17 +114,6 @@ export default function MaterialsList() {
   const [reasonChoice, setReasonChoice] = useState<MaterialCycleCountReason>("recount");
   const [reasonNotes, setReasonNotes] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
-
-  // Defense-in-depth: if a non-Chase user hits this URL directly,
-  // bounce them away. The nav also hides the tab for them but a
-  // direct link would otherwise leak the page.
-  if (!showFlag) {
-    return (
-      <div className="p-8 text-sm text-muted-foreground">
-        This feature isn't available yet.
-      </div>
-    );
-  }
 
   function enterCycleMode() {
     setCycleMode(true);
@@ -427,8 +411,8 @@ export default function MaterialsList() {
                   {!cycleMode && <th className="px-3 py-2 text-right">Reorder Pt</th>}
                   {!cycleMode && (
                     <th
-                      className="px-3 py-2 text-right text-muted-foreground/40"
-                      title="Awaiting recipe + pipeline data (Phase 5)"
+                      className="px-3 py-2 text-right"
+                      title="Days of stock at the current burn rate (recipe demand, or recent shipments for boxes)"
                     >
                       Days Runway
                     </th>
@@ -545,9 +529,6 @@ export default function MaterialsList() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-300/80">
-        <span className="font-medium">In-progress feature:</span> this tab is visible only to admin user during development. Cycle counts, recipes, and runway forecasting are landing in subsequent phases.
-      </div>
     </div>
   );
 }
