@@ -19,6 +19,7 @@ import {
   useForecastDemandMap,
 } from "@/lib/hooks";
 import type { ProductSKU } from "@/types/database";
+import { useTableSort, applySort, SortableTh } from "@/components/shared/table-sort";
 
 const emptyForm = {
   sku: "",
@@ -97,6 +98,48 @@ export default function SKUList() {
       return a.product_name.localeCompare(b.product_name);
     });
   }, [products, searchQuery, categoryFilter, abcFilter, showArchived]);
+
+  // Per-row derived economics, computed once so the sortable columns
+  // (costs, margins, monthly $) have concrete values to sort on instead
+  // of being computed inline during render.
+  const tableRows = useMemo(() => {
+    return filteredProducts.map((product) => {
+      const econ = economicsById?.get(product.id) ?? null;
+      const primaryUnitCost = primaryCostBySkuId?.get(product.id)?.unit_cost ?? 0;
+      const d2c = computeListD2C(econ, primaryUnitCost, product.retail_price ?? 0, product.category);
+      const demand = getEffectiveDemand(product.id, product.monthly_demand, forecastMap);
+      const marginPerUnit =
+        d2c && product.retail_price > 0 ? product.retail_price - d2c.totalD2C : null;
+      const monthlyContribution =
+        marginPerUnit !== null && demand > 0 ? marginPerUnit * demand : null;
+      const archivedAt = (product as ProductSKU & { archived_at?: string | null }).archived_at;
+      const isArchived = !!archivedAt || !product.is_active;
+      return { product, econ, d2c, demand, marginPerUnit, monthlyContribution, isArchived };
+    });
+  }, [filteredProducts, economicsById, primaryCostBySkuId, forecastMap]);
+
+  const { sort, toggleSort } = useTableSort();
+  type Row = (typeof tableRows)[number];
+  const sortedRows = useMemo(
+    () =>
+      applySort<Row>(tableRows, sort, {
+        sku: (r) => r.product.sku,
+        line: (r) => r.product.display_category,
+        abc: (r) => r.product.abc_classification,
+        retail: (r) => (r.product.retail_price > 0 ? r.product.retail_price : null),
+        demand: (r) => (r.demand > 0 ? r.demand : null),
+        raw: (r) => r.d2c?.rawCost ?? null,
+        imp: (r) => r.d2c?.importCost ?? null,
+        mfg: (r) => r.d2c?.mfgCost ?? null,
+        ps: (r) => r.d2c?.packShipCost ?? null,
+        total: (r) => r.d2c?.totalD2C ?? null,
+        marginD: (r) => r.marginPerUnit,
+        marginPct: (r) =>
+          r.d2c && r.product.retail_price > 0 ? r.d2c.contributionMargin : null,
+        monthly: (r) => r.monthlyContribution,
+      }),
+    [tableRows, sort],
+  );
 
   const hasFilters =
     !!searchQuery || categoryFilter !== "all" || abcFilter !== "all" || showArchived;
@@ -252,42 +295,23 @@ export default function SKUList() {
                 </th>
               </tr>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
-                <th className="px-4 py-2">SKU</th>
-                <th className="px-3 py-2">Product Line</th>
-                <th className="px-3 py-2">ABC</th>
-                <th className="px-3 py-2 text-right">Retail</th>
-                <th className="px-3 py-2 text-right">Monthly Demand</th>
-                <th className="px-2 py-2 text-right border-l border-border" title="Primary supplier unit cost + additional raw cost">Raw</th>
-                <th className="px-2 py-2 text-right" title="Sea/Air freight (weighted) + breakage allowance">Imp</th>
-                <th className="px-2 py-2 text-right" title="US labor + glycerin (unfilled path) or CN manufacturing (prefilled path), weighted by prefilled %">Mfg</th>
-                <th className="px-2 py-2 text-right" title="Packing material + packing labor + outbound shipping + 3% credit-card fee">P&amp;S</th>
-                <th className="px-2 py-2 text-right font-semibold">Total D2C</th>
-                <th className="px-2 py-2 text-right border-l border-border" title="Margin per unit in dollars: retail − total D2C">Margin&nbsp;$</th>
-                <th className="px-2 py-2 text-right" title="Margin as % of retail (contribution margin ratio)">Margin&nbsp;%</th>
-                <th className="px-3 py-2 text-right font-semibold" title="Monthly contribution: forecasted demand × per-unit margin">Monthly $</th>
+                <SortableTh sortKey="sku" sort={sort} onToggle={toggleSort} className="px-4 py-2">SKU</SortableTh>
+                <SortableTh sortKey="line" sort={sort} onToggle={toggleSort} className="px-3 py-2">Product Line</SortableTh>
+                <SortableTh sortKey="abc" sort={sort} onToggle={toggleSort} className="px-3 py-2">ABC</SortableTh>
+                <SortableTh sortKey="retail" sort={sort} onToggle={toggleSort} className="px-3 py-2 text-right">Retail</SortableTh>
+                <SortableTh sortKey="demand" sort={sort} onToggle={toggleSort} className="px-3 py-2 text-right">Monthly Demand</SortableTh>
+                <SortableTh sortKey="raw" sort={sort} onToggle={toggleSort} className="px-2 py-2 text-right border-l border-border" title="Primary supplier unit cost + additional raw cost">Raw</SortableTh>
+                <SortableTh sortKey="imp" sort={sort} onToggle={toggleSort} className="px-2 py-2 text-right" title="Sea/Air freight (weighted) + breakage allowance">Imp</SortableTh>
+                <SortableTh sortKey="mfg" sort={sort} onToggle={toggleSort} className="px-2 py-2 text-right" title="US labor + glycerin (unfilled path) or CN manufacturing (prefilled path), weighted by prefilled %">Mfg</SortableTh>
+                <SortableTh sortKey="ps" sort={sort} onToggle={toggleSort} className="px-2 py-2 text-right" title="Packing material + packing labor + outbound shipping + 3% credit-card fee">P&amp;S</SortableTh>
+                <SortableTh sortKey="total" sort={sort} onToggle={toggleSort} className="px-2 py-2 text-right font-semibold">Total D2C</SortableTh>
+                <SortableTh sortKey="marginD" sort={sort} onToggle={toggleSort} className="px-2 py-2 text-right border-l border-border" title="Margin per unit in dollars: retail − total D2C">Margin&nbsp;$</SortableTh>
+                <SortableTh sortKey="marginPct" sort={sort} onToggle={toggleSort} className="px-2 py-2 text-right" title="Margin as % of retail (contribution margin ratio)">Margin&nbsp;%</SortableTh>
+                <SortableTh sortKey="monthly" sort={sort} onToggle={toggleSort} className="px-3 py-2 text-right font-semibold" title="Monthly contribution: forecasted demand × per-unit margin">Monthly $</SortableTh>
               </tr>
             </thead>
             <tbody>
-              {filteredProducts.map((product) => {
-                const econ = economicsById?.get(product.id) ?? null;
-                const primaryCost = primaryCostBySkuId?.get(product.id);
-                const primaryUnitCost = primaryCost?.unit_cost ?? 0;
-                const d2c = computeListD2C(
-                  econ,
-                  primaryUnitCost,
-                  product.retail_price ?? 0,
-                  product.category,
-                );
-                const demand = getEffectiveDemand(product.id, product.monthly_demand, forecastMap);
-                // Per-unit margin in dollars and the monthly contribution
-                // that volume × margin produces. Both only meaningful when
-                // we have a real economics row + a positive retail price.
-                const marginPerUnit =
-                  d2c && product.retail_price > 0 ? product.retail_price - d2c.totalD2C : null;
-                const monthlyContribution =
-                  marginPerUnit !== null && demand > 0 ? marginPerUnit * demand : null;
-                const archivedAt = (product as ProductSKU & { archived_at?: string | null }).archived_at;
-                const isArchived = !!archivedAt || !product.is_active;
+              {sortedRows.map(({ product, econ, d2c, demand, marginPerUnit, monthlyContribution, isArchived }) => {
                 return (
                   <tr
                     key={product.id}

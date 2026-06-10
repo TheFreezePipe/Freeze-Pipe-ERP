@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { computeDOS, NO_DEMAND_DOS } from "@/lib/inventory-math";
+import { useTableSort, applySort, SortableTh } from "@/components/shared/table-sort";
 import { displayCategoryRank } from "@/lib/constants";
 import { getEffectiveDemand } from "@/lib/demand";
 import {
@@ -338,6 +339,29 @@ export default function InventoryDashboard() {
     });
   }, [rows, searchQuery, categoryFilter, abcFilter, showArchived]);
 
+  // Click-to-sort. Default order (sort === null) keeps the operational
+  // category-priority + warehouse-DOS ordering from `rows`. The 999
+  // no-demand DOS sentinel maps to null so "no demand" rows always sort
+  // last instead of topping a descending DOS sort.
+  const { sort, toggleSort } = useTableSort();
+  const sortedRows = useMemo(() => {
+    const dos = (v: number) => (v === NO_DEMAND_DOS ? null : v);
+    type Row = (typeof filteredRows)[number];
+    return applySort<Row>(filteredRows, sort, {
+      sku: (r) => r.product.sku,
+      category: (r) => r.product.display_category,
+      abc: (r) => r.product.abc_classification,
+      demand: (r) => (r.demand > 0 ? r.demand : null),
+      whUnits: (r) => r.totals.warehouseTotal,
+      whDOS: (r) => dos(r.warehouseDOS),
+      transitUnits: (r) => r.totals.transitTotal,
+      transitDOS: (r) => dos(r.transitDOS),
+      onOrderUnits: (r) => r.totals.onOrderTotal,
+      onOrderDOS: (r) => dos(r.onOrderDOS),
+      dosTotal: (r) => dos(r.overallDOS),
+    });
+  }, [filteredRows, sort]);
+
   function startEdit() {
     const initial: Record<string, Record<string, number>> = {};
     inventory.forEach(inv => {
@@ -608,33 +632,33 @@ export default function InventoryDashboard() {
                   ) : (
                     <>
                       <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
-                        <th className="sticky left-0 bg-card px-4 py-3 z-10">SKU</th>
-                        <th className="px-3 py-3 text-center">Category</th>
-                        <th className="px-3 py-3 text-center">ABC</th>
-                        <th className="px-3 py-3 text-right">Demand/mo</th>
+                        <SortableTh sortKey="sku" sort={sort} onToggle={toggleSort} className="sticky left-0 bg-card px-4 py-3 z-10">SKU</SortableTh>
+                        <SortableTh sortKey="category" sort={sort} onToggle={toggleSort} className="px-3 py-3 text-center">Category</SortableTh>
+                        <SortableTh sortKey="abc" sort={sort} onToggle={toggleSort} className="px-3 py-3 text-center">ABC</SortableTh>
+                        <SortableTh sortKey="demand" sort={sort} onToggle={toggleSort} className="px-3 py-3 text-right">Demand/mo</SortableTh>
                         <th className="px-3 py-3 text-center border-l border-border/50" colSpan={2}>Warehouse</th>
                         <th className="px-3 py-3 text-center border-l border-border/50" colSpan={2}>In Transit</th>
                         <th className="px-3 py-3 text-center border-l border-border/50" colSpan={2}>On Order</th>
-                        <th className="px-4 py-3 text-center border-l border-border/50">DOS Total</th>
+                        <SortableTh sortKey="dosTotal" sort={sort} onToggle={toggleSort} className="px-4 py-3 text-center border-l border-border/50">DOS Total</SortableTh>
                       </tr>
                       <tr className="border-b border-border text-[10px] text-muted-foreground">
                         <th className="sticky left-0 bg-card px-4 py-1 z-10" />
                         <th className="px-3 py-1" />
                         <th className="px-3 py-1" />
                         <th className="px-3 py-1" />
-                        <th className="px-3 py-1 text-right border-l border-border/50">Units</th>
-                        <th className="px-3 py-1 text-right">DOS</th>
-                        <th className="px-3 py-1 text-right border-l border-border/50">Units</th>
-                        <th className="px-3 py-1 text-right">DOS</th>
-                        <th className="px-3 py-1 text-right border-l border-border/50">Units</th>
-                        <th className="px-3 py-1 text-right">DOS</th>
+                        <SortableTh sortKey="whUnits" sort={sort} onToggle={toggleSort} className="px-3 py-1 text-right border-l border-border/50">Units</SortableTh>
+                        <SortableTh sortKey="whDOS" sort={sort} onToggle={toggleSort} className="px-3 py-1 text-right">DOS</SortableTh>
+                        <SortableTh sortKey="transitUnits" sort={sort} onToggle={toggleSort} className="px-3 py-1 text-right border-l border-border/50">Units</SortableTh>
+                        <SortableTh sortKey="transitDOS" sort={sort} onToggle={toggleSort} className="px-3 py-1 text-right">DOS</SortableTh>
+                        <SortableTh sortKey="onOrderUnits" sort={sort} onToggle={toggleSort} className="px-3 py-1 text-right border-l border-border/50">Units</SortableTh>
+                        <SortableTh sortKey="onOrderDOS" sort={sort} onToggle={toggleSort} className="px-3 py-1 text-right">DOS</SortableTh>
                         <th className="px-4 py-1 text-center border-l border-border/50" />
                       </tr>
                     </>
                   )}
                 </thead>
                 <tbody>
-                  {filteredRows.map(({ inv, product, totals, overallDOS, warehouseDOS, transitDOS, onOrderDOS, demand, forecast }) => (
+                  {sortedRows.map(({ inv, product, totals, overallDOS, warehouseDOS, transitDOS, onOrderDOS, demand, forecast }) => (
                     <tr
                       key={inv.id}
                       className={`border-b border-border/50 hover:bg-muted/50 ${editMode ? "" : "cursor-pointer"}`}
