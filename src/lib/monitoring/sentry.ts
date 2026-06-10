@@ -1,24 +1,20 @@
 /**
- * Sentry wrapper. Sentry captures exceptions from the frontend + Edge Functions
- * with full stack traces, breadcrumbs, and user context.
+ * Legacy monitoring facade — now forwards to src/lib/observability.ts.
  *
- * This module is a thin wrapper so the rest of the app stays decoupled from
- * the vendor. Replace the import with any other provider (Honeybadger, Rollbar,
- * Datadog) by editing this file only.
+ * History: this module began as a no-op stub ("uncomment when Sentry is
+ * wired"). The real Sentry bootstrap later landed in
+ * `src/lib/observability.ts` (dynamic import, prod + DSN gated, called
+ * from main.tsx), but callers of THIS module — notably the route-level
+ * ErrorBoundary — were still hitting the stub, so render crashes never
+ * reached Sentry even with a DSN configured. These wrappers now delegate
+ * to the live layer; the richer options (level/tags) are folded into the
+ * event's extra context.
  *
- * SETUP (to do before go-live):
- *   1. Create a Sentry project per environment (dev/staging/prod). Get each DSN.
- *   2. Install: `npm install @sentry/react`
- *   3. Set VITE_SENTRY_DSN per environment.
- *   4. Uncomment the Sentry.init() block below.
- *   5. Wrap <App /> in <Sentry.ErrorBoundary fallback={...}> in main.tsx.
- *   6. Upload source maps as part of the CI build so stack traces resolve.
- *
- * Until then, calls no-op (safe default — better to swallow than crash on missing
- * observability).
+ * New code should import from "@/lib/observability" directly. This file
+ * stays only so existing call sites keep working.
  */
 
-// import * as Sentry from "@sentry/react";  // Uncomment after install
+import { captureException as obsCaptureException } from "@/lib/observability";
 
 interface CaptureOptions {
   /** Severity. Default 'error'. */
@@ -29,52 +25,35 @@ interface CaptureOptions {
   tags?: Record<string, string>;
 }
 
+/** @deprecated Sentry init happens in observability.ts (called from main.tsx). */
 export function initMonitoring(): void {
-  const dsn = import.meta.env.VITE_SENTRY_DSN as string | undefined;
-  const env = (import.meta.env.VITE_APP_ENV as string | undefined) ?? "dev";
-  if (!dsn) {
-    if (env === "prod") {
-      // In prod, missing DSN is a config error worth shouting about.
-      console.warn("[monitoring] VITE_SENTRY_DSN not set — errors will not be reported");
-    }
-    return;
-  }
-
-  // Sentry.init({
-  //   dsn,
-  //   environment: env,
-  //   integrations: [Sentry.browserTracingIntegration(), Sentry.replayIntegration()],
-  //   tracesSampleRate: env === "prod" ? 0.1 : 1.0,
-  //   replaysSessionSampleRate: env === "prod" ? 0.01 : 0.1,
-  //   replaysOnErrorSampleRate: 1.0,
-  //   // Drop known-noisy errors
-  //   ignoreErrors: [
-  //     /ResizeObserver loop/,
-  //     /Non-Error promise rejection captured/,
-  //   ],
-  // });
+  // Intentionally empty — initObservability() in main.tsx owns startup.
 }
 
 export function captureException(error: unknown, options: CaptureOptions = {}): void {
-  // Sentry.captureException(error, {
-  //   level: options.level ?? "error",
-  //   extra: options.extra,
-  //   tags: options.tags,
-  // });
+  void obsCaptureException(error, {
+    ...(options.extra ?? {}),
+    ...(options.tags ? { tags: options.tags } : {}),
+    ...(options.level ? { level: options.level } : {}),
+  });
   if (import.meta.env.DEV) {
     console.error("[captureException]", error, options);
   }
 }
 
 export function captureMessage(message: string, options: CaptureOptions = {}): void {
-  // Sentry.captureMessage(message, { level: options.level ?? "info", extra: options.extra, tags: options.tags });
+  void obsCaptureException(new Error(message), {
+    ...(options.extra ?? {}),
+    ...(options.tags ? { tags: options.tags } : {}),
+    level: options.level ?? "info",
+  });
   if (import.meta.env.DEV) {
     console.log("[captureMessage]", message, options);
   }
 }
 
 export function setUserContext(user: { id: string; email?: string; role?: string } | null): void {
-  // Sentry.setUser(user ? { id: user.id, email: user.email, segment: user.role } : null);
+  // User context enrichment can be added to observability.ts if needed.
   void user;
 }
 
