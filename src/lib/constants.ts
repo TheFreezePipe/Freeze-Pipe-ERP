@@ -135,11 +135,11 @@ export function displayCategoryRank(
 // (glycerin, caps, boxes, etc.) and don't share the sellable-product
 // hierarchy. Priority order reflects operational urgency: things that
 // block production (Filling Materials, Caps) before things that block
-// fulfillment (Packaging).
+// fulfillment (Boxes).
 export const MATERIAL_CATEGORIES = [
   "Filling Materials",
   "Caps",
-  "Packaging",
+  "Boxes",
   "Other",
 ] as const;
 

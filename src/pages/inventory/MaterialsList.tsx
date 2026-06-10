@@ -216,7 +216,7 @@ export default function MaterialsList() {
         return true;
       })
       .sort((a, b) => {
-        // Category priority first (Filling Materials → Caps → Packaging
+        // Category priority first (Filling Materials → Caps → Boxes
         // → Other), then code alphabetical within. Runway-ascending sort
         // will replace the alphabetical secondary once Phase 5 ships.
         const ra = materialCategoryRank(a.category);
@@ -533,7 +533,7 @@ function MaterialRow({
   const CategoryIcon =
     material.category === "Filling Materials"
       ? Beaker
-      : material.category === "Packaging"
+      : material.category === "Boxes"
         ? Boxes
         : Package;
 
