@@ -7,7 +7,6 @@ import {
   Beaker,
   AlertTriangle,
   CheckCircle2,
-  PackageSearch,
   ArrowUpRight,
   ArrowDownRight,
 } from "lucide-react";
@@ -16,7 +15,6 @@ import {
   useMaterial,
   useAllRecipes,
   useInventory,
-  useProducts,
   useProfiles,
   useMaterialTransactions,
   useMaterialUsageRates,
@@ -34,7 +32,6 @@ export default function MaterialDetail() {
   const { data: material, isLoading } = useMaterial(materialId);
   const { data: allRecipes = [] } = useAllRecipes();
   const { data: inventory = [] } = useInventory();
-  const { data: products = [] } = useProducts();
   const { data: profiles = [] } = useProfiles();
   const { data: transactions = [] } = useMaterialTransactions(materialId);
   const { data: usageRates } = useMaterialUsageRates();
@@ -66,31 +63,6 @@ export default function MaterialDetail() {
     if (!material || !runway) return null;
     return computeReorderSuggestion(material, material.inventory?.on_hand_qty ?? 0, runway);
   }, [material, runway]);
-
-  // SKUs that consume this material, with each one's daily contribution to
-  // the burn rate. Only fillable SKUs drive the runway model, so non-fillable
-  // recipe rows show a zero contribution (flagged).
-  const consumedBy = useMemo(() => {
-    if (!material) return [];
-    return allRecipes
-      .filter((r) => r.material_id === material.id)
-      .map((r) => {
-        const p = products.find((pp) => pp.id === r.sku_id);
-        const isFillable = p?.category === "fillable";
-        const monthly = p?.monthly_demand ?? 0;
-        const dailyContribution = isFillable ? (monthly / 30) * r.quantity_per_unit : 0;
-        return {
-          skuId: r.sku_id,
-          sku: p?.sku ?? "—",
-          name: p?.product_name ?? "",
-          qtyPerUnit: r.quantity_per_unit,
-          monthly,
-          dailyContribution,
-          isFillable,
-        };
-      })
-      .sort((a, b) => b.dailyContribution - a.dailyContribution);
-  }, [material, allRecipes, products]);
 
   function profileName(id: string | null): string {
     if (!id) return "System";
@@ -201,63 +173,6 @@ export default function MaterialDetail() {
           </CardContent>
         </Card>
       )}
-
-      {/* Consumed by */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-2">
-            <PackageSearch className="h-4 w-4 text-muted-foreground" />
-            Consumed by SKUs
-          </CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Recipes that use this material, ranked by daily burn. Define recipes on each SKU's detail page.
-          </p>
-        </CardHeader>
-        <CardContent className="p-0 overflow-x-auto">
-          {consumedBy.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-muted-foreground">
-              No SKU recipes reference this material yet.
-            </p>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
-                  <th className="px-4 py-2">SKU</th>
-                  <th className="px-3 py-2 text-right">Qty / unit</th>
-                  <th className="px-3 py-2 text-right">Monthly demand</th>
-                  <th className="px-3 py-2 text-right">Daily burn</th>
-                </tr>
-              </thead>
-              <tbody>
-                {consumedBy.map((c) => (
-                  <tr key={c.skuId} className="border-b border-border/40">
-                    <td className="px-4 py-2">
-                      <Link to={`/economics/${c.skuId}`} className="font-medium hover:underline">
-                        {c.sku}
-                      </Link>
-                      <span className="ml-1.5 text-muted-foreground/70 hidden sm:inline">{c.name}</span>
-                      {!c.isFillable && (
-                        <span className="ml-1.5 text-[10px] text-muted-foreground/60">(non-fillable)</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">{fmt(c.qtyPerUnit, 3)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{fmt(c.monthly, 0)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {c.dailyContribution > 0 ? `${fmt(c.dailyContribution, 2)} ${unit}` : "—"}
-                    </td>
-                  </tr>
-                ))}
-                <tr className="border-t border-border font-medium">
-                  <td className="px-4 py-2" colSpan={3}>Total daily burn</td>
-                  <td className="px-3 py-2 text-right tabular-nums">
-                    {runway ? `${fmt(runway.dailyConsumption, 2)} ${unit}` : "—"}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          )}
-        </CardContent>
-      </Card>
 
       {/* Transaction history */}
       <Card>
