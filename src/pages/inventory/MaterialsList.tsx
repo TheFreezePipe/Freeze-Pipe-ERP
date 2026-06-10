@@ -32,7 +32,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Plus, Beaker, Package, Boxes, ClipboardCheck, AlertTriangle, Pencil } from "lucide-react";
-import { GlycerinBarrels } from "@/components/materials/GlycerinBarrels";
 import {
   useMaterials,
   useUpsertMaterial,
@@ -249,32 +248,6 @@ export default function MaterialsList() {
           </div>
         )}
       </div>
-
-      {/* Glycerin barrel hero — only when glycerin exists in the catalog
-          AND we have on-hand data to visualize. Hidden in cycle-count
-          mode to keep focus on the editing flow. */}
-      {!cycleMode && (() => {
-        const glycerin = materials.find((m) => m.code === "GLYCERIN");
-        if (!glycerin) return null;
-        const onHand = glycerin.inventory?.on_hand_qty ?? 0;
-        const runway = runways.get(glycerin.id);
-        return (
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Beaker className="h-4 w-4 text-cyan-400" />
-                Glycerin on Hand
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <GlycerinBarrels
-                onHandLiters={onHand}
-                dailyConsumptionLiters={runway?.dailyConsumption ?? null}
-              />
-            </CardContent>
-          </Card>
-        );
-      })()}
 
       {/* Low-stock alerts — surfaces any material below its reorder
           point. One row each, clickable to scroll to the material in
