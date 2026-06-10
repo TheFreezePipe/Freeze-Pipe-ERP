@@ -14,6 +14,24 @@ export type Database = {
   }
   public: {
     Tables: {
+      audit_chain_config: {
+        Row: {
+          checkpoint_seq: number
+          id: number
+          set_at: string
+        }
+        Insert: {
+          checkpoint_seq: number
+          id?: number
+          set_at?: string
+        }
+        Update: {
+          checkpoint_seq?: number
+          id?: number
+          set_at?: string
+        }
+        Relationships: []
+      }
       audit_logs: {
         Row: {
           action: string
@@ -750,6 +768,7 @@ export type Database = {
           reference_id: string | null
           reference_type: string | null
           row_hash: string | null
+          seq: number
           sku_id: string | null
           to_field: string | null
           transaction_type: string
@@ -769,6 +788,7 @@ export type Database = {
           reference_id?: string | null
           reference_type?: string | null
           row_hash?: string | null
+          seq?: number
           sku_id?: string | null
           to_field?: string | null
           transaction_type: string
@@ -788,6 +808,7 @@ export type Database = {
           reference_id?: string | null
           reference_type?: string | null
           row_hash?: string | null
+          seq?: number
           sku_id?: string | null
           to_field?: string | null
           transaction_type?: string
@@ -924,6 +945,167 @@ export type Database = {
           {
             foreignKeyName: "locations_owner_supplier_id_fkey"
             columns: ["owner_supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      material_inventory_levels: {
+        Row: {
+          id: string
+          last_counted_at: string | null
+          last_counted_by: string | null
+          material_id: string
+          on_hand_qty: number
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          last_counted_at?: string | null
+          last_counted_by?: string | null
+          material_id: string
+          on_hand_qty?: number
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          last_counted_at?: string | null
+          last_counted_by?: string | null
+          material_id?: string
+          on_hand_qty?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "material_inventory_levels_last_counted_by_fkey"
+            columns: ["last_counted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "material_inventory_levels_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: true
+            referencedRelation: "materials"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      material_transactions: {
+        Row: {
+          created_at: string
+          id: string
+          material_id: string
+          notes: string | null
+          performed_by: string
+          quantity_change: number
+          reference_id: string | null
+          reference_type: string | null
+          transaction_type: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          material_id: string
+          notes?: string | null
+          performed_by: string
+          quantity_change: number
+          reference_id?: string | null
+          reference_type?: string | null
+          transaction_type: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          material_id?: string
+          notes?: string | null
+          performed_by?: string
+          quantity_change?: number
+          reference_id?: string | null
+          reference_type?: string | null
+          transaction_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "material_transactions_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "material_transactions_performed_by_fkey"
+            columns: ["performed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      materials: {
+        Row: {
+          category: string
+          code: string
+          created_at: string
+          dim_height_in: number | null
+          dim_length_in: number | null
+          dim_width_in: number | null
+          id: string
+          is_active: boolean
+          lead_time_days: number | null
+          name: string
+          notes: string | null
+          reorder_point_qty: number | null
+          row_version: number
+          supplier_id: string | null
+          unit_cost: number
+          unit_of_measure: string
+          updated_at: string
+        }
+        Insert: {
+          category: string
+          code: string
+          created_at?: string
+          dim_height_in?: number | null
+          dim_length_in?: number | null
+          dim_width_in?: number | null
+          id?: string
+          is_active?: boolean
+          lead_time_days?: number | null
+          name: string
+          notes?: string | null
+          reorder_point_qty?: number | null
+          row_version?: number
+          supplier_id?: string | null
+          unit_cost?: number
+          unit_of_measure: string
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          code?: string
+          created_at?: string
+          dim_height_in?: number | null
+          dim_length_in?: number | null
+          dim_width_in?: number | null
+          id?: string
+          is_active?: boolean
+          lead_time_days?: number | null
+          name?: string
+          notes?: string | null
+          reorder_point_qty?: number | null
+          row_version?: number
+          supplier_id?: string | null
+          unit_cost?: number
+          unit_of_measure?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "materials_supplier_id_fkey"
+            columns: ["supplier_id"]
             isOneToOne: false
             referencedRelation: "suppliers"
             referencedColumns: ["id"]
@@ -1169,6 +1351,52 @@ export type Database = {
           },
         ]
       }
+      sales_daily: {
+        Row: {
+          sale_date: string
+          sku_id: string
+          source: string
+          units: number
+          updated_at: string
+        }
+        Insert: {
+          sale_date: string
+          sku_id: string
+          source?: string
+          units?: number
+          updated_at?: string
+        }
+        Update: {
+          sale_date?: string
+          sku_id?: string
+          source?: string
+          units?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_daily_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_daily_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus_active"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_daily_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_skus"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       shipment_variances: {
         Row: {
           acknowledged_at: string | null
@@ -1374,6 +1602,7 @@ export type Database = {
       }
       shipstation_orders: {
         Row: {
+          box_applied_at: string | null
           created_at: string
           customer_email: string | null
           customer_name: string | null
@@ -1397,6 +1626,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          box_applied_at?: string | null
           created_at?: string
           customer_email?: string | null
           customer_name?: string | null
@@ -1420,6 +1650,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          box_applied_at?: string | null
           created_at?: string
           customer_email?: string | null
           customer_name?: string | null
@@ -1711,6 +1942,129 @@ export type Database = {
             foreignKeyName: "sku_economics_sku_id_fkey"
             columns: ["sku_id"]
             isOneToOne: true
+            referencedRelation: "supplier_portal_skus"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sku_forecasts: {
+        Row: {
+          computed_at: string
+          data_points: number | null
+          ewma_daily: number | null
+          forecast_30d: number
+          forecast_method: string | null
+          last_sale_date: string | null
+          lower_bound: number | null
+          seasonal_index: number | null
+          sku_id: string
+          trend_multiplier: number | null
+          upper_bound: number | null
+        }
+        Insert: {
+          computed_at?: string
+          data_points?: number | null
+          ewma_daily?: number | null
+          forecast_30d: number
+          forecast_method?: string | null
+          last_sale_date?: string | null
+          lower_bound?: number | null
+          seasonal_index?: number | null
+          sku_id: string
+          trend_multiplier?: number | null
+          upper_bound?: number | null
+        }
+        Update: {
+          computed_at?: string
+          data_points?: number | null
+          ewma_daily?: number | null
+          forecast_30d?: number
+          forecast_method?: string | null
+          last_sale_date?: string | null
+          lower_bound?: number | null
+          seasonal_index?: number | null
+          sku_id?: string
+          trend_multiplier?: number | null
+          upper_bound?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sku_forecasts_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: true
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sku_forecasts_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: true
+            referencedRelation: "product_skus_active"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sku_forecasts_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: true
+            referencedRelation: "supplier_portal_skus"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sku_material_consumption: {
+        Row: {
+          created_at: string
+          id: string
+          material_id: string
+          notes: string | null
+          quantity_per_unit: number
+          sku_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          material_id: string
+          notes?: string | null
+          quantity_per_unit: number
+          sku_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          material_id?: string
+          notes?: string | null
+          quantity_per_unit?: number
+          sku_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sku_material_consumption_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sku_material_consumption_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sku_material_consumption_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus_active"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sku_material_consumption_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
             referencedRelation: "supplier_portal_skus"
             referencedColumns: ["id"]
           },
@@ -2179,6 +2533,14 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      shipstation_unmatched_boxes: {
+        Row: {
+          dims_key: string | null
+          last_shipped: string | null
+          shipments: number | null
+        }
+        Relationships: []
       }
       shipstation_unresolved_skus: {
         Row: {
@@ -2775,6 +3137,14 @@ export type Database = {
         Args: { p_variance_id: string }
         Returns: Json
       }
+      rpc_admin_edit_factory_order: {
+        Args: {
+          p_expected_version: number
+          p_order_id: string
+          p_payload: Json
+        }
+        Returns: Json
+      }
       rpc_admin_link_factory_order_to_parent: {
         Args: { p_child_order_id: string; p_parent_order_id: string }
         Returns: undefined
@@ -2797,11 +3167,24 @@ export type Database = {
         }
         Returns: Json
       }
+      rpc_apply_shipstation_boxes: {
+        Args: { p_limit?: number; p_system_actor_id?: string }
+        Returns: Json
+      }
       rpc_apply_shipstation_sale: {
         Args: { p_order_id: string; p_system_actor_id?: string }
         Returns: Json
       }
       rpc_bulk_cycle_count: {
+        Args: {
+          p_actor_id: string
+          p_adjustments: Json
+          p_notes: string
+          p_reason: string
+        }
+        Returns: Json
+      }
+      rpc_bulk_material_cycle_count: {
         Args: {
           p_actor_id: string
           p_adjustments: Json
@@ -2863,10 +3246,48 @@ export type Database = {
         }
         Returns: Json
       }
+      rpc_manufacturing_clear_estimate: {
+        Args: { p_days?: number }
+        Returns: {
+          incoming_prefilled: number
+          incoming_raw: number
+          prefilled_now: number
+          prefilled_rtsing_per_day: number
+          rtsing_per_day: number
+          unfilled_now: number
+        }[]
+      }
+      rpc_manufacturing_completion_history: {
+        Args: { p_days?: number }
+        Returns: {
+          complete_units: number
+          day: string
+          unfilled_units: number
+        }[]
+      }
+      rpc_material_usage_rates: {
+        Args: { p_days?: number }
+        Returns: {
+          daily_usage: number
+          data_points: number
+          material_id: string
+          units_consumed: number
+        }[]
+      }
       rpc_promote_user_to_supplier: {
         Args: { p_supplier_id: string; p_target_user_id: string }
         Returns: Json
       }
+      rpc_recompute_demand: {
+        Args: { p_dry_run?: boolean }
+        Returns: {
+          delta: number
+          new_demand: number
+          old_demand: number
+          sku: string
+        }[]
+      }
+      rpc_refresh_sales_daily: { Args: { p_days?: number }; Returns: number }
       rpc_resolve_breakage_report: {
         Args: {
           p_replacement_factory_order_id?: string
@@ -2898,6 +3319,10 @@ export type Database = {
           p_resolved_sku_id: string
           p_sku_code: string
         }
+        Returns: Json
+      }
+      rpc_shipstation_unregister_sku_alias: {
+        Args: { p_sku_code: string }
         Returns: Json
       }
       rpc_supplier_advance_factory_order: {
@@ -2966,7 +3391,7 @@ export type Database = {
         Returns: Json
       }
       verify_audit_chain: {
-        Args: { p_start_from?: string }
+        Args: { p_from_seq?: number }
         Returns: {
           first_broken_at: string
           first_broken_id: string

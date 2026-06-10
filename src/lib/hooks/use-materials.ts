@@ -1,13 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase as typedSupabase } from "@/lib/supabase";
-
-// Stale generated types: the materials tables were added in
-// 20260526000001 but `database.types.ts` hasn't been regenerated yet.
-// Cast through `unknown` so .from("materials") etc. compile. The next
-// `supabase gen types typescript` run will let us drop this and use
-// the strongly-typed client directly.
-// deno-lint-ignore no-explicit-any
-const supabase = typedSupabase as unknown as any;
+import { supabase } from "@/lib/supabase";
 
 /**
  * Materials = non-sellable consumable inputs (glycerin, caps, boxes).

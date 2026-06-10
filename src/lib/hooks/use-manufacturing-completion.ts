@@ -1,10 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase as typedSupabase } from "@/lib/supabase";
-
-// rpc_manufacturing_completion_history isn't in the generated DB types yet
-// (added 20260609000002). Cast like the other not-yet-regenerated RPCs.
-// deno-lint-ignore no-explicit-any
-const supabase = typedSupabase as unknown as any;
+import { supabase } from "@/lib/supabase";
 
 export interface CompletionHistoryPoint {
   /** yyyy-mm-dd, end-of-day. */

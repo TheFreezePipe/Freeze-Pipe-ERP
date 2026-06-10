@@ -1,11 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { supabase as typedSupabase } from "@/lib/supabase";
-
-// Generated DB types don't yet include sku_forecasts (added 20260605000003).
-// Cast like the materials hooks until types are regenerated.
-// deno-lint-ignore no-explicit-any
-const supabase = typedSupabase as unknown as any;
+import { supabase } from "@/lib/supabase";
 
 export interface SkuForecast {
   sku_id: string;
