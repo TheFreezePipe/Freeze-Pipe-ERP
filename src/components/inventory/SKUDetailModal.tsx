@@ -34,7 +34,7 @@ import {
   useForecastDemandMap,
 } from "@/lib/hooks";
 import { useState, useMemo } from "react";
-import { Warehouse, Ship, Factory, EyeOff, Eye, Check, Archive, ArchiveRestore, AlertTriangle } from "lucide-react";
+import { Warehouse, Ship, Factory, Boxes, EyeOff, Eye, Check, Archive, ArchiveRestore, AlertTriangle } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -201,7 +201,7 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
         </DialogHeader>
 
         {/* Inventory summary cards */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-4 gap-3">
           <Card>
             <CardContent className="p-3 text-center">
               <Warehouse className="h-4 w-4 mx-auto mb-1 text-green-400" />
@@ -224,6 +224,14 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
               <p className="text-xs text-muted-foreground">On Order</p>
               <p className="text-lg font-bold">{totals.onOrderTotal.toLocaleString()}</p>
               <p className={`text-xs font-medium ${dosColor(onOrderDOS)}`}>{onOrderDOS}d</p>
+            </CardContent>
+          </Card>
+          <Card className="border-primary/30">
+            <CardContent className="p-3 text-center">
+              <Boxes className="h-4 w-4 mx-auto mb-1 text-purple-400" />
+              <p className="text-xs text-muted-foreground">Overall</p>
+              <p className="text-lg font-bold">{totals.totalUnits.toLocaleString()}</p>
+              <p className={`text-xs font-medium ${dosColor(overallDOS)}`}>{overallDOS}d</p>
             </CardContent>
           </Card>
         </div>
@@ -284,10 +292,6 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
               )}
             </div>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Overall DOS: <span className={`font-medium ${dosColor(overallDOS)}`}>{overallDOS} days</span>
-            {" "} ({totals.totalUnits.toLocaleString()} total units)
-          </p>
         </div>
 
         <Separator />
