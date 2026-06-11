@@ -21,7 +21,6 @@ import {
 import type { ProductSKU, InventoryLevel } from "@/types/database";
 import { useAuth } from "@/lib/auth-context";
 import {
-  useUpdateProduct,
   useArchiveSKU,
   useArchiveSKUForce,
   useRestoreSKU,
@@ -34,7 +33,7 @@ import {
   useForecastDemandMap,
 } from "@/lib/hooks";
 import { useState, useMemo } from "react";
-import { Warehouse, Ship, Factory, Boxes, EyeOff, Eye, Check, Archive, ArchiveRestore, AlertTriangle } from "lucide-react";
+import { Warehouse, Ship, Factory, Boxes, Check, Archive, ArchiveRestore, AlertTriangle } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -56,7 +55,6 @@ interface Props {
 
 export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props) {
   const { isAdmin, profile } = useAuth();
-  const updateProduct = useUpdateProduct();
   const archiveSKU = useArchiveSKU();
   const archiveSKUForce = useArchiveSKUForce();
   const restoreSKU = useRestoreSKU();
@@ -85,7 +83,6 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
     currentOverride?.monthly_demand != null ? String(currentOverride.monthly_demand) : "",
   );
   const savedOverride = currentOverride?.monthly_demand;
-  const [isActive, setIsActive] = useState(product.is_active);
   // Source-of-truth for "archived" is product_skus.archived_at IS NOT NULL —
   // matches the dashboard's filter and the archive_sku() RPC's contract.
   // Falls back to !is_active for any rare row that pre-dates migration 008.
@@ -129,7 +126,6 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
       reason: archiveReason.trim() || "(no reason provided)",
     });
     setArchived(true);
-    setIsActive(false);
     setArchiveDialogOpen(false);
     setArchiveReason("");
   }
@@ -142,7 +138,6 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
       reason: archiveReason.trim() || "(forced — on-hand stock present)",
     });
     setArchived(true);
-    setIsActive(false);
     setArchiveForceOpen(false);
     setArchiveReason("");
     setArchiveOnHand(null);
@@ -155,7 +150,6 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
       actorId: profile.id,
     });
     setArchived(false);
-    setIsActive(true);
   }
 
   // Honor a literal `0` override — operators use it for discontinued SKUs
@@ -358,7 +352,9 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
           </div>
         </div>
 
-        {/* Admin actions: archive + legacy deactivate */}
+        {/* Admin actions: archive / restore. (The legacy Deactivate flip
+            was removed 2026-06-10 — Archive is the single retire path:
+            audited, reasoned, stock-guarded, and reversible via Restore.) */}
         {isAdmin && (
           <div className="pt-2 border-t border-border/50 flex items-center gap-4">
             {archived ? (
@@ -380,24 +376,6 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
               >
                 <Archive className="mr-1.5 h-3.5 w-3.5" />
                 Archive SKU
-              </Button>
-            )}
-            {!archived && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className={isActive ? "text-muted-foreground/60 hover:text-red-400" : "text-red-400 hover:text-green-400"}
-                onClick={async () => {
-                  const newState = !isActive;
-                  setIsActive(newState);
-                  await updateProduct.mutateAsync({ id: product.id, updates: { is_active: newState } });
-                }}
-              >
-                {isActive ? (
-                  <><EyeOff className="mr-1.5 h-3.5 w-3.5" />Deactivate</>
-                ) : (
-                  <><Eye className="mr-1.5 h-3.5 w-3.5" />Reactivate</>
-                )}
               </Button>
             )}
           </div>

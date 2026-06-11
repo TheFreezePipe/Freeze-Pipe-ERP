@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, EyeOff, Eye, Plus, Trash2, Star, StarOff, Pencil, Check, X, Tag, Beaker } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Star, StarOff, Pencil, Check, X, Tag, Beaker } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useState, useMemo, useEffect, useRef } from "react";
 import {
@@ -113,7 +113,6 @@ export default function SKUDetail() {
   // typed all-number. Persisted alongside the numeric fields on save.
   const [additionalRawReason, setAdditionalRawReason] = useState<string>("");
   const [lastSavedReason, setLastSavedReason] = useState<string>("");
-  const [isActive, setIsActive] = useState<boolean | undefined>(undefined);
 
   // Inline retail price edit — pencil → input → check (save) / x (cancel).
   // Persists via useUpdateProduct, same hook the deactivate button uses.
@@ -517,7 +516,6 @@ export default function SKUDetail() {
     { name: "Pack & Ship", value: packShip },
   ];
 
-  const activeState = isActive ?? product?.is_active ?? true;
 
   // ---- Handlers -------------------------------------------------------------
 
@@ -934,8 +932,8 @@ export default function SKUDetail() {
                 <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
               </button>
             )}
-            {!activeState && (
-              <Badge variant="outline" className="border-red-500/50 text-red-400">Inactive</Badge>
+            {(!!(product as unknown as { archived_at?: string | null }).archived_at || !product.is_active) && (
+              <Badge variant="outline" className="border-red-500/50 text-red-400">Archived</Badge>
             )}
           </div>
           {/* Product name — inline editable (admin only). */}
@@ -1613,26 +1611,6 @@ export default function SKUDetail() {
         </Button>
       </div>
 
-      <div className="flex items-center justify-between">
-        {isAdmin && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className={activeState ? "text-muted-foreground/60 hover:text-red-400" : "text-red-400 hover:text-green-400"}
-            onClick={async () => {
-              const newState = !activeState;
-              setIsActive(newState);
-              await updateProduct.mutateAsync({ id: product.id, updates: { is_active: newState } });
-            }}
-          >
-            {activeState ? (
-              <><EyeOff className="mr-1.5 h-3.5 w-3.5" />Deactivate SKU</>
-            ) : (
-              <><Eye className="mr-1.5 h-3.5 w-3.5" />Reactivate SKU</>
-            )}
-          </Button>
-        )}
-      </div>
     </div>
   );
 }
