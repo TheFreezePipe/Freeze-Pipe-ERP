@@ -1,7 +1,7 @@
 import { StatCard } from "@/components/shared/StatCard";
-import { AlertTriangle, Ship, Plane, TrendingUp } from "lucide-react";
+import { AlertTriangle, Ship, Plane, PackageCheck, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getEffectiveDemand } from "@/lib/demand";
+import { useNavigate } from "react-router-dom";
 import { RetailValueSummaryBar } from "@/components/dashboard/RetailValueSummaryBar";
 import { RetailValueChart } from "@/components/dashboard/RetailValueChart";
 import { ManufacturingCompletionChart } from "@/components/dashboard/ManufacturingCompletionChart";
@@ -9,13 +9,13 @@ import { ManufacturingCompletionModal } from "@/components/dashboard/Manufacturi
 import { AlertsPanel } from "@/components/dashboard/AlertsPanel";
 import { FreightCostChart } from "@/components/freight/FreightCostChart";
 import { useMemo, useState } from "react";
-import { useFreightShipments, useFreightLineItems, useProducts, useForecastDemandMap } from "@/lib/hooks";
+import { useFreightShipments, useFreightLineItems, useSalesPulse } from "@/lib/hooks";
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const { data: freight = [] } = useFreightShipments();
   const { data: freightLineItems = [] } = useFreightLineItems();
-  const { data: products = [] } = useProducts();
-  const forecastMap = useForecastDemandMap();
+  const { data: pulse } = useSalesPulse();
   const [mfgOpen, setMfgOpen] = useState(false);
 
   const stats = useMemo(() => {
@@ -26,28 +26,25 @@ export default function Dashboard() {
     const highRiskRetail = highRiskItems.reduce((s, li) => s + (li.retail_value ?? 0) * li.quantity, 0);
 
     const activeFreight = freight.filter(f => f.status !== "delivered");
-    const activeSea = activeFreight.filter(f => f.freight_type === "sea");
-    const activeAir = activeFreight.filter(f => f.freight_type === "air");
-    const seaValue = activeSea.reduce((s, f) => s + (f.total_cost ?? 0), 0);
-    const airValue = activeAir.reduce((s, f) => s + (f.total_cost ?? 0), 0);
-
-    let totalStatic = 0;
-    let totalForecast = 0;
-    products.forEach(p => {
-      totalStatic += p.monthly_demand;
-      totalForecast += getEffectiveDemand(p.id, p.monthly_demand, forecastMap);
-    });
-    const demandRatio = totalStatic > 0 ? Math.round((totalForecast / totalStatic) * 100) : 100;
+    const freightValue = activeFreight.reduce((s, f) => s + (f.total_cost ?? 0), 0);
+    const seaCount = activeFreight.filter(f => f.freight_type === "sea").length;
+    const airCount = activeFreight.filter(f => f.freight_type === "air").length;
 
     return {
       highRiskRetail,
-      seaCount: activeSea.length,
-      seaValue,
-      airCount: activeAir.length,
-      airValue,
-      demandRatio,
+      activeCount: activeFreight.length,
+      freightValue,
+      seaCount,
+      airCount,
     };
-  }, [freight, freightLineItems, products, forecastMap]);
+  }, [freight, freightLineItems]);
+
+  // Week-over-week shipped units. Null until both windows have data —
+  // the card then shows the trend as "n/a" instead of a fake 0%.
+  const weekTrendPct = useMemo(() => {
+    if (!pulse || pulse.units_prior_7d <= 0) return null;
+    return Math.round(((pulse.units_7d - pulse.units_prior_7d) / pulse.units_prior_7d) * 100);
+  }, [pulse]);
 
   return (
     <div className="space-y-6">
@@ -60,30 +57,33 @@ export default function Dashboard() {
         <StatCard
           title="High Risk Value"
           value={formatHighRiskRetail(stats.highRiskRetail)}
-          subtitle="Under inspection"
+          subtitle="Under inspection — click to view"
           icon={AlertTriangle}
           iconColor="text-red-400"
+          onClick={() => navigate("/freight?filter=high_risk")}
         />
         <StatCard
-          title="Active Sea"
-          value={stats.seaCount}
-          subtitle={`$${stats.seaValue.toLocaleString()} freight cost`}
-          icon={Ship}
+          title="Active Freight"
+          value={stats.activeCount}
+          subtitle={`$${stats.freightValue.toLocaleString()} freight cost · ${stats.seaCount} sea / ${stats.airCount} air`}
+          icon={stats.airCount > 0 && stats.seaCount === 0 ? Plane : Ship}
           iconColor="text-blue-400"
+          onClick={() => navigate("/freight")}
         />
         <StatCard
-          title="Active Air"
-          value={stats.airCount}
-          subtitle={`$${stats.airValue.toLocaleString()} freight cost`}
-          icon={Plane}
-          iconColor="text-cyan-400"
+          title="Shipped Today"
+          value={pulse ? pulse.units_today.toLocaleString() : "—"}
+          subtitle={pulse ? `${pulse.orders_today.toLocaleString()} order${pulse.orders_today === 1 ? "" : "s"} · units so far today` : "loading…"}
+          icon={PackageCheck}
+          iconColor="text-green-400"
         />
         <StatCard
-          title="Forecast vs Recent"
-          value={`${stats.demandRatio}%`}
-          subtitle={stats.demandRatio > 100 ? "Demand trending up" : stats.demandRatio < 100 ? "Demand trending down" : "Steady"}
+          title="Shipped (7 Days)"
+          value={pulse ? pulse.units_7d.toLocaleString() : "—"}
+          subtitle={weekTrendPct === null ? "units · no prior-week baseline" : "units shipped"}
           icon={TrendingUp}
-          iconColor={stats.demandRatio > 110 ? "text-yellow-400" : "text-green-400"}
+          iconColor={weekTrendPct !== null && weekTrendPct < 0 ? "text-yellow-400" : "text-green-400"}
+          trend={weekTrendPct !== null ? { value: weekTrendPct, label: "vs prior 7 days" } : undefined}
         />
       </div>
 

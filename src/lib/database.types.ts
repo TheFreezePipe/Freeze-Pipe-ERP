@@ -3312,6 +3312,15 @@ export type Database = {
         }
         Returns: Json
       }
+      rpc_sales_pulse: {
+        Args: never
+        Returns: {
+          orders_today: number
+          units_7d: number
+          units_prior_7d: number
+          units_today: number
+        }[]
+      }
       rpc_set_profile_active: {
         Args: { p_is_active: boolean; p_target_user_id: string }
         Returns: Json

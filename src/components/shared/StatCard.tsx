@@ -13,11 +13,24 @@ interface StatCardProps {
    *  card itself is dimmed. Use when the metric exists structurally but
    *  the underlying data feed isn't wired yet (e.g. Homebase labor hours). */
   disabled?: boolean;
+  /** Makes the whole card clickable (pointer cursor, hover ring,
+   *  keyboard-activatable). Used for drill-through navigation. */
+  onClick?: () => void;
 }
 
-export function StatCard({ title, value, subtitle, icon: Icon, iconColor = "text-primary", trend, disabled }: StatCardProps) {
+export function StatCard({ title, value, subtitle, icon: Icon, iconColor = "text-primary", trend, disabled, onClick }: StatCardProps) {
   return (
-    <Card className={cn(disabled && "opacity-50 bg-muted/20")} title={disabled ? "This metric is awaiting a data source — not yet operational" : undefined}>
+    <Card
+      className={cn(
+        disabled && "opacity-50 bg-muted/20",
+        onClick && "cursor-pointer transition-colors hover:bg-muted/30 hover:border-border focus-visible:ring-1 focus-visible:ring-ring outline-none",
+      )}
+      title={disabled ? "This metric is awaiting a data source — not yet operational" : undefined}
+      onClick={onClick}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
+    >
       <CardContent className="p-4">
         <div className="flex items-start justify-between">
           <div className="space-y-1">
