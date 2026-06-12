@@ -93,10 +93,15 @@ Deno.serve(async (req) => {
       }
     }
 
-    // -------- Stage 2: pull yesterday's orders ----------------------------
+    // -------- Stage 2: pull recent orders ---------------------------------
+    // Rolling last-26h window ending NOW. The old version floored `end` to
+    // midnight UTC ("pull yesterday") — correct for its original life as a
+    // nightly 03:15 job, but the intraday */30 schedule was then re-pulling
+    // yesterday all day, so today's ships only landed after midnight UTC.
+    // Rolling window + idempotent upserts = today's orders land within
+    // ~30 min; the 2h overlap absorbs clock skew and slow label batches.
     const end = new Date();
-    end.setUTCHours(0, 0, 0, 0);
-    const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+    const start = new Date(end.getTime() - 26 * 60 * 60 * 1000);
 
     await supabase
       .from("shipstation_sync_runs")
