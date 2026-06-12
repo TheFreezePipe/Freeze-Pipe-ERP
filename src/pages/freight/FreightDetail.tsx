@@ -557,8 +557,24 @@ export default function FreightDetail() {
                 return (
                 <tr key={li.id} className="border-b border-border/50">
                   <td className="px-4 py-3">
-                    <p className="font-medium">{li.product?.sku ?? li.sku_id}</p>
-                    <p className="text-xs text-muted-foreground">{li.product?.product_name ?? ""}</p>
+                    {li.sku_id ? (
+                      <>
+                        <p className="font-medium">{li.product?.sku ?? li.sku_id}</p>
+                        <p className="text-xs text-muted-foreground">{li.product?.product_name ?? ""}</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-medium inline-flex items-center gap-1.5">
+                          {li.custom_description ?? "Non-catalog item"}
+                          <span className="rounded border border-amber-500/50 px-1 py-px text-[9px] uppercase tracking-wide text-amber-400">
+                            sample
+                          </span>
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Not in catalog — won't be added to inventory on receipt
+                        </p>
+                      </>
+                    )}
                     {/* When this line is linked to a specific factory
                         order item, show "from FO-X" so the operator
                         knows which order's stock this represents. Two

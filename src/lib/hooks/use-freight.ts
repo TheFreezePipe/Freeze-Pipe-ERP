@@ -7,7 +7,7 @@ import type { Database } from "@/lib/database.types";
 type FreightShipmentInsert = Database["public"]["Tables"]["freight_shipments"]["Insert"];
 type FreightLineItemInsert = Database["public"]["Tables"]["freight_line_items"]["Insert"];
 
-export type FreightLineItemWithProduct = FreightLineItem & { product: ProductSKU };
+export type FreightLineItemWithProduct = FreightLineItem & { product: ProductSKU | null };
 export type FreightShipmentWithItems = FreightShipment & { line_items: FreightLineItemWithProduct[] };
 
 export function useFreightShipments() {

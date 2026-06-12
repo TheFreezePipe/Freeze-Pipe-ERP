@@ -68,6 +68,8 @@ export function buildInTransitMap(
   const out = new Map<string, number>();
   for (const line of freightLines) {
     if (!liveShipmentIds.has(line.freight_shipment_id)) continue;
+    // Non-catalog (sample) lines have no SKU — nothing to count in transit.
+    if (!line.sku_id) continue;
     const prior = out.get(line.sku_id) ?? 0;
     out.set(line.sku_id, prior + (line.quantity ?? 0));
   }

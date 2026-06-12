@@ -464,13 +464,14 @@ export type Database = {
       freight_line_items: {
         Row: {
           created_at: string
+          custom_description: string | null
           freight_shipment_id: string
           id: string
           quantity: number
           quantity_prefilled: number | null
           retail_value: number | null
           row_version: number
-          sku_id: string
+          sku_id: string | null
           source_factory_order_item_id: string | null
           supplier_declared_quantity: number | null
           unit_cost: number | null
@@ -478,13 +479,14 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          custom_description?: string | null
           freight_shipment_id: string
           id?: string
           quantity: number
           quantity_prefilled?: number | null
           retail_value?: number | null
           row_version?: number
-          sku_id: string
+          sku_id?: string | null
           source_factory_order_item_id?: string | null
           supplier_declared_quantity?: number | null
           unit_cost?: number | null
@@ -492,13 +494,14 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          custom_description?: string | null
           freight_shipment_id?: string
           id?: string
           quantity?: number
           quantity_prefilled?: number | null
           retail_value?: number | null
           row_version?: number
-          sku_id?: string
+          sku_id?: string | null
           source_factory_order_item_id?: string | null
           supplier_declared_quantity?: number | null
           unit_cost?: number | null
@@ -3106,6 +3109,10 @@ export type Database = {
       }
     }
     Functions: {
+      _apply_box_for_shipped_order: {
+        Args: { p_order_id: string }
+        Returns: string
+      }
       _default_location_id: { Args: never; Returns: string }
       _task_type_movement: {
         Args: { p_task_type: string }

@@ -173,7 +173,7 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
       if (etaDay < tomorrowStr) etaDay = tomorrowStr;
       if (etaDay > horizonStr) continue;
       for (const li of freightLines) {
-        if (li.freight_shipment_id !== f.id || !fillableIds.has(li.sku_id)) continue;
+        if (li.freight_shipment_id !== f.id || !li.sku_id || !fillableIds.has(li.sku_id)) continue;
         const qty = li.quantity ?? 0;
         const pf = Math.min(Math.max(li.quantity_prefilled ?? 0, 0), qty);
         const raw = Math.max(qty - pf, 0);
@@ -240,7 +240,7 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
       if (f.freight_type !== "sea") continue;
       let qty = 0;
       for (const li of freightLines) {
-        if (li.freight_shipment_id === f.id && fillableIds.has(li.sku_id)) qty += li.quantity ?? 0;
+        if (li.freight_shipment_id === f.id && li.sku_id && fillableIds.has(li.sku_id)) qty += li.quantity ?? 0;
       }
       if (qty === 0) continue;
 

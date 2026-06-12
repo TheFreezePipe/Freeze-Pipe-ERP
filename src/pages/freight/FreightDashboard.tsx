@@ -735,9 +735,16 @@ function LineRow({ line }: { line: FreightLineItemWithProduct }) {
               {line.product.product_name}
             </span>
           </div>
-        ) : (
+        ) : line.sku_id ? (
           <span className="font-mono text-xs text-muted-foreground">
             {line.sku_id.slice(0, 8)}…
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 text-xs min-w-0">
+            <span className="truncate">{line.custom_description ?? "Non-catalog item"}</span>
+            <span className="shrink-0 rounded border border-amber-500/50 px-1 py-px text-[9px] uppercase tracking-wide text-amber-400">
+              sample
+            </span>
           </span>
         )}
       </td>

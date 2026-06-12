@@ -105,7 +105,10 @@ export const freightShipmentSchema = z
     eta: ymdDateSchema.optional(),
     freightCost: money.optional(),
     notes: z.string().trim().max(1000).optional(),
-    cartonGroups: z.array(cartonGroupSchema).min(1, "Add at least one carton group"),
+    // min(0): a shipment may carry ONLY non-catalog (sample) items, which
+    // live outside carton groups. The submit handler enforces "at least
+    // one carton group OR one non-catalog item".
+    cartonGroups: z.array(cartonGroupSchema).min(0),
   })
   .refine(
     (v) => !v.shipDate || !v.eta || v.eta >= v.shipDate,

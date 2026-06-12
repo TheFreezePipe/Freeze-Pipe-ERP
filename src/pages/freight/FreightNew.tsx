@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ArrowLeft, Plus, Trash2, Ship, Plane, Package, PackagePlus } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Ship, Plane, Package, PackagePlus, X } from "lucide-react";
 import {
   useProducts,
   useFactoryOrders,
@@ -104,6 +104,11 @@ export default function FreightNew() {
   const [eta, setEta] = useState("");
   const [freightCost, setFreightCost] = useState("");
   const [notes, setNotes] = useState("");
+  // Non-catalog (sample/prototype) items — free-text lines with no SKU.
+  // Tracked on the shipment + receipt but never credited to inventory.
+  const [customItems, setCustomItems] = useState<
+    Array<{ id: string; description: string; quantity: number }>
+  >([]);
 
   // Carton groups
   const [cartonGroups, setCartonGroups] = useState<CartonGroup[]>([]);
@@ -277,6 +282,10 @@ export default function FreightNew() {
       parsedFreightCost = v;
     }
 
+    const validCustom = customItems
+      .map((c) => ({ ...c, description: c.description.trim() }))
+      .filter((c) => c.description !== "" && c.quantity > 0);
+
     // Validate input via zod before touching Supabase.
     const validation = safeValidate(freightShipmentSchema, {
       shipmentNumber,
@@ -288,16 +297,22 @@ export default function FreightNew() {
       eta: eta || undefined,
       freightCost: parsedFreightCost,
       notes: notes || undefined,
-      cartonGroups: cartonGroups.map(g => ({
-        cartonQty: g.carton_qty,
-        notes: g.notes || undefined,
-        skus: g.skus
-          .filter(s => s.sku_id && skuTotal(s) > 0)
-          .map(s => ({ skuId: s.sku_id, quantity: skuTotal(s), preFilled: s.pre_filled })),
-      })),
+      cartonGroups: cartonGroups
+        .filter(g => g.carton_qty > 0 && g.skus.some(sk => sk.sku_id && skuTotal(sk) > 0))
+        .map(g => ({
+          cartonQty: g.carton_qty,
+          notes: g.notes || undefined,
+          skus: g.skus
+            .filter(s => s.sku_id && skuTotal(s) > 0)
+            .map(s => ({ skuId: s.sku_id, quantity: skuTotal(s), preFilled: s.pre_filled })),
+        })),
     });
     if (!validation.ok) {
       setSubmitError(Object.values(validation.errors)[0] ?? "Validation failed");
+      return;
+    }
+    if (!hasCatalogLines && validCustom.length === 0) {
+      setSubmitError("Add at least one carton group or one non-catalog item");
       return;
     }
 
@@ -395,8 +410,19 @@ export default function FreightNew() {
           total_cartons: totals.totalCartons,
           notes: notes || null,
         },
-        lineItems: Array.from(byKey.values()).map((row) => ({
-          sku_id: row.sku_id,
+        lineItems: [
+          ...validCustom.map((c) => ({
+            sku_id: null,
+            custom_description: c.description,
+            quantity: c.quantity,
+            quantity_prefilled: null,
+            unit_cost: null,
+            retail_value: null,
+            source_factory_order_item_id: null,
+          })),
+          ...Array.from(byKey.values()).map((row) => ({
+          sku_id: row.sku_id as string | null,
+          custom_description: null,
           quantity: row.quantity,
           // Non-fillable SKUs carry NULL so the SKU detail prefill stats
           // ignore them. Fillable rows always carry a numeric value (0 if
@@ -409,7 +435,8 @@ export default function FreightNew() {
           // shipped/finished/in-production progress bar (already wired
           // up in FactoryOrders.tsx to read this FK).
           source_factory_order_item_id: row.source_factory_order_item_id,
-        })),
+          })),
+        ],
       });
       navigate(`/freight/${created.id}`);
     } catch (err) {
@@ -417,8 +444,10 @@ export default function FreightNew() {
     }
   }
 
-  const isValid = shipmentNumber && freightType &&
+  const hasCatalogLines =
     cartonGroups.some(g => g.carton_qty > 0 && g.skus.some(s => s.sku_id && skuTotal(s) > 0));
+  const hasCustomItems = customItems.some(c => c.description.trim() !== "" && c.quantity > 0);
+  const isValid = shipmentNumber && freightType && (hasCatalogLines || hasCustomItems);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -906,6 +935,73 @@ export default function FreightNew() {
                 </div>
               </>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Non-catalog / sample items */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Samples &amp; Non-Catalog Items</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              One-off items that aren't in the SKU catalog (prototypes, factory samples, spare parts)
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {customItems.length > 0 && (
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-300/90">
+                Non-catalog items are tracked on this shipment (ETA, receipt confirmation)
+                but are <span className="font-medium">not added to inventory</span> and don't create SKUs.
+              </div>
+            )}
+            {customItems.map((c) => (
+              <div key={c.id} className="flex items-center gap-2">
+                <Input
+                  placeholder="Description (e.g. Glass prototype — v2 sample)"
+                  value={c.description}
+                  onChange={(e) =>
+                    setCustomItems((prev) =>
+                      prev.map((x) => (x.id === c.id ? { ...x, description: e.target.value } : x)),
+                    )
+                  }
+                  className="flex-1"
+                />
+                <Input
+                  type="number"
+                  min={1}
+                  placeholder="Qty"
+                  value={c.quantity || ""}
+                  onChange={(e) =>
+                    setCustomItems((prev) =>
+                      prev.map((x) =>
+                        x.id === c.id ? { ...x, quantity: parseInt(e.target.value, 10) || 0 } : x,
+                      ),
+                    )
+                  }
+                  className="w-24"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 shrink-0 text-muted-foreground hover:text-red-400"
+                  onClick={() => setCustomItems((prev) => prev.filter((x) => x.id !== c.id))}
+                  title="Remove item"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setCustomItems((prev) => [...prev, { id: nextId(), description: "", quantity: 1 }])
+              }
+            >
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              Add non-catalog item
+            </Button>
           </CardContent>
         </Card>
 
