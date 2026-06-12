@@ -39,11 +39,11 @@ export default function Dashboard() {
     };
   }, [freight, freightLineItems]);
 
-  // Week-over-week shipped units. Null until both windows have data —
-  // the card then shows the trend as "n/a" instead of a fake 0%.
+  // Week-over-week shipped ORDERS (the headline metric). Null until both
+  // windows have data — the card then shows "n/a" instead of a fake 0%.
   const weekTrendPct = useMemo(() => {
-    if (!pulse || pulse.units_prior_7d <= 0) return null;
-    return Math.round(((pulse.units_7d - pulse.units_prior_7d) / pulse.units_prior_7d) * 100);
+    if (!pulse || pulse.orders_prior_7d <= 0) return null;
+    return Math.round(((pulse.orders_7d - pulse.orders_prior_7d) / pulse.orders_prior_7d) * 100);
   }, [pulse]);
 
   return (
@@ -71,20 +71,24 @@ export default function Dashboard() {
           onClick={() => navigate("/freight")}
         />
         <StatCard
-          title="Shipped Today"
-          value={pulse ? pulse.units_today.toLocaleString() : "—"}
+          title="Orders Shipped Today"
+          value={pulse ? pulse.orders_today.toLocaleString() : "—"}
           subtitle={
             pulse
-              ? `${pulse.orders_today.toLocaleString()} order${pulse.orders_today === 1 ? "" : "s"} · ${pulse.awaiting_orders.toLocaleString()} in queue · ${pulse.units_yesterday.toLocaleString()} units yesterday`
+              ? `${pulse.units_today.toLocaleString()} units · ${pulse.awaiting_orders.toLocaleString()} in queue · ${pulse.orders_yesterday.toLocaleString()} orders yesterday`
               : "loading…"
           }
           icon={PackageCheck}
           iconColor="text-green-400"
         />
         <StatCard
-          title="Shipped (7 Days)"
-          value={pulse ? pulse.units_7d.toLocaleString() : "—"}
-          subtitle={weekTrendPct === null ? "units · no prior-week baseline" : "units shipped"}
+          title="Orders (7 Days)"
+          value={pulse ? pulse.orders_7d.toLocaleString() : "—"}
+          subtitle={
+            pulse
+              ? `${pulse.units_7d.toLocaleString()} units${weekTrendPct === null ? " · no prior-week baseline" : ""}`
+              : "loading…"
+          }
           icon={TrendingUp}
           iconColor={weekTrendPct !== null && weekTrendPct < 0 ? "text-yellow-400" : "text-green-400"}
           trend={weekTrendPct !== null ? { value: weekTrendPct, label: "vs prior 7 days" } : undefined}

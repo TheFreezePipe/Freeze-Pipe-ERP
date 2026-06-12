@@ -8,6 +8,8 @@ export interface SalesPulse {
   units_yesterday: number;
   /** Orders currently awaiting shipment (today's pending label queue). */
   awaiting_orders: number;
+  orders_7d: number;
+  orders_prior_7d: number;
   units_7d: number;
   units_prior_7d: number;
 }

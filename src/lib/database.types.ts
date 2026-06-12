@@ -3316,6 +3316,8 @@ export type Database = {
         Args: never
         Returns: {
           awaiting_orders: number
+          orders_7d: number
+          orders_prior_7d: number
           orders_today: number
           orders_yesterday: number
           units_7d: number
