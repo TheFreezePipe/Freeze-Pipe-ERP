@@ -3315,10 +3315,13 @@ export type Database = {
       rpc_sales_pulse: {
         Args: never
         Returns: {
+          awaiting_orders: number
           orders_today: number
+          orders_yesterday: number
           units_7d: number
           units_prior_7d: number
           units_today: number
+          units_yesterday: number
         }[]
       }
       rpc_set_profile_active: {

@@ -73,7 +73,11 @@ export default function Dashboard() {
         <StatCard
           title="Shipped Today"
           value={pulse ? pulse.units_today.toLocaleString() : "—"}
-          subtitle={pulse ? `${pulse.orders_today.toLocaleString()} order${pulse.orders_today === 1 ? "" : "s"} · units so far today` : "loading…"}
+          subtitle={
+            pulse
+              ? `${pulse.orders_today.toLocaleString()} order${pulse.orders_today === 1 ? "" : "s"} · ${pulse.awaiting_orders.toLocaleString()} in queue · ${pulse.units_yesterday.toLocaleString()} units yesterday`
+              : "loading…"
+          }
           icon={PackageCheck}
           iconColor="text-green-400"
         />
