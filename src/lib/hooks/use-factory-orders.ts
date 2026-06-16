@@ -363,6 +363,44 @@ export function useAdminEditFactoryOrder() {
   });
 }
 
+/**
+ * Admin/manager: set per-line progress (factory-finished and/or
+ * manually-shipped units) on a factory order, then auto-complete the
+ * order to 'shipped' if every line is fully covered. Wraps
+ * rpc_admin_set_factory_order_progress (migration 20260616000001).
+ */
+export type FactoryOrderProgressOp = {
+  line_id: string;
+  quantity_finished?: number;
+  quantity_shipped_manual?: number;
+};
+
+export function useAdminSetFactoryOrderProgress() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: {
+      orderId: string;
+      expectedVersion: number;
+      lineOps: FactoryOrderProgressOp[];
+    }) => {
+      const { data, error } = await supabase.rpc("rpc_admin_set_factory_order_progress", {
+        p_order_id: params.orderId,
+        p_expected_version: params.expectedVersion,
+        p_line_ops: params.lineOps,
+      });
+      if (error) throw new Error(error.message);
+      const env = data as { ok: boolean; error?: string; new_version?: number; status?: string } | null;
+      if (!env?.ok) throw new Error(env?.error ?? "Update failed");
+      return env;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["factory-orders"] });
+      qc.invalidateQueries({ queryKey: ["inventory"] });
+      qc.invalidateQueries({ queryKey: ["freight-line-items"] });
+    },
+  });
+}
+
 /** Admin-only: link a child factory_order to its parent. */
 export function useLinkFactoryOrderToParent() {
   const qc = useQueryClient();

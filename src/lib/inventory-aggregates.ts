@@ -109,7 +109,10 @@ export function buildOnOrderMap(
     for (const item of order.items ?? []) {
       const shipped = shippedByFoi.get(item.id) ?? 0;
       const breakage = item.quantity_breakage ?? 0;
-      const remaining = Math.max(0, (item.quantity_ordered ?? 0) - breakage - shipped);
+      // Units recorded as shipped outside the system (e.g. pre-go-live)
+      // have also left the factory — net them out like freight-shipped.
+      const manualShipped = item.quantity_shipped_manual ?? 0;
+      const remaining = Math.max(0, (item.quantity_ordered ?? 0) - breakage - shipped - manualShipped);
       if (remaining === 0) continue;
       out.set(item.sku_id, (out.get(item.sku_id) ?? 0) + remaining);
     }

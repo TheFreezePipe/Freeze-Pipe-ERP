@@ -28,6 +28,7 @@ import {
   useUnlinkFactoryOrderFromParent,
   useSuppliers,
   useAdminEditFactoryOrder,
+  useAdminSetFactoryOrderProgress,
   computeMissingComponents,
   type FactoryOrderWithItems,
   type FreightLineItemWithProduct,
@@ -41,6 +42,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth-context";
+import { describeError } from "@/lib/supabase-error";
 
 // Mirror the list page's color map so badges read consistently.
 const STATUS_COLOR: Record<string, string> = {
@@ -122,6 +124,12 @@ export default function FactoryOrderDetail() {
   // each Add-Line click; doesn't matter what the value is, only that it's
   // unique per session.
   const [newLineCounter, setNewLineCounter] = useState(0);
+
+  // ===== Per-line progress editor (admin): factory-finished + manual-shipped =====
+  const [progressMode, setProgressMode] = useState(false);
+  const [progressDrafts, setProgressDrafts] = useState<Record<string, { finished: string; manual: string }>>({});
+  const [progressError, setProgressError] = useState<string | null>(null);
+  const progressMut = useAdminSetFactoryOrderProgress();
 
   // Hydrate drafts whenever the order data changes (initial load or after
   // a save when the query refetches). We re-run this on every order
@@ -330,6 +338,47 @@ export default function FactoryOrderDetail() {
   }
 
   const items = order.items ?? [];
+
+  function startProgress() {
+    const init: Record<string, { finished: string; manual: string }> = {};
+    for (const it of items) {
+      init[it.id] = {
+        finished: String(it.quantity_finished ?? 0),
+        manual: String(it.quantity_shipped_manual ?? 0),
+      };
+    }
+    setProgressDrafts(init);
+    setProgressError(null);
+    setProgressMode(true);
+  }
+  function cancelProgress() {
+    setProgressMode(false);
+    setProgressDrafts({});
+    setProgressError(null);
+  }
+  async function saveProgress() {
+    if (!order) return;
+    const ops = items
+      .map((it) => {
+        const d = progressDrafts[it.id];
+        if (!d) return null;
+        const finished = Math.max(0, parseInt(d.finished, 10) || 0);
+        const manual = Math.max(0, parseInt(d.manual, 10) || 0);
+        if (finished === (it.quantity_finished ?? 0) && manual === (it.quantity_shipped_manual ?? 0)) return null;
+        return { line_id: it.id, quantity_finished: finished, quantity_shipped_manual: manual };
+      })
+      .filter((x): x is { line_id: string; quantity_finished: number; quantity_shipped_manual: number } => x !== null);
+    if (ops.length === 0) {
+      cancelProgress();
+      return;
+    }
+    try {
+      await progressMut.mutateAsync({ orderId: order.id, expectedVersion: order.row_version, lineOps: ops });
+      cancelProgress();
+    } catch (e) {
+      setProgressError(describeError(e));
+    }
+  }
   const orderTotal = items.reduce((s, i) => s + i.quantity_ordered, 0);
   const orderValue = items.reduce(
     (s, i) => s + (i.unit_cost ?? 0) * i.quantity_ordered,
@@ -713,7 +762,32 @@ export default function FactoryOrderDetail() {
       {/* Line items */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Line items</CardTitle>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle className="text-base">Line items</CardTitle>
+            {canEdit && !editMode && order.status !== "canceled" && (
+              progressMode ? (
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={cancelProgress} disabled={progressMut.isPending}>
+                    Cancel
+                  </Button>
+                  <Button size="sm" onClick={saveProgress} disabled={progressMut.isPending}>
+                    {progressMut.isPending ? "Saving…" : "Save progress"}
+                  </Button>
+                </div>
+              ) : (
+                <Button variant="outline" size="sm" onClick={startProgress}>
+                  Update progress
+                </Button>
+              )
+            )}
+          </div>
+          {progressMode && (
+            <p className="text-xs text-muted-foreground mt-1">
+              <span className="text-foreground font-medium">Finished</span> = made at the factory, still on order ·{" "}
+              <span className="text-foreground font-medium">Shipped (manual)</span> = units shipped outside the system (reduces on-order). The order auto-completes once every unit is shipped.
+            </p>
+          )}
+          {progressError && <p className="text-xs text-red-400 mt-1">{progressError}</p>}
         </CardHeader>
         <CardContent>
           <table className="w-full text-sm">
@@ -725,7 +799,7 @@ export default function FactoryOrderDetail() {
                 {!editMode && (
                   <th
                     className="py-2 text-right"
-                    title="Units of this line that have been put on a freight shipment (sums across all linked shipments)"
+                    title="Units of this line that have shipped — freight shipments plus any manually-recorded shipments"
                   >
                     Shipped
                   </th>
@@ -891,12 +965,55 @@ export default function FactoryOrderDetail() {
                           {it.quantity_ordered.toLocaleString()}
                         </td>
                         <td className="py-2 text-right tabular-nums">
-                          {(it.quantity_finished ?? 0).toLocaleString()}
+                          {progressMode ? (
+                            <Input
+                              type="number"
+                              min={0}
+                              max={it.quantity_ordered}
+                              value={progressDrafts[it.id]?.finished ?? ""}
+                              onChange={(e) =>
+                                setProgressDrafts((prev) => ({
+                                  ...prev,
+                                  [it.id]: { ...prev[it.id], finished: e.target.value },
+                                }))
+                              }
+                              className="h-8 w-20 text-right ml-auto"
+                            />
+                          ) : (
+                            (it.quantity_finished ?? 0).toLocaleString()
+                          )}
                         </td>
                         <td className="py-2 text-right tabular-nums">
                           {(() => {
                             const linked = freightMap.get(it.id) ?? [];
-                            const shipped = linked.reduce((s, l) => s + (l.quantity ?? 0), 0);
+                            const freightShipped = linked.reduce((s, l) => s + (l.quantity ?? 0), 0);
+                            const manualShipped = it.quantity_shipped_manual ?? 0;
+                            if (progressMode) {
+                              return (
+                                <div className="flex items-center justify-end gap-2">
+                                  <span
+                                    className="text-[10px] text-muted-foreground"
+                                    title="Units on freight shipments — edit these by adding/removing freight, not here"
+                                  >
+                                    frt {freightShipped.toLocaleString()}
+                                  </span>
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    value={progressDrafts[it.id]?.manual ?? ""}
+                                    onChange={(e) =>
+                                      setProgressDrafts((prev) => ({
+                                        ...prev,
+                                        [it.id]: { ...prev[it.id], manual: e.target.value },
+                                      }))
+                                    }
+                                    className="h-8 w-20 text-right"
+                                    title="Units shipped outside the system (manual)"
+                                  />
+                                </div>
+                              );
+                            }
+                            const shipped = freightShipped + manualShipped;
                             if (shipped === 0) {
                               return <span className="text-muted-foreground/50">—</span>;
                             }
@@ -904,7 +1021,7 @@ export default function FactoryOrderDetail() {
                               ? Math.round((shipped / it.quantity_ordered) * 100)
                               : 0;
                             return (
-                              <span title={`${linked.length} freight shipment(s) link to this line`}>
+                              <span title={`${freightShipped.toLocaleString()} via freight${manualShipped > 0 ? ` + ${manualShipped.toLocaleString()} manual` : ""}`}>
                                 {shipped.toLocaleString()}
                                 <span className="text-[10px] text-muted-foreground ml-1">
                                   ({pct}%)

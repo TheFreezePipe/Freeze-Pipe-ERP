@@ -59,9 +59,13 @@ type SupplierFilterCode = (typeof FILTERABLE_SUPPLIERS)[number]["code"];
 // map so the two views read consistently.
 const STATUS_COLOR: Record<string, string> = {
   in_production: "bg-amber-500/10 text-amber-400 border-amber-500/30",
-  finished: "bg-green-500/10 text-green-400 border-green-500/30",
-  shipped: "bg-slate-500/10 text-slate-400 border-slate-500/30",
+  finished: "bg-blue-500/10 text-blue-400 border-blue-500/30",
+  shipped: "bg-green-500/10 text-green-400 border-green-500/30",
 };
+
+// Completed (fully-shipped) orders shipped within this many days stay
+// visible at the bottom; older ones collapse behind "Show older orders".
+const RECENT_COMPLETED_DAYS = 3;
 
 type FilterValue = "all" | SupplierFilterCode | FactoryOrderStatus;
 
@@ -99,7 +103,7 @@ function rollupForItem(
   const total = item.quantity_ordered;
   const breakage = item.quantity_breakage ?? 0;
 
-  let shippedQty = 0;
+  let shippedQty = item.quantity_shipped_manual ?? 0;
   for (const line of freightMap.get(item.id) ?? []) {
     shippedQty += line.quantity ?? 0;
   }
@@ -172,6 +176,7 @@ export default function FactoryOrders() {
   const [newDialogOpen, setNewDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [showOlder, setShowOlder] = useState(false);
 
   const { data: orders = [], isLoading } = useFactoryOrders();
   const { data: freightLines = [] } = useFreightLineItems();
@@ -252,7 +257,7 @@ export default function FactoryOrders() {
     };
   }, [orders, freightMap]);
 
-  const filteredOrders = useMemo(() => {
+  const { activeRows, shippedVisible, olderHiddenCount } = useMemo(() => {
     let list = orders;
     if (FILTERABLE_SUPPLIERS.some((s) => s.code === filter)) {
       list = list.filter((o) => o.supplier?.code === filter);
@@ -264,13 +269,28 @@ export default function FactoryOrders() {
       .sort((a, b) =>
         (a.expected_completion ?? "").localeCompare(b.expected_completion ?? ""),
       );
+    // Completion time: the persisted shipped_at, else updated_at (covers
+    // orders that derive as shipped but weren't auto-stamped, e.g. costs
+    // missing). Newest-completed first.
+    const completedMs = (o: FactoryOrderWithItems) => {
+      const d = (o as FactoryOrderWithItems & { shipped_at?: string | null }).shipped_at ?? o.updated_at;
+      return d ? new Date(d).getTime() : 0;
+    };
     const shipped = list
       .filter((o) => deriveOrderStatus(o, freightMap) === "shipped")
-      .sort((a, b) =>
-        (b.expected_completion ?? "").localeCompare(a.expected_completion ?? ""),
-      );
-    return [...active, ...shipped];
-  }, [filter, orders, freightMap]);
+      .sort((a, b) => completedMs(b) - completedMs(a));
+
+    // The "Shipped" tab shows them all; elsewhere collapse the old ones.
+    if (filter === "shipped" || showOlder) {
+      return { activeRows: active, shippedVisible: shipped, olderHiddenCount: 0 };
+    }
+    const cutoffMs = Date.now() - RECENT_COMPLETED_DAYS * 86_400_000;
+    const recent = shipped.filter((o) => completedMs(o) >= cutoffMs);
+    const older = shipped.filter((o) => completedMs(o) < cutoffMs);
+    return { activeRows: active, shippedVisible: recent, olderHiddenCount: older.length };
+  }, [filter, orders, freightMap, showOlder]);
+
+  const hasAnyRows = activeRows.length > 0 || shippedVisible.length > 0 || olderHiddenCount > 0;
 
   if (isLoading) {
     return (
@@ -279,6 +299,24 @@ export default function FactoryOrders() {
       </div>
     );
   }
+
+  const renderCard = (o: FactoryOrderWithItems) => (
+    <OrderCard
+      key={o.id}
+      order={o}
+      allOrders={orders}
+      allProducts={allProducts}
+      boms={boms}
+      freightMap={freightMap}
+      todayIso={todayIso}
+      isEditing={editingId === o.id}
+      editValue={editValue}
+      onStartEdit={startEdit}
+      onChangeEdit={setEditValue}
+      onSaveEdit={saveEdit}
+      onCancelEdit={() => setEditingId(null)}
+    />
+  );
 
   return (
     // max-w-5xl matches the supplier FactoryOrdersList — keeps SKU rows
@@ -318,7 +356,7 @@ export default function FactoryOrders() {
         </TabsList>
       </Tabs>
 
-      {filteredOrders.length === 0 ? (
+      {!hasAnyRows ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
             No factory orders match this filter.
@@ -326,23 +364,26 @@ export default function FactoryOrders() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {filteredOrders.map((o) => (
-            <OrderCard
-              key={o.id}
-              order={o}
-              allOrders={orders}
-              allProducts={allProducts}
-              boms={boms}
-              freightMap={freightMap}
-              todayIso={todayIso}
-              isEditing={editingId === o.id}
-              editValue={editValue}
-              onStartEdit={startEdit}
-              onChangeEdit={setEditValue}
-              onSaveEdit={saveEdit}
-              onCancelEdit={() => setEditingId(null)}
-            />
-          ))}
+          {activeRows.map((o) => renderCard(o))}
+
+          {shippedVisible.length > 0 && activeRows.length > 0 && (
+            <div className="flex items-center gap-3 pt-2 text-[11px] uppercase tracking-wider text-muted-foreground">
+              <div className="h-px flex-1 bg-border/60" />
+              Completed
+              <div className="h-px flex-1 bg-border/60" />
+            </div>
+          )}
+          {shippedVisible.map((o) => renderCard(o))}
+
+          {olderHiddenCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowOlder(true)}
+              className="w-full rounded-lg border border-dashed border-border/60 py-2.5 text-xs text-muted-foreground hover:bg-muted/30 hover:text-foreground transition-colors"
+            >
+              Show {olderHiddenCount} older completed order{olderHiddenCount === 1 ? "" : "s"}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -433,9 +474,11 @@ function OrderCard({
   const isOverdue =
     daysLeft !== null && daysLeft < 0 && derivedStatus !== "shipped";
 
-  const borderTone = isOverdue
-    ? "border-l-4 border-l-red-500/70"
-    : "border-l-4 border-l-primary/50";
+  const borderTone = derivedStatus === "shipped"
+    ? "border-l-4 border-l-green-500/70"
+    : isOverdue
+      ? "border-l-4 border-l-red-500/70"
+      : "border-l-4 border-l-primary/50";
 
   return (
     <Card

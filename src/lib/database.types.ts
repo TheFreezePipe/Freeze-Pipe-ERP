@@ -289,6 +289,7 @@ export type Database = {
           quantity_breakage: number
           quantity_finished: number | null
           quantity_ordered: number
+          quantity_shipped_manual: number
           row_version: number
           sku_id: string
           unit_cost: number | null
@@ -304,6 +305,7 @@ export type Database = {
           quantity_breakage?: number
           quantity_finished?: number | null
           quantity_ordered: number
+          quantity_shipped_manual?: number
           row_version?: number
           sku_id: string
           unit_cost?: number | null
@@ -319,6 +321,7 @@ export type Database = {
           quantity_breakage?: number
           quantity_finished?: number | null
           quantity_ordered?: number
+          quantity_shipped_manual?: number
           row_version?: number
           sku_id?: string
           unit_cost?: number | null
@@ -383,6 +386,7 @@ export type Database = {
           parent_factory_order_id: string | null
           row_version: number
           ship_via_supplier_id: string | null
+          shipped_at: string | null
           status: string
           supplier_id: string
           updated_at: string
@@ -401,6 +405,7 @@ export type Database = {
           parent_factory_order_id?: string | null
           row_version?: number
           ship_via_supplier_id?: string | null
+          shipped_at?: string | null
           status?: string
           supplier_id: string
           updated_at?: string
@@ -419,6 +424,7 @@ export type Database = {
           parent_factory_order_id?: string | null
           row_version?: number
           ship_via_supplier_id?: string | null
+          shipped_at?: string | null
           status?: string
           supplier_id?: string
           updated_at?: string
@@ -3114,6 +3120,14 @@ export type Database = {
         Returns: string
       }
       _default_location_id: { Args: never; Returns: string }
+      _factory_order_fully_shipped: {
+        Args: { p_order_id: string }
+        Returns: boolean
+      }
+      _recompute_factory_order_status: {
+        Args: { p_actor: string; p_order_id: string }
+        Returns: undefined
+      }
       _task_type_movement: {
         Args: { p_task_type: string }
         Returns: {
@@ -3155,6 +3169,14 @@ export type Database = {
       rpc_admin_link_factory_order_to_parent: {
         Args: { p_child_order_id: string; p_parent_order_id: string }
         Returns: undefined
+      }
+      rpc_admin_set_factory_order_progress: {
+        Args: {
+          p_expected_version: number
+          p_line_ops: Json
+          p_order_id: string
+        }
+        Returns: Json
       }
       rpc_admin_unlink_factory_order_from_parent: {
         Args: { p_child_order_id: string }
