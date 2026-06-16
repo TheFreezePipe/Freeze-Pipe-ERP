@@ -1,6 +1,7 @@
 import { QueryClient, QueryCache, MutationCache } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
 import { captureException } from "@/lib/observability";
+import { describeError } from "@/lib/supabase-error";
 
 /**
  * Global error surfacing for TanStack Query.
@@ -43,9 +44,9 @@ function shouldToast(key: string): boolean {
   return true;
 }
 
-function errMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+// Unwrap Supabase/PostgREST errors (plain objects) into readable text —
+// otherwise toasts showed "[object Object]".
+const errMessage = describeError;
 
 export const queryClient = new QueryClient({
   queryCache: new QueryCache({

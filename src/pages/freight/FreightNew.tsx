@@ -26,6 +26,7 @@ import {
 import { freightShipmentSchema, safeValidate } from "@/lib/schemas";
 import { getOpenFactoryItemsForSku } from "@/lib/freight/open-factory-items";
 import { buildOnOrderMap } from "@/lib/inventory-aggregates";
+import { describeError } from "@/lib/supabase-error";
 import { cn } from "@/lib/utils";
 
 /** One allocation of a SKU's units to a source factory order (or none).
@@ -440,7 +441,7 @@ export default function FreightNew() {
       });
       navigate(`/freight/${created.id}`);
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : "Failed to create shipment");
+      setSubmitError(describeError(err));
     }
   }
 
