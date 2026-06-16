@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import {
   useProducts,
   useFactoryOrders,
   useFreightLineItems,
+  useFreightShipments,
   useCreateFreightShipment,
   useAllPrimarySkuSupplierCosts,
 } from "@/lib/hooks";
@@ -85,6 +86,8 @@ export default function FreightNew() {
   // quantities (otherwise we'd suggest pulling from an FO that's already
   // been fully shipped via a previous freight).
   const { data: freightLineItems = [] } = useFreightLineItems();
+  // Existing shipments — used to auto-suggest the next sea shipment number.
+  const { data: allShipments = [] } = useFreightShipments();
   // Per-SKU primary supplier unit cost map. Used to populate
   // freight_line_items.unit_cost with real numbers instead of the
   // hardcoded 0 that previously zeroed out every freight movement's
@@ -98,6 +101,29 @@ export default function FreightNew() {
   // Shipment fields
   const [freightType, setFreightType] = useState<"sea" | "air">("sea");
   const [shipmentNumber, setShipmentNumber] = useState("");
+  // Once the operator types their own number we stop auto-managing it.
+  const [numberTouched, setNumberTouched] = useState(false);
+
+  // Sea shipments are numbered as plain incrementing integers (442, 443…);
+  // air uses an "AIR-###" scheme. Suggest the next sea number = highest
+  // existing numeric sea number + 1.
+  const nextSeaNumber = useMemo(() => {
+    let max = 0;
+    for (const s of allShipments) {
+      if (s.freight_type !== "sea" || !/^\d+$/.test(s.shipment_number)) continue;
+      const n = parseInt(s.shipment_number, 10);
+      if (n > max) max = n;
+    }
+    return max > 0 ? String(max + 1) : "";
+  }, [allShipments]);
+
+  // Auto-fill the number from the sea progression when sea is selected and
+  // the operator hasn't overridden it. Cleared for air (different scheme)
+  // so they enter the AIR-### number manually.
+  useEffect(() => {
+    if (numberTouched) return;
+    setShipmentNumber(freightType === "sea" ? nextSeaNumber : "");
+  }, [freightType, nextSeaNumber, numberTouched]);
   const [carrierName, setCarrierName] = useState("");
   const [forwarderCode, setForwarderCode] = useState("");
   const [trackingNumber, setTrackingNumber] = useState("");
@@ -509,11 +535,16 @@ export default function FreightNew() {
                 <Label htmlFor="shipment-number">Shipment Number *</Label>
                 <Input
                   id="shipment-number"
-                  placeholder={freightType === "sea" ? "SEA-2026-0401" : "AIR-2026-0401"}
+                  placeholder={freightType === "sea" ? (nextSeaNumber || "443") : "AIR-243"}
                   value={shipmentNumber}
-                  onChange={e => setShipmentNumber(e.target.value)}
+                  onChange={e => { setShipmentNumber(e.target.value); setNumberTouched(true); }}
                   required
                 />
+                {freightType === "sea" && !numberTouched && nextSeaNumber && (
+                  <p className="text-xs text-muted-foreground">
+                    Auto-suggested next sea number — edit if needed.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="tracking">Tracking Number</Label>
