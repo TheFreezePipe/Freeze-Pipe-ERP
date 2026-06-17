@@ -315,6 +315,23 @@ export default function FactoryOrderDetail() {
     () => (order ? orders.filter((o) => o.parent_factory_order_id === order.id) : []),
     [order, orders],
   );
+  // Lines on THIS (child) order whose shipped count is auto-driven by parent
+  // consumption — i.e. BoM components of a SKU on the linked parent order.
+  // Their "manual shipped" is owned by the consumption engine, so the
+  // progress editor shows it read-only.
+  const autoManagedComponentIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!order?.parent_factory_order_id) return ids;
+    const parent = orders.find((o) => o.id === order.parent_factory_order_id);
+    if (!parent) return ids;
+    const parentSkuIds = new Set(parent.items.map((i) => i.sku_id));
+    for (const it of order.items ?? []) {
+      if (boms.some((b) => b.component_sku_id === it.sku_id && parentSkuIds.has(b.parent_sku_id))) {
+        ids.add(it.id);
+      }
+    }
+    return ids;
+  }, [order, orders, boms]);
   const skuByIdLookup = useMemo(() => {
     const map = new Map<string, string>();
     for (const p of allProducts) map.set(p.id, p.sku);
@@ -988,7 +1005,21 @@ export default function FactoryOrderDetail() {
                             const linked = freightMap.get(it.id) ?? [];
                             const freightShipped = linked.reduce((s, l) => s + (l.quantity ?? 0), 0);
                             const manualShipped = it.quantity_shipped_manual ?? 0;
+                            const consumed = it.quantity_consumed_by_parent ?? 0;
+                            const isAuto = autoManagedComponentIds.has(it.id);
                             if (progressMode) {
+                              // Auto-managed component: shipped is driven by the
+                              // parent order's shipments — read-only here.
+                              if (isAuto) {
+                                return (
+                                  <span
+                                    className="text-[11px] text-muted-foreground"
+                                    title="This component's shipped count follows its parent order's shipments (consumed into assembled goods)"
+                                  >
+                                    frt {freightShipped.toLocaleString()} · {consumed.toLocaleString()} consumed (auto)
+                                  </span>
+                                );
+                              }
                               return (
                                 <div className="flex items-center justify-end gap-2">
                                   <span
@@ -1013,15 +1044,20 @@ export default function FactoryOrderDetail() {
                                 </div>
                               );
                             }
-                            const shipped = freightShipped + manualShipped;
+                            const shipped = freightShipped + manualShipped + consumed;
                             if (shipped === 0) {
                               return <span className="text-muted-foreground/50">—</span>;
                             }
                             const pct = it.quantity_ordered > 0
                               ? Math.round((shipped / it.quantity_ordered) * 100)
                               : 0;
+                            const parts = [
+                              `${freightShipped.toLocaleString()} via freight`,
+                              manualShipped > 0 ? `${manualShipped.toLocaleString()} manual` : null,
+                              consumed > 0 ? `${consumed.toLocaleString()} consumed by parent` : null,
+                            ].filter(Boolean).join(" + ");
                             return (
-                              <span title={`${freightShipped.toLocaleString()} via freight${manualShipped > 0 ? ` + ${manualShipped.toLocaleString()} manual` : ""}`}>
+                              <span title={parts}>
                                 {shipped.toLocaleString()}
                                 <span className="text-[10px] text-muted-foreground ml-1">
                                   ({pct}%)

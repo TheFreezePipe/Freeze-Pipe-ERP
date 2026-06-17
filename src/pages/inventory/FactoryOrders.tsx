@@ -103,7 +103,7 @@ function rollupForItem(
   const total = item.quantity_ordered;
   const breakage = item.quantity_breakage ?? 0;
 
-  let shippedQty = item.quantity_shipped_manual ?? 0;
+  let shippedQty = (item.quantity_shipped_manual ?? 0) + (item.quantity_consumed_by_parent ?? 0);
   for (const line of freightMap.get(item.id) ?? []) {
     shippedQty += line.quantity ?? 0;
   }

@@ -112,7 +112,10 @@ export function buildOnOrderMap(
       // Units recorded as shipped outside the system (e.g. pre-go-live)
       // have also left the factory — net them out like freight-shipped.
       const manualShipped = item.quantity_shipped_manual ?? 0;
-      const remaining = Math.max(0, (item.quantity_ordered ?? 0) - breakage - shipped - manualShipped);
+      // Component units absorbed into shipped parent (assembled) orders are
+      // no longer separately on order.
+      const consumedByParent = item.quantity_consumed_by_parent ?? 0;
+      const remaining = Math.max(0, (item.quantity_ordered ?? 0) - breakage - shipped - manualShipped - consumedByParent);
       if (remaining === 0) continue;
       out.set(item.sku_id, (out.get(item.sku_id) ?? 0) + remaining);
     }

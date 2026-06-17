@@ -287,6 +287,7 @@ export type Database = {
           factory_order_id: string
           id: string
           quantity_breakage: number
+          quantity_consumed_by_parent: number
           quantity_finished: number | null
           quantity_ordered: number
           quantity_shipped_manual: number
@@ -303,6 +304,7 @@ export type Database = {
           factory_order_id: string
           id?: string
           quantity_breakage?: number
+          quantity_consumed_by_parent?: number
           quantity_finished?: number | null
           quantity_ordered: number
           quantity_shipped_manual?: number
@@ -319,6 +321,7 @@ export type Database = {
           factory_order_id?: string
           id?: string
           quantity_breakage?: number
+          quantity_consumed_by_parent?: number
           quantity_finished?: number | null
           quantity_ordered?: number
           quantity_shipped_manual?: number
@@ -3123,6 +3126,10 @@ export type Database = {
       _factory_order_fully_shipped: {
         Args: { p_order_id: string }
         Returns: boolean
+      }
+      _recompute_consumption_for_parent: {
+        Args: { p_parent_order_id: string }
+        Returns: undefined
       }
       _recompute_factory_order_status: {
         Args: { p_actor: string; p_order_id: string }
