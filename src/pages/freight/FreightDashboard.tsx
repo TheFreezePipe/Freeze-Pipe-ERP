@@ -35,6 +35,7 @@ import {
   type FreightLineItemWithProduct,
 } from "@/lib/hooks";
 import type { FreightShipment } from "@/types/database";
+import { PrefillReportModal } from "@/components/freight/PrefillReportModal";
 import { useAuth } from "@/lib/auth-context";
 
 // Delivered shipments visibility:
@@ -56,6 +57,7 @@ export default function FreightDashboard() {
   // by design — the default state of "recent only" is the right landing
   // view; a freshly-loaded page shouldn't carry over a previous deep dive.
   const [revealedOlderCount, setRevealedOlderCount] = useState(0);
+  const [prefillReportOpen, setPrefillReportOpen] = useState(false);
 
   const { data: freight = [], isLoading } = useFreightShipments();
   const { data: freightLineItems = [] } = useFreightLineItems();
@@ -87,9 +89,23 @@ export default function FreightDashboard() {
 
   const stats = useMemo(() => {
     const active = freight.filter(f => f.status !== "delivered");
+    const activeCount = active.length;
     const seaCount = active.filter(f => f.freight_type === "sea").length;
     const airCount = active.filter(f => f.freight_type === "air").length;
     const highRiskCount = active.filter(f => f.status === "high_risk").length;
+
+    // All-time pre-filled rate of fillable units shipped on freight (where
+    // the pre-filled split is tracked per line). Drives the dashboard card;
+    // the full report (modal) re-derives with window selection.
+    let prefillTotal = 0;
+    let prefillPrefilled = 0;
+    for (const li of freightLineItems) {
+      if (li.product?.category === "fillable" && li.quantity_prefilled != null) {
+        prefillTotal += li.quantity ?? 0;
+        prefillPrefilled += li.quantity_prefilled ?? 0;
+      }
+    }
+    const prefillPct = prefillTotal > 0 ? Math.round((prefillPrefilled / prefillTotal) * 100) : 0;
 
     const highRiskItems = freightLineItems.filter(li => {
       const shipment = freight.find(f => f.id === li.freight_shipment_id);
@@ -98,7 +114,7 @@ export default function FreightDashboard() {
     const cashAtRiskCost = highRiskItems.reduce((s, li) => s + (li.unit_cost ?? 0) * li.quantity, 0);
     const cashAtRiskRetail = highRiskItems.reduce((s, li) => s + (li.retail_value ?? 0) * li.quantity, 0);
 
-    return { seaCount, airCount, highRiskCount, cashAtRiskCost, cashAtRiskRetail };
+    return { activeCount, seaCount, airCount, highRiskCount, cashAtRiskCost, cashAtRiskRetail, prefillPct, prefillTotal };
   }, [freight, freightLineItems]);
 
   const sortedFreight = useMemo(() => {
@@ -246,11 +262,26 @@ export default function FreightDashboard() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard title="Sea Freight" value={stats.seaCount} subtitle="Active shipments" icon={Ship} iconColor="text-blue-400" />
-        <StatCard title="Air Freight" value={stats.airCount} subtitle="Active shipments" icon={Plane} iconColor="text-cyan-400" />
+        <StatCard
+          title="Active Freight"
+          value={stats.activeCount}
+          subtitle={`${stats.seaCount} sea · ${stats.airCount} air shipments`}
+          icon={stats.airCount > 0 && stats.seaCount === 0 ? Plane : Ship}
+          iconColor="text-blue-400"
+        />
         <StatCard title="High Risk" value={stats.highRiskCount} subtitle="Under inspection" icon={AlertTriangle} iconColor="text-red-400" />
         <StatCard title="Cash at Risk" value={`$${stats.cashAtRiskCost.toLocaleString()}`} subtitle={`$${stats.cashAtRiskRetail.toLocaleString()} retail value`} icon={DollarSign} iconColor="text-yellow-400" />
+        <StatCard
+          title="Pre-filled"
+          value={stats.prefillTotal > 0 ? `${stats.prefillPct}%` : "—"}
+          subtitle={stats.prefillTotal > 0 ? "of fillable units · click for report" : "no prefill data yet"}
+          icon={PackageCheck}
+          iconColor="text-cyan-400"
+          onClick={() => setPrefillReportOpen(true)}
+        />
       </div>
+
+      <PrefillReportModal open={prefillReportOpen} onOpenChange={setPrefillReportOpen} />
 
       <Tabs value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
         <TabsList>
