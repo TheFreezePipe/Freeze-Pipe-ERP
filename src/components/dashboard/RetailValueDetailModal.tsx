@@ -315,7 +315,7 @@ export function RetailValueDetailModal({ open, onOpenChange }: Props) {
             </div>
             <div className="max-h-72 overflow-y-auto rounded-md border border-border/50">
               <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-muted/40 text-muted-foreground">
+                <thead className="sticky top-0 z-10 bg-muted text-muted-foreground shadow-sm">
                   <tr className="text-left">
                     <SortableTh sortKey="sku" sort={sort} onToggle={toggleSort} className="px-3 py-1.5 font-medium">SKU</SortableTh>
                     <SortableTh sortKey="units" sort={sort} onToggle={toggleSort} className="px-2 py-1.5 text-right font-medium">Units held</SortableTh>
@@ -362,7 +362,7 @@ export function RetailValueDetailModal({ open, onOpenChange }: Props) {
             {dead.count > 0 && (
               <div className="max-h-56 overflow-y-auto rounded-md border border-border/50">
                 <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-muted/40 text-muted-foreground">
+                  <thead className="sticky top-0 z-10 bg-muted text-muted-foreground shadow-sm">
                     <tr className="text-left">
                       <th className="px-3 py-1.5 font-medium">SKU</th>
                       <th className="px-2 py-1.5 text-right font-medium">Units held</th>
