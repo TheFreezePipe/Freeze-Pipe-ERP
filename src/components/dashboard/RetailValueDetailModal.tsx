@@ -57,6 +57,76 @@ function fmtUsdFull(n: number): string {
   return `$${Math.round(n).toLocaleString()}`;
 }
 
+/** Tooltip for the over-time chart — leads with the stacked total, then
+ *  each stage in its series color. */
+function HistoryTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: Array<{ name?: string; value?: number; color?: string }>;
+  label?: string;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const total = payload.reduce((s, p) => s + (p.value ?? 0), 0);
+  let dateLabel = label ?? "";
+  try {
+    dateLabel = format(parseISO(label as string), "MMM d, yyyy");
+  } catch {
+    /* keep raw label */
+  }
+  return (
+    <div
+      style={{
+        backgroundColor: "hsl(0,0%,10%)",
+        border: "1px solid hsl(0,0%,18%)",
+        borderRadius: 8,
+        color: "hsl(0,0%,95%)",
+        fontSize: 12,
+        padding: "8px 10px",
+        minWidth: 180,
+      }}
+    >
+      <div style={{ marginBottom: 4, color: "hsl(0,0%,70%)" }}>{dateLabel}</div>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 16,
+          paddingBottom: 4,
+          marginBottom: 4,
+          borderBottom: "1px solid hsl(0,0%,18%)",
+          fontWeight: 700,
+        }}
+      >
+        <span>Total</span>
+        <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtUsdFull(total)}</span>
+      </div>
+      {payload.map((p) => (
+        <div
+          key={p.name}
+          style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}
+        >
+          <span
+            style={{
+              display: "inline-block",
+              width: 8,
+              height: 8,
+              borderRadius: 9999,
+              backgroundColor: p.color,
+            }}
+          />
+          <span style={{ color: "hsl(0,0%,75%)" }}>{p.name}</span>
+          <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums" }}>
+            {fmtUsdFull(p.value ?? 0)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /**
  * Retail Value detail report. Centerpiece is a stacked-area history of the
  * three pipeline stages (top of the stack = total). Plus a retail-vs-cost
@@ -239,24 +309,7 @@ export function RetailValueDetailModal({ open, onOpenChange }: Props) {
                   tick={{ fontSize: 10, fill: "hsl(0,0%,55%)" }}
                   tickFormatter={(v: number) => fmtUsd(v)}
                 />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "hsl(0,0%,10%)",
-                    border: "1px solid hsl(0,0%,18%)",
-                    borderRadius: 8,
-                    color: "hsl(0,0%,95%)",
-                    fontSize: 12,
-                  }}
-                  labelFormatter={(v: string) => {
-                    try {
-                      return format(parseISO(v), "MMM d, yyyy");
-                    } catch {
-                      return v;
-                    }
-                  }}
-                  formatter={(value: number, name: string) => [fmtUsdFull(value), name]}
-                  itemSorter={(item: { value?: number }) => -(item?.value ?? 0)}
-                />
+                <Tooltip content={<HistoryTooltip />} />
                 <Legend wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
                 {firstSnapshotDay && history.length > 1 && firstSnapshotDay !== history[0].day && (
                   <ReferenceLine
