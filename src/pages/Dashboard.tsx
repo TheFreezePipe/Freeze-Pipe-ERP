@@ -3,6 +3,7 @@ import { AlertTriangle, Ship, Plane, PackageCheck, TrendingUp } from "lucide-rea
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useNavigate } from "react-router-dom";
 import { RetailValueSummaryBar } from "@/components/dashboard/RetailValueSummaryBar";
+import { RetailValueDetailModal } from "@/components/dashboard/RetailValueDetailModal";
 import { RetailValueChart } from "@/components/dashboard/RetailValueChart";
 import { ManufacturingCompletionChart } from "@/components/dashboard/ManufacturingCompletionChart";
 import { ManufacturingCompletionModal } from "@/components/dashboard/ManufacturingCompletionModal";
@@ -17,6 +18,7 @@ export default function Dashboard() {
   const { data: freightLineItems = [] } = useFreightLineItems();
   const { data: pulse } = useSalesPulse();
   const [mfgOpen, setMfgOpen] = useState(false);
+  const [retailOpen, setRetailOpen] = useState(false);
 
   const stats = useMemo(() => {
     const highRiskItems = freightLineItems.filter(li => {
@@ -97,7 +99,16 @@ export default function Dashboard() {
 
       <Card>
         <CardContent className="pt-6 space-y-6">
-          <RetailValueSummaryBar />
+          <button
+            type="button"
+            onClick={() => setRetailOpen(true)}
+            className="group relative block w-full rounded-md text-left transition-colors hover:bg-muted/20 cursor-pointer"
+          >
+            <span className="absolute right-1 top-0 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+              View report &rarr;
+            </span>
+            <RetailValueSummaryBar />
+          </button>
           <button
             type="button"
             onClick={() => setMfgOpen(true)}
@@ -197,6 +208,7 @@ export default function Dashboard() {
       </Card>
 
       <ManufacturingCompletionModal open={mfgOpen} onOpenChange={setMfgOpen} />
+      <RetailValueDetailModal open={retailOpen} onOpenChange={setRetailOpen} />
     </div>
   );
 }

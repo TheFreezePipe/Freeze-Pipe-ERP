@@ -764,6 +764,33 @@ export type Database = {
           },
         ]
       }
+      inventory_retail_value_daily: {
+        Row: {
+          onorder_retail: number
+          snapshot_date: string
+          source: string
+          transit_retail: number
+          updated_at: string
+          warehouse_retail: number
+        }
+        Insert: {
+          onorder_retail?: number
+          snapshot_date: string
+          source?: string
+          transit_retail?: number
+          updated_at?: string
+          warehouse_retail?: number
+        }
+        Update: {
+          onorder_retail?: number
+          snapshot_date?: string
+          source?: string
+          transit_retail?: number
+          updated_at?: string
+          warehouse_retail?: number
+        }
+        Relationships: []
+      }
       inventory_transactions: {
         Row: {
           actor_ip: unknown
@@ -3269,6 +3296,16 @@ export type Database = {
         }
         Returns: Json
       }
+      rpc_inventory_retail_value_history: {
+        Args: { p_days?: number }
+        Returns: {
+          day: string
+          is_snapshot: boolean
+          onorder_retail: number
+          transit_retail: number
+          warehouse_retail: number
+        }[]
+      }
       rpc_log_task_completion: {
         Args: {
           p_actor_id: string
@@ -3375,6 +3412,7 @@ export type Database = {
         Args: { p_sku_code: string }
         Returns: Json
       }
+      rpc_snapshot_inventory_retail_value: { Args: never; Returns: undefined }
       rpc_supplier_advance_factory_order: {
         Args: {
           p_expected_version: number

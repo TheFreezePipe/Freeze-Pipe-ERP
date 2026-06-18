@@ -7,12 +7,7 @@ import {
   useAllSkuEconomics,
   useAllPrimarySkuSupplierCosts,
 } from "@/lib/hooks";
-import {
-  buildInTransitMap,
-  buildOnOrderMap,
-  inventoryTotalsReal,
-} from "@/lib/inventory-aggregates";
-import { computeListD2C } from "@/lib/inventory-math";
+import { buildRetailValueBreakdown } from "@/lib/retail-value";
 
 const WAREHOUSE_COLOR = "hsl(120, 45%, 50%)";
 const TRANSIT_COLOR = "hsl(45, 85%, 55%)";
@@ -51,119 +46,18 @@ export function RetailValueSummaryBar() {
     cashOnOrder,
     totalCash,
     skusMissingCost,
-  } = useMemo(() => {
-    const inTransitMap = buildInTransitMap(shipments, freightLines);
-    const onOrderMap = buildOnOrderMap(factoryOrders, freightLines);
-
-    let warehouse = 0;
-    let transit = 0;
-    let onOrder = 0;
-    let cashWarehouse = 0;
-    let cashTransit = 0;
-    let cashOnOrder = 0;
-    let skusMissingCost = 0;
-
-    inventory.forEach((inv) => {
-      const product = inv.product;
-      if (!product) return;
-      const price = product.retail_price;
-      if (price <= 0) return;
-      const totals = inventoryTotalsReal(inv, inTransitMap, onOrderMap);
-
-      // Retail value (display-only, doesn't depend on cost data)
-      warehouse += totals.warehouseTotal * price;
-      transit += totals.transitTotal * price;
-      onOrder += totals.onOrderTotal * price;
-
-      // Real cost rollup. computeListD2C returns null when there's no
-      // sku_economics row — in that case we contribute zero cash and
-      // count the SKU as "missing" so the UI can prompt the operator.
-      const econ = economicsById?.get(product.id) ?? null;
-      const primaryUnitCost = primaryCostBySkuId?.get(product.id)?.unit_cost ?? 0;
-      const d2c = computeListD2C(econ, primaryUnitCost, price, product.category);
-      if (!d2c) {
-        if (totals.warehouseTotal + totals.transitTotal + totals.onOrderTotal > 0) {
-          skusMissingCost += 1;
-        }
-        return;
-      }
-
-      // Cash tied up by stage. Outlay tracks where each cost actually
-      // gets committed in the production flow, not just retail × ratio.
-      //
-      // ON ORDER: only `raw` is committed. Mfg hasn't been performed
-      // yet (CN-fill happens after the supplier invoice issues; US-fill
-      // happens after the units land in the US warehouse).
-      //
-      // IN TRANSIT: + `import` (freight paid to carrier). Mfg only
-      // counts for the pre-filled share — those units were filled at
-      // Nancy's CN facility before shipping. Unfilled units carry no
-      // mfg cost in transit because the US labor hasn't been spent yet.
-      //
-      // WAREHOUSE: per-sub-bucket. The production flow (`emptying` →
-      // `filling_capping` → `rtsing`, vs `prefilled_rtsing` straight to
-      // finished) tells us where mfg has been spent:
-      //   raw            → no US mfg yet (pre-filled units pass through
-      //                    here briefly carrying their CN cost; we
-      //                    accept the small understatement)
-      //   in_production  → halfway through US fill — pre-filled units
-      //                    skip this bucket entirely so it's all the
-      //                    US-path; charge half of (labor + glycerin)
-      //   finished       → fully processed; SKU-level effective_mfg
-      //                    captures the prefilled-vs-US-fill mix
-      //   other          → cycle-count adjustments etc; treat as
-      //                    finished for safety (slightly overstates
-      //                    rather than under)
-      // econ is guaranteed non-null here (computeListD2C returned a
-      // non-null d2c, which only happens when econ exists).
-      const prefilledFrac =
-        econ?.mfg_override_active && econ.mfg_override_pct_prefilled !== null
-          ? (econ.mfg_override_pct_prefilled ?? 0) / 100
-          : 0;
-      const isFillable = product.category !== "non_fillable";
-      const mfgCn = isFillable ? (econ?.manufacturing_cost_cn ?? 0) : 0;
-      const usMfg = isFillable
-        ? (econ?.labor_cost_us ?? 0) + (econ?.glycerin_cost_us ?? 0)
-        : 0;
-      const effectiveMfg = prefilledFrac * mfgCn + (1 - prefilledFrac) * usMfg;
-
-      const baseCost = d2c.rawCost + d2c.importCost; // raw + import
-      const onOrderPerUnit = d2c.rawCost; // raw only
-      const inTransitPerUnit = baseCost + prefilledFrac * mfgCn;
-
-      cashOnOrder += totals.onOrderTotal * onOrderPerUnit;
-      cashTransit += totals.transitTotal * inTransitPerUnit;
-
-      // Warehouse breaks across five sub-buckets that each carry a
-      // different amount of mfg-paid. Read the raw column values from
-      // inventory_levels and apply per-bucket cost.
-      const wRaw = inv.warehouse_raw ?? 0;
-      const wPrefilled = inv.warehouse_prefilled_raw ?? 0;
-      const wInProd = inv.warehouse_in_production ?? 0;
-      const wFinished = inv.warehouse_finished ?? 0;
-      const wOther = inv.warehouse_other ?? 0;
-
-      cashWarehouse += wRaw * baseCost;
-      // Pre-filled raw arrived already filled by supplier — supplier already
-      // paid the full mfg cost. Treat valuation-wise like finished.
-      cashWarehouse += wPrefilled * (baseCost + effectiveMfg);
-      cashWarehouse += wInProd * (baseCost + 0.5 * usMfg);
-      cashWarehouse += wFinished * (baseCost + effectiveMfg);
-      cashWarehouse += wOther * (baseCost + effectiveMfg);
-    });
-
-    return {
-      total: warehouse + transit + onOrder,
-      warehouse,
-      transit,
-      onOrder,
-      cashWarehouse,
-      cashTransit,
-      cashOnOrder,
-      totalCash: cashWarehouse + cashTransit + cashOnOrder,
-      skusMissingCost,
-    };
-  }, [inventory, shipments, freightLines, factoryOrders, economicsById, primaryCostBySkuId]);
+  } = useMemo(
+    () =>
+      buildRetailValueBreakdown(
+        inventory,
+        shipments,
+        freightLines,
+        factoryOrders,
+        economicsById,
+        primaryCostBySkuId,
+      ),
+    [inventory, shipments, freightLines, factoryOrders, economicsById, primaryCostBySkuId],
+  );
 
   const warehousePct = total > 0 ? (warehouse / total) * 100 : 0;
   const transitPct = total > 0 ? (transit / total) * 100 : 0;
