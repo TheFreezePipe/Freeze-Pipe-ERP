@@ -45,6 +45,7 @@ The key structural insight from discovery: **a Sale is a container; the Offers a
 - `label` (human description, e.g. "LOVE — 20% off sitewide + free grinder")
 - `code` (nullable; null = automatic / no-code sale)
 - `scope` (sitewide / sku_set / collection)
+- `collection_id` (nullable FK → `mkt_collections`; set when scope = collection)
 - Components (any combination):
   - `percent_off` numeric (nullable)
   - `dollar_off` numeric (nullable)
@@ -56,6 +57,11 @@ The key structural insight from discovery: **a Sale is a container; the Offers a
 
 **`mkt_offer_skus`** *(which SKUs an offer covers when scope = sku_set)*
 - `offer_id` FK · `sku_id` FK · optional per-SKU override (`percent_off` / `dollar_off`) · optional `planner_uplift_pct`
+
+**`mkt_collections`** / **`mkt_collection_skus`** *(local SKU segmentation — native to this app, NOT Shopify collections)*
+- `mkt_collections`: `id` · `name` · `description` · timestamps
+- `mkt_collection_skus`: `collection_id` FK · `sku_id` FK
+- An offer with `scope = collection` points at one `mkt_collections` row. Reusable named groupings (e.g. "Bongs", "Accessories", "Holiday gift picks") that the team curates in-app — deliberately decoupled from Shopify collections.
 
 > Mapping check — every case from discovery fits: `$ off SKU` → {dollar_off, sku_set}; `% off sitewide` → {percent_off, sitewide}; `free item over $X` → {free_item_sku_id, min_order_amount}; `X% off over $Y` → {percent_off, min_order_amount}; `code = x% off + free item` → {code, percent_off, free_item_sku_id}; `Valentine's LOVE/CUPID/HEART` → one sale, three offers.
 
@@ -78,7 +84,7 @@ The key structural insight from discovery: **a Sale is a container; the Offers a
 - `launch_date` date · `inventory_ready_by` date
 - `limited_qty` int (nullable; drops) · `preorder` boolean
 - `expected_first_30d_units` int (nullable; planner estimate)
-- `planner_confidence` (low / med / high)
+- `planner_confidence` (integer 1–5)
 - `status` (planned / scheduled / live / sold_out / ended / canceled)
 - timestamps
 
@@ -137,6 +143,7 @@ This gives every product a full **genealogy**: idea → stages → order → fre
 - `mkt_launches.inventory_ready_by` ← derived from factory order + the 60–75d lead time → drives **operations alerts**.
 - Forecast layer reads **`sales_daily`** (demand history, 2022+), **`sku_forecasts`** (existing engine), and the cross-effect structure from **`product_boms`** (complements) + product families (substitutes).
 - Stockout/oversell signal from **`shipstation_oversell_warning`** feeds de-censoring (§4).
+- **Shared with Analytics (planned):** the `fc_*` learning layer, the promo-labeled sales history, and the order-by / Reorder-Radar surface are built as shared infrastructure the future Analytics module will also consume — so it slots in later without rework (see §8).
 
 ---
 
@@ -154,7 +161,7 @@ Each factor is learned separately (data-efficient) and the forecast becomes *rea
 - **Seasonality vs promo double-count.** Promos cluster in Q4 = peak season. Estimate seasonality from **de-promoted baseline** (strip promo/email days first), iteratively. Never let one factor absorb another's credit.
 - **Growth vs seasonality.** The business grew fast, so raw year-over-year is distorted. **Detrend** for growth before computing seasonal indices.
 - **Stockout censoring (dangerous feedback loop).** Sold-out days understate true demand → model under-orders → sells out again. Use `shipstation_oversell_warning` + stockout periods to **de-censor** (treat stocked-out demand as unknown/estimated, not zero).
-- **Holiday/event spikes.** Beyond smooth seasonality, model discrete event days: **4/20 (likely the biggest), BFCM, Christmas, Father's Day.** Needs a maintained holiday calendar.
+- **Holiday/event spikes.** Beyond smooth seasonality, model discrete event days (4/20, BFCM, Christmas, Father's Day, Valentine's, etc.). The event calendar is **not seeded** — the team marks event days in-app as plans are made, and the model learns each day's effect from those marks + historical sales spikes.
 - **Per-category seasonal shapes** with pooling toward a global curve when a category is thin.
 
 ### 4.4 Launch cold-start
@@ -188,8 +195,8 @@ The ERP is ~1 year old, but **sales + promo history is deep** (Shopify since 201
 ---
 
 ## 6. Permissions
-- Marketing team **writes**; operations **read-only**; admin all.
-- Decision deferred: a dedicated `marketing` role vs. reusing `manager`. Lean: reuse `manager` initially; add a `marketing` role only if separation is needed. (Roles today: admin / manager / user / supplier.)
+- **No dedicated `marketing` role.** Marketing stakeholders are already **admin-level**, so they get full read/write access to the module out of the box.
+- Gate module **writes** to admin/manager; expose **read-only** to other roles where appropriate. (Roles today: admin / manager / user / supplier.)
 
 ---
 
@@ -205,13 +212,13 @@ The ERP is ~1 year old, but **sales + promo history is deep** (Shopify since 201
 
 ---
 
-## 8. Open decisions (revisit before/within the relevant phase)
-- `marketing` role vs reuse `manager`.
-- Collection scope: Shopify collections vs a local collection concept.
-- Planner confidence scale (low/med/high vs 1–5).
-- ESP for broadcast metrics (Klaviyo / Shopify Email / other?) — needed for Phase 3 email signal richness.
-- Holiday calendar source + maintenance (seed with 4/20, BFCM, Christmas, Father's Day, Valentine's).
-- How this sequences against the parked **Analytics** module (Scorecard + Reorder Radar) — they share the forecast/ops surface.
+## 8. Decisions (resolved 2026-06-18)
+- ✅ **Role:** no dedicated `marketing` role — stakeholders are already **admin-level**; gate writes to admin/manager.
+- ✅ **Collection scope:** a **local, in-app collection** concept (`mkt_collections`), deliberately **not** Shopify collections.
+- ✅ **Planner confidence:** integer **1–5**.
+- ✅ **Holiday/event calendar:** **not seeded** — the team fills it in as plans are made; the model learns from those marks + historical spikes.
+- ✅ **Analytics sequencing:** build Marketing now **with forward-compatibility** for the parked Analytics module — the `fc_*` layer (prediction ledger, demand-events overlay), the promo-labeled sales history, and the order-by / Reorder-Radar surface are designed as **shared infrastructure both modules consume**, so Analytics slots in later without rework.
+- ⏳ **OPEN — ESP for broadcast metrics:** which email/SMS platform we pull broadcast performance (opens / clicks / revenue / recipients) from. Until decided, `mkt_broadcasts.metrics` is entered manually. *(See chat — pending answer.)*
 
 ---
 
