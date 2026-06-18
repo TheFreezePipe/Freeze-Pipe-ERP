@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth-context";
 import { BroadcastFormDialog } from "@/components/marketing/BroadcastFormDialog";
 import { toast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
+import { isPastKey, dayKeyOf } from "@/lib/marketing-format";
 import { format, parseISO } from "date-fns";
 
 function fmt(d: string | null): string {
@@ -19,6 +20,7 @@ export default function Broadcasts() {
   const { isAdmin, isManager } = useAuth();
   const canEdit = isAdmin || isManager;
   const del = useDeleteBroadcast();
+  const todayKey = format(new Date(), "yyyy-MM-dd");
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<MktBroadcastWithLinks | null>(null);
 
@@ -35,7 +37,12 @@ export default function Broadcasts() {
   return (
     <div className="space-y-6 max-w-5xl">
       <BroadcastFormDialog open={createOpen} onOpenChange={setCreateOpen} />
-      <BroadcastFormDialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)} broadcast={editing} />
+      <BroadcastFormDialog
+        open={!!editing}
+        onOpenChange={(o) => !o && setEditing(null)}
+        broadcast={editing}
+        datesLocked={!!editing && isPastKey(dayKeyOf(editing.sent_at) ?? dayKeyOf(editing.scheduled_at), todayKey)}
+      />
 
       <div className="flex items-center justify-between">
         <div>

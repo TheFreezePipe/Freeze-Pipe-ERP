@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useSales, type MktSale } from "@/lib/hooks";
 import { useAuth } from "@/lib/auth-context";
 import { SaleFormDialog } from "@/components/marketing/SaleFormDialog";
-import { SALE_STATUS_COLOR } from "@/lib/marketing-format";
+import { SALE_STATUS_COLOR, isPastKey, dayKeyOf } from "@/lib/marketing-format";
 import { format, parseISO } from "date-fns";
 
 function fmt(d: string | null): string {
@@ -27,13 +27,19 @@ export default function SalesList() {
   const { data: sales = [], isLoading } = useSales();
   const { isAdmin, isManager } = useAuth();
   const canEdit = isAdmin || isManager;
+  const todayKey = format(new Date(), "yyyy-MM-dd");
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<MktSale | null>(null);
 
   return (
     <div className="space-y-6 max-w-5xl">
       <SaleFormDialog open={createOpen} onOpenChange={setCreateOpen} />
-      <SaleFormDialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)} sale={editing} />
+      <SaleFormDialog
+        open={!!editing}
+        onOpenChange={(o) => !o && setEditing(null)}
+        sale={editing}
+        datesLocked={!!editing && isPastKey(dayKeyOf(editing.starts_at), todayKey)}
+      />
 
       <div className="flex items-center justify-between">
         <div>

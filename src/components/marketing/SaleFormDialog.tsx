@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Dialog,
   DialogContent,
@@ -26,12 +27,17 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   sale?: MktSale | null;
+  /** Prefill dates when creating (e.g. from a calendar day click). */
+  defaultDate?: string | null;
+  /** Lock the date fields (past sale — protected from rescheduling). */
+  datesLocked?: boolean;
 }
 
 const STATUSES = ["planned", "scheduled", "live", "ended", "canceled"] as const;
 const dateInput = (v: string | null) => (v ? v.slice(0, 10) : "");
 
-export function SaleFormDialog({ open, onOpenChange, sale }: Props) {
+export function SaleFormDialog({ open, onOpenChange, sale, defaultDate, datesLocked }: Props) {
+  const navigate = useNavigate();
   const create = useCreateSale();
   const update = useUpdateSale();
   const editing = !!sale;
@@ -45,12 +51,12 @@ export function SaleFormDialog({ open, onOpenChange, sale }: Props) {
   useEffect(() => {
     if (open) {
       setName(sale?.name ?? "");
-      setStartsAt(dateInput(sale?.starts_at ?? null));
-      setEndsAt(dateInput(sale?.ends_at ?? null));
+      setStartsAt(dateInput(sale?.starts_at ?? null) || (defaultDate ?? ""));
+      setEndsAt(dateInput(sale?.ends_at ?? null) || (defaultDate ?? ""));
       setStatus(sale?.status ?? "planned");
       setNotes(sale?.notes ?? "");
     }
-  }, [open, sale]);
+  }, [open, sale, defaultDate]);
 
   const pending = create.isPending || update.isPending;
 
@@ -102,13 +108,16 @@ export function SaleFormDialog({ open, onOpenChange, sale }: Props) {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label>Start date</Label>
-              <Input type="date" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
+              <Input type="date" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} disabled={datesLocked} />
             </div>
             <div className="space-y-1.5">
               <Label>End date</Label>
-              <Input type="date" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
+              <Input type="date" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} disabled={datesLocked} />
             </div>
           </div>
+          {datesLocked && (
+            <p className="-mt-2 text-[11px] text-amber-400/80">🔒 This sale has already started — its dates are locked.</p>
+          )}
           <div className="space-y-1.5">
             <Label>Status</Label>
             <Select value={status} onValueChange={setStatus}>
@@ -127,6 +136,15 @@ export function SaleFormDialog({ open, onOpenChange, sale }: Props) {
         </div>
 
         <DialogFooter>
+          {editing && sale && (
+            <Button
+              variant="ghost"
+              className="mr-auto"
+              onClick={() => { onOpenChange(false); navigate(`/marketing/sales/${sale.id}`); }}
+            >
+              Open full sale &amp; offers →
+            </Button>
+          )}
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={handleSubmit} disabled={pending}>
             {pending ? "Saving…" : editing ? "Save changes" : "Create sale"}

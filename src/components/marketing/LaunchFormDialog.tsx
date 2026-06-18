@@ -32,6 +32,10 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   launch?: MktLaunchWithProduct | null;
+  /** Prefill launch date when creating (e.g. from a calendar day click). */
+  defaultDate?: string | null;
+  /** Lock the date fields (past launch — protected from rescheduling). */
+  datesLocked?: boolean;
 }
 
 const NONE = "__none__";
@@ -45,7 +49,7 @@ const numOrNull = (s: string): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
-export function LaunchFormDialog({ open, onOpenChange, launch }: Props) {
+export function LaunchFormDialog({ open, onOpenChange, launch, defaultDate, datesLocked }: Props) {
   const { data: products = [] } = useProducts();
   const create = useCreateLaunch();
   const update = useUpdateLaunch();
@@ -68,7 +72,7 @@ export function LaunchFormDialog({ open, onOpenChange, launch }: Props) {
     setKind(launch?.kind ?? "launch");
     setSkuId(launch?.sku_id ?? NONE);
     setPlannedName(launch?.planned_name ?? "");
-    setLaunchDate(dateInput(launch?.launch_date ?? null));
+    setLaunchDate(dateInput(launch?.launch_date ?? null) || (defaultDate ?? ""));
     setReadyBy(dateInput(launch?.inventory_ready_by ?? null));
     setLimitedQty(launch?.limited_qty != null ? String(launch.limited_qty) : "");
     setPreorder(launch?.preorder ?? false);
@@ -76,7 +80,7 @@ export function LaunchFormDialog({ open, onOpenChange, launch }: Props) {
     setConfidence(launch?.planner_confidence != null ? String(launch.planner_confidence) : NONE);
     setStatus(launch?.status ?? "planned");
     setNotes(launch?.notes ?? "");
-  }, [open, launch]);
+  }, [open, launch, defaultDate]);
 
   const pending = create.isPending || update.isPending;
 
@@ -172,13 +176,16 @@ export function LaunchFormDialog({ open, onOpenChange, launch }: Props) {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label>Launch date</Label>
-              <Input type="date" value={launchDate} onChange={(e) => setLaunchDate(e.target.value)} />
+              <Input type="date" value={launchDate} onChange={(e) => setLaunchDate(e.target.value)} disabled={datesLocked} />
             </div>
             <div className="space-y-1.5">
               <Label>Inventory ready by</Label>
-              <Input type="date" value={readyBy} onChange={(e) => setReadyBy(e.target.value)} />
+              <Input type="date" value={readyBy} onChange={(e) => setReadyBy(e.target.value)} disabled={datesLocked} />
             </div>
           </div>
+          {datesLocked && (
+            <p className="-mt-2 text-[11px] text-amber-400/80">🔒 This launch date has passed — its dates are locked.</p>
+          )}
 
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-1.5">

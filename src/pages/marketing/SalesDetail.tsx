@@ -12,7 +12,7 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import { SaleFormDialog } from "@/components/marketing/SaleFormDialog";
 import { OfferFormDialog } from "@/components/marketing/OfferFormDialog";
-import { describeOffer, SALE_STATUS_COLOR } from "@/lib/marketing-format";
+import { describeOffer, SALE_STATUS_COLOR, isPastKey, dayKeyOf } from "@/lib/marketing-format";
 import { toast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
 import { format, parseISO } from "date-fns";
@@ -76,7 +76,12 @@ export default function SalesDetail() {
 
   return (
     <div className="space-y-6 max-w-3xl">
-      <SaleFormDialog open={editSaleOpen} onOpenChange={setEditSaleOpen} sale={sale} />
+      <SaleFormDialog
+        open={editSaleOpen}
+        onOpenChange={setEditSaleOpen}
+        sale={sale}
+        datesLocked={isPastKey(dayKeyOf(sale.starts_at), format(new Date(), "yyyy-MM-dd"))}
+      />
       <OfferFormDialog open={offerOpen} onOpenChange={setOfferOpen} saleId={sale.id} />
       <OfferFormDialog
         open={!!editingOffer}

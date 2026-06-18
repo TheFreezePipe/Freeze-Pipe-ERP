@@ -31,6 +31,10 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   broadcast?: MktBroadcastWithLinks | null;
+  /** Prefill the scheduled date when creating (e.g. from a calendar day click). */
+  defaultDate?: string | null;
+  /** Lock the date fields (already sent / past — protected from rescheduling). */
+  datesLocked?: boolean;
 }
 
 const NONE = "__none__";
@@ -42,7 +46,7 @@ const numOrNull = (s: string): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
-export function BroadcastFormDialog({ open, onOpenChange, broadcast }: Props) {
+export function BroadcastFormDialog({ open, onOpenChange, broadcast, defaultDate, datesLocked }: Props) {
   const { data: sales = [] } = useSales();
   const { data: launches = [] } = useLaunches();
   const create = useCreateBroadcast();
@@ -66,7 +70,7 @@ export function BroadcastFormDialog({ open, onOpenChange, broadcast }: Props) {
     if (!open) return;
     setChannel(broadcast?.channel ?? "email");
     setName(broadcast?.name ?? "");
-    setScheduledAt(dateInput(broadcast?.scheduled_at ?? null));
+    setScheduledAt(dateInput(broadcast?.scheduled_at ?? null) || (defaultDate ?? ""));
     setSentAt(dateInput(broadcast?.sent_at ?? null));
     setSegment(broadcast?.audience_segment ?? "");
     setAudienceSize(broadcast?.audience_size != null ? String(broadcast.audience_size) : "");
@@ -77,7 +81,7 @@ export function BroadcastFormDialog({ open, onOpenChange, broadcast }: Props) {
     setOpens(m?.opens != null ? String(m.opens) : "");
     setClicks(m?.clicks != null ? String(m.clicks) : "");
     setRevenue(m?.revenue != null ? String(m.revenue) : "");
-  }, [open, broadcast]);
+  }, [open, broadcast, defaultDate]);
 
   const pending = create.isPending || update.isPending;
   const launchLabel = (l: (typeof launches)[number]) =>
@@ -150,13 +154,16 @@ export function BroadcastFormDialog({ open, onOpenChange, broadcast }: Props) {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label>Scheduled</Label>
-              <Input type="date" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} />
+              <Input type="date" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} disabled={datesLocked} />
             </div>
             <div className="space-y-1.5">
               <Label>Sent <span className="text-xs text-muted-foreground font-normal">once it goes out</span></Label>
-              <Input type="date" value={sentAt} onChange={(e) => setSentAt(e.target.value)} />
+              <Input type="date" value={sentAt} onChange={(e) => setSentAt(e.target.value)} disabled={datesLocked} />
             </div>
           </div>
+          {datesLocked && (
+            <p className="-mt-2 text-[11px] text-amber-400/80">🔒 This broadcast is in the past — its dates are locked.</p>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">

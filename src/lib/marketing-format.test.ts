@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { describeOffer, type OfferLike } from "./marketing-format";
+import {
+  describeOffer,
+  dayKeyOf,
+  shiftDayKey,
+  daysBetweenKeys,
+  isPastKey,
+  type OfferLike,
+} from "./marketing-format";
 
 function offer(over: Partial<OfferLike> = {}): OfferLike {
   return {
@@ -55,5 +62,33 @@ describe("describeOffer", () => {
 
   it("falls back to 'Offer' when nothing is set", () => {
     expect(describeOffer(offer()).deal).toBe("Offer");
+  });
+});
+
+describe("day-key helpers", () => {
+  it("dayKeyOf slices the date out of an ISO timestamp (no tz drift)", () => {
+    expect(dayKeyOf("2026-02-10T00:00:00+00:00")).toBe("2026-02-10");
+    expect(dayKeyOf("2026-02-10")).toBe("2026-02-10");
+    expect(dayKeyOf(null)).toBeNull();
+  });
+
+  it("shiftDayKey moves whole days across month/year boundaries", () => {
+    expect(shiftDayKey("2026-02-10", 5)).toBe("2026-02-15");
+    expect(shiftDayKey("2026-02-27", 2)).toBe("2026-03-01");
+    expect(shiftDayKey("2026-03-01", -1)).toBe("2026-02-28");
+    expect(shiftDayKey("2026-12-31", 1)).toBe("2027-01-01");
+  });
+
+  it("daysBetweenKeys is signed", () => {
+    expect(daysBetweenKeys("2026-02-10", "2026-02-15")).toBe(5);
+    expect(daysBetweenKeys("2026-02-15", "2026-02-10")).toBe(-5);
+    expect(daysBetweenKeys("2026-02-10", "2026-02-10")).toBe(0);
+  });
+
+  it("isPastKey compares against today", () => {
+    expect(isPastKey("2026-02-09", "2026-02-10")).toBe(true);
+    expect(isPastKey("2026-02-10", "2026-02-10")).toBe(false);
+    expect(isPastKey("2026-02-11", "2026-02-10")).toBe(false);
+    expect(isPastKey(null, "2026-02-10")).toBe(false);
   });
 });

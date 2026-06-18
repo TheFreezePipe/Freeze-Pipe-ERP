@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useLaunches, useDeleteLaunch, type MktLaunchWithProduct } from "@/lib/hooks";
 import { useAuth } from "@/lib/auth-context";
 import { LaunchFormDialog } from "@/components/marketing/LaunchFormDialog";
-import { LAUNCH_STATUS_COLOR } from "@/lib/marketing-format";
+import { LAUNCH_STATUS_COLOR, isPastKey, dayKeyOf } from "@/lib/marketing-format";
 import { toast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
 import { format, parseISO } from "date-fns";
@@ -20,6 +20,7 @@ export default function Launches() {
   const { isAdmin, isManager } = useAuth();
   const canEdit = isAdmin || isManager;
   const del = useDeleteLaunch();
+  const todayKey = format(new Date(), "yyyy-MM-dd");
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<MktLaunchWithProduct | null>(null);
 
@@ -37,7 +38,12 @@ export default function Launches() {
   return (
     <div className="space-y-6 max-w-5xl">
       <LaunchFormDialog open={createOpen} onOpenChange={setCreateOpen} />
-      <LaunchFormDialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)} launch={editing} />
+      <LaunchFormDialog
+        open={!!editing}
+        onOpenChange={(o) => !o && setEditing(null)}
+        launch={editing}
+        datesLocked={!!editing && isPastKey(dayKeyOf(editing.launch_date), todayKey)}
+      />
 
       <div className="flex items-center justify-between">
         <div>
