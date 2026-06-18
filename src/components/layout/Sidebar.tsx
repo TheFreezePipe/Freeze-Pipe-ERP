@@ -18,6 +18,10 @@ import {
   PackageOpen,
   Building2,
   Beaker,
+  Calendar,
+  Tag,
+  Rocket,
+  Megaphone,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -73,6 +77,15 @@ const navGroups: NavGroup[] = [
     items: [
       { to: "/economics", label: "SKU Costs", icon: DollarSign, roles: ["admin"] },
       { to: "/economics/suppliers", label: "Suppliers", icon: Building2, roles: ["admin"] },
+    ],
+  },
+  {
+    label: "Marketing",
+    items: [
+      { to: "/marketing", label: "Calendar", icon: Calendar, roles: ["admin", "manager"] },
+      { to: "/marketing/sales", label: "Sales", icon: Tag, roles: ["admin", "manager"] },
+      { to: "/marketing/launches", label: "Launches", icon: Rocket, roles: ["admin", "manager"] },
+      { to: "/marketing/broadcasts", label: "Broadcasts", icon: Megaphone, roles: ["admin", "manager"] },
     ],
   },
   {
@@ -154,7 +167,7 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse, onNavClick
               <NavLink
                 key={item.to}
                 to={item.to}
-                end={item.to === "/manufacturing" || item.to === "/freight" || item.to === "/inventory" || item.to === "/economics" || item.to === "/supplier"}
+                end={item.to === "/manufacturing" || item.to === "/freight" || item.to === "/inventory" || item.to === "/economics" || item.to === "/supplier" || item.to === "/marketing"}
                 className={({ isActive }) =>
                   cn(
                     "flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors",

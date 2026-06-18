@@ -1151,6 +1151,327 @@ export type Database = {
           },
         ]
       }
+      mkt_broadcasts: {
+        Row: {
+          audience_segment: string | null
+          audience_size: number | null
+          channel: string
+          created_at: string
+          created_by: string | null
+          id: string
+          launch_id: string | null
+          metrics: Json | null
+          name: string
+          sale_id: string | null
+          scheduled_at: string | null
+          sent_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          audience_segment?: string | null
+          audience_size?: number | null
+          channel: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          launch_id?: string | null
+          metrics?: Json | null
+          name: string
+          sale_id?: string | null
+          scheduled_at?: string | null
+          sent_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          audience_segment?: string | null
+          audience_size?: number | null
+          channel?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          launch_id?: string | null
+          metrics?: Json | null
+          name?: string
+          sale_id?: string | null
+          scheduled_at?: string | null
+          sent_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mkt_broadcasts_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_broadcasts_launch_id_fkey"
+            columns: ["launch_id"]
+            isOneToOne: false
+            referencedRelation: "mkt_launches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_broadcasts_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: false
+            referencedRelation: "mkt_sales"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mkt_launches: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          expected_first_30d_units: number | null
+          id: string
+          inventory_ready_by: string | null
+          kind: string
+          launch_date: string | null
+          limited_qty: number | null
+          notes: string | null
+          planned_name: string | null
+          planner_confidence: number | null
+          preorder: boolean
+          sku_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          expected_first_30d_units?: number | null
+          id?: string
+          inventory_ready_by?: string | null
+          kind?: string
+          launch_date?: string | null
+          limited_qty?: number | null
+          notes?: string | null
+          planned_name?: string | null
+          planner_confidence?: number | null
+          preorder?: boolean
+          sku_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          expected_first_30d_units?: number | null
+          id?: string
+          inventory_ready_by?: string | null
+          kind?: string
+          launch_date?: string | null
+          limited_qty?: number | null
+          notes?: string | null
+          planned_name?: string | null
+          planner_confidence?: number | null
+          preorder?: boolean
+          sku_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mkt_launches_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_launches_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_launches_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus_active"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_launches_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_skus"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mkt_offer_skus: {
+        Row: {
+          offer_id: string
+          sku_id: string
+        }
+        Insert: {
+          offer_id: string
+          sku_id: string
+        }
+        Update: {
+          offer_id?: string
+          sku_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mkt_offer_skus_offer_id_fkey"
+            columns: ["offer_id"]
+            isOneToOne: false
+            referencedRelation: "mkt_offers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_offer_skus_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_offer_skus_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus_active"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_offer_skus_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_skus"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mkt_offers: {
+        Row: {
+          buy_qty: number | null
+          category: string | null
+          code: string | null
+          created_at: string
+          dollar_off: number | null
+          free_item_sku_id: string | null
+          get_qty: number | null
+          id: string
+          label: string
+          min_order_amount: number | null
+          percent_off: number | null
+          sale_id: string
+          scope: string
+          updated_at: string
+        }
+        Insert: {
+          buy_qty?: number | null
+          category?: string | null
+          code?: string | null
+          created_at?: string
+          dollar_off?: number | null
+          free_item_sku_id?: string | null
+          get_qty?: number | null
+          id?: string
+          label: string
+          min_order_amount?: number | null
+          percent_off?: number | null
+          sale_id: string
+          scope?: string
+          updated_at?: string
+        }
+        Update: {
+          buy_qty?: number | null
+          category?: string | null
+          code?: string | null
+          created_at?: string
+          dollar_off?: number | null
+          free_item_sku_id?: string | null
+          get_qty?: number | null
+          id?: string
+          label?: string
+          min_order_amount?: number | null
+          percent_off?: number | null
+          sale_id?: string
+          scope?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mkt_offers_free_item_sku_id_fkey"
+            columns: ["free_item_sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_offers_free_item_sku_id_fkey"
+            columns: ["free_item_sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus_active"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_offers_free_item_sku_id_fkey"
+            columns: ["free_item_sku_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_offers_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: false
+            referencedRelation: "mkt_sales"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mkt_sales: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          ends_at: string | null
+          id: string
+          name: string
+          notes: string | null
+          starts_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          ends_at?: string | null
+          id?: string
+          name: string
+          notes?: string | null
+          starts_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          ends_at?: string | null
+          id?: string
+          name?: string
+          notes?: string | null
+          starts_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mkt_sales_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product_boms: {
         Row: {
           assembled_at_supplier_id: string

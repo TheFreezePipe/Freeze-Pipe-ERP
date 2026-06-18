@@ -16,3 +16,4 @@ export * from "./use-forecasts";
 export * from "./use-manufacturing-completion";
 export * from "./use-sales-pulse";
 export * from "./use-retail-value-history";
+export * from "./use-marketing";

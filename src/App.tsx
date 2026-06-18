@@ -30,6 +30,11 @@ import SKUList from "@/pages/economics/SKUList";
 import SKUDetail from "@/pages/economics/SKUDetail";
 import SuppliersList from "@/pages/economics/SuppliersList";
 import SupplierDetail from "@/pages/economics/SupplierDetail";
+import MarketingCalendar from "@/pages/marketing/MarketingCalendar";
+import SalesList from "@/pages/marketing/SalesList";
+import SalesDetail from "@/pages/marketing/SalesDetail";
+import Launches from "@/pages/marketing/Launches";
+import Broadcasts from "@/pages/marketing/Broadcasts";
 import SettingsPage from "@/pages/settings/Settings";
 import SupplierDashboard from "@/pages/supplier/SupplierDashboard";
 import FactoryOrdersList from "@/pages/supplier/FactoryOrdersList";
@@ -189,6 +194,33 @@ export default function App() {
               <Route path="/economics/:skuId" element={
                 <RequireRole allowed={["admin"]}>
                   <SKUDetail />
+                </RequireRole>
+              } />
+
+              {/* Marketing - admin & manager only */}
+              <Route path="/marketing" element={
+                <RequireRole allowed={["admin", "manager"]}>
+                  <MarketingCalendar />
+                </RequireRole>
+              } />
+              <Route path="/marketing/sales" element={
+                <RequireRole allowed={["admin", "manager"]}>
+                  <SalesList />
+                </RequireRole>
+              } />
+              <Route path="/marketing/sales/:id" element={
+                <RequireRole allowed={["admin", "manager"]}>
+                  <SalesDetail />
+                </RequireRole>
+              } />
+              <Route path="/marketing/launches" element={
+                <RequireRole allowed={["admin", "manager"]}>
+                  <Launches />
+                </RequireRole>
+              } />
+              <Route path="/marketing/broadcasts" element={
+                <RequireRole allowed={["admin", "manager"]}>
+                  <Broadcasts />
                 </RequireRole>
               } />
 
