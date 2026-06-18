@@ -1,6 +1,6 @@
 # Marketing Module — Planning Doc
 
-> Status: **v0.1, design — not yet building.** Living document; expect iteration.
+> Status: **v0.2, design — all open decisions resolved; not yet building.** Living document; expect iteration.
 > Last updated: 2026-06-18.
 > Companion to the parked Analytics module plan. Honors the **2022-01-01 data-relevance floor** (pre-2022 store/promo data is not representative).
 
@@ -69,7 +69,7 @@ The key structural insight from discovery: **a Sale is a container; the Offers a
 - `scheduled_at` · `sent_at` (nullable)
 - `audience_segment` · `audience_size` int
 - `sale_id` (nullable FK) · `launch_id` (nullable FK) — what it's amplifying
-- `metrics` jsonb (nullable; opens/clicks/revenue — populated later from the ESP)
+- `metrics` jsonb (nullable; channel-specific — email (Klaviyo): recipients / opens / clicks / attributed revenue; SMS (Mailchimp): recipients / clicks / attributed revenue, no "opens"). Manually entered in v1; auto-pulled from the ESP later.
 - timestamps
 
 ### 2.3 Launches & Drops
@@ -215,7 +215,9 @@ The ERP is ~1 year old, but **sales + promo history is deep** (Shopify since 201
 - ✅ **Planner confidence:** integer **1–5**.
 - ✅ **Holiday/event calendar:** **not seeded** — the team fills it in as plans are made; the model learns from those marks + historical spikes.
 - ✅ **Analytics sequencing:** build Marketing now **with forward-compatibility** for the parked Analytics module — the `fc_*` layer (prediction ledger, demand-events overlay), the promo-labeled sales history, and the order-by / Reorder-Radar surface are designed as **shared infrastructure both modules consume**, so Analytics slots in later without rework.
-- ⏳ **OPEN — ESP for broadcast metrics:** which email/SMS platform we pull broadcast performance (opens / clicks / revenue / recipients) from. Until decided, `mkt_broadcasts.metrics` is entered manually. *(See chat — pending answer.)*
+- ✅ **ESP for broadcast metrics:** **Email = Klaviyo, SMS = Mailchimp.** Auto-pull is **deferred** (alongside Shopify); v1 enters `mkt_broadcasts.metrics` manually. Both expose APIs, so the eventual integration is a clean drop-in — Klaviyo (email: recipients / opens / clicks / placed-order revenue), Mailchimp (SMS: recipients / clicks / revenue; no "opens").
+
+*All open decisions are now resolved — the plan is ready to build from when you are.*
 
 ---
 
