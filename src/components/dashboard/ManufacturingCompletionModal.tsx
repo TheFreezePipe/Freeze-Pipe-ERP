@@ -6,14 +6,14 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import {
-  LineChart,
+  ComposedChart,
   Line,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ReferenceLine,
-  ReferenceDot,
   Legend,
   ResponsiveContainer,
 } from "recharts";
@@ -47,8 +47,6 @@ const PREFILLED_COLOR = "hsl(190, 80%, 55%)"; // pre-filled — needs RTS only
 const FINISHED_COLOR = "hsl(120, 45%, 50%)"; // finished — done
 const PCT_COLOR = "hsl(120, 45%, 50%)";
 const PROJECTED_COLOR = "hsl(270, 67%, 60%)"; // forward projection (dashed)
-const SEA_COLOR = "hsl(200, 80%, 55%)"; // sea freight arrival markers
-const CHART_BG = "hsl(0,0%,10%)"; // matches tooltip/card bg for "hollow" dots
 
 export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
   const { data: inventory = [] } = useInventory();
@@ -211,54 +209,84 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
     return out;
   }, [estimate, shipments, freightLines, fillableIds, snap, todayStr]);
 
-  // Merge history (solid) + projection (dashed) into one series. The "today"
-  // row carries both keys so the two lines visually connect.
+  // Inbound SEA freight carrying fillable units, summed by arrival day and
+  // split into pre-filled vs. unfilled (raw). Delivered = actual arrival;
+  // in-transit = ETA (overdue snaps to tomorrow). Rendered as sized stacked
+  // bars on the chart so you can see incoming fillable supply at a glance.
+  const freightArrivals = useMemo(() => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+
+    const byDay = new Map<string, { prefilled: number; unfilled: number }>();
+    for (const f of shipments) {
+      if (f.freight_type !== "sea") continue;
+      let prefilled = 0;
+      let unfilled = 0;
+      for (const li of freightLines) {
+        if (li.freight_shipment_id !== f.id || !li.sku_id || !fillableIds.has(li.sku_id)) continue;
+        const qty = li.quantity ?? 0;
+        const pf = Math.min(Math.max(li.quantity_prefilled ?? 0, 0), qty);
+        prefilled += pf;
+        unfilled += Math.max(qty - pf, 0);
+      }
+      if (prefilled + unfilled === 0) continue;
+
+      let day: string | null = null;
+      if (f.status === "delivered") {
+        const src = f.actual_arrival_date ?? f.eta;
+        day = src ? src.slice(0, 10) : null;
+      } else if (f.eta) {
+        day = f.eta.slice(0, 10);
+        if (day < tomorrowStr) day = tomorrowStr;
+      }
+      if (!day) continue;
+
+      const cur = byDay.get(day) ?? { prefilled: 0, unfilled: 0 };
+      cur.prefilled += prefilled;
+      cur.unfilled += unfilled;
+      byDay.set(day, cur);
+    }
+    return byDay;
+  }, [shipments, freightLines, fillableIds]);
+
+  // Merge history (solid) + projection (dashed) + freight bars into one series.
+  // The "today" row carries both line keys so the curves visually connect;
+  // arrival days additionally carry prefilledUnits / unfilledUnits for the bars
+  // (only merged onto days already within the chart's date domain).
   const chartData = useMemo(() => {
-    const byDate = new Map<string, { day: string; pct?: number; projectedPct?: number }>();
+    const byDate = new Map<
+      string,
+      { day: string; pct?: number; projectedPct?: number; prefilledUnits?: number; unfilledUnits?: number }
+    >();
     for (const h of history) byDate.set(h.day, { day: h.day, pct: h.pct });
     for (const p of projection) {
       const ex = byDate.get(p.day) ?? { day: p.day };
       byDate.set(p.day, { ...ex, projectedPct: p.projectedPct });
     }
-    return Array.from(byDate.values()).sort((a, b) => a.day.localeCompare(b.day));
-  }, [history, projection]);
+    const sorted = Array.from(byDate.values()).sort((a, b) => a.day.localeCompare(b.day));
+    if (sorted.length === 0 || freightArrivals.size === 0) return sorted;
 
-  // Sea freight arrival markers (only shipments carrying fillable units, since
-  // those are what move this chart). Delivered = actual arrival (filled dot);
-  // in-transit = ETA (hollow dot). Overdue ETAs snap to tomorrow; only dates
-  // inside the visible chart range are kept.
-  const seaArrivals = useMemo(() => {
-    if (chartData.length === 0) return [] as { day: string; arrived: boolean; qty: number; id: string }[];
-    const domainStart = chartData[0].day;
-    const domainEnd = chartData[chartData.length - 1].day;
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = tomorrow.toISOString().slice(0, 10);
-
-    const out: { day: string; arrived: boolean; qty: number; id: string }[] = [];
-    for (const f of shipments) {
-      if (f.freight_type !== "sea") continue;
-      let qty = 0;
-      for (const li of freightLines) {
-        if (li.freight_shipment_id === f.id && li.sku_id && fillableIds.has(li.sku_id)) qty += li.quantity ?? 0;
-      }
-      if (qty === 0) continue;
-
-      let day: string | null = null;
-      let arrived = false;
-      if (f.status === "delivered") {
-        const src = f.actual_arrival_date ?? f.eta;
-        day = src ? src.slice(0, 10) : null;
-        arrived = true;
-      } else if (f.eta) {
-        day = f.eta.slice(0, 10);
-        if (day < tomorrowStr) day = tomorrowStr;
-      }
-      if (!day || day < domainStart || day > domainEnd) continue;
-      out.push({ day, arrived, qty, id: f.id });
+    const first = sorted[0].day;
+    const last = sorted[sorted.length - 1].day;
+    for (const [day, v] of freightArrivals) {
+      if (day < first || day > last) continue;
+      const ex = byDate.get(day) ?? { day };
+      ex.prefilledUnits = v.prefilled;
+      ex.unfilledUnits = v.unfilled;
+      byDate.set(day, ex);
     }
-    return out;
-  }, [shipments, freightLines, fillableIds, chartData]);
+    return Array.from(byDate.values()).sort((a, b) => a.day.localeCompare(b.day));
+  }, [history, projection, freightArrivals]);
+
+  // Scale the (hidden) freight-bar axis so the tallest stacked bar fills ~45%
+  // of the plot height — present enough to read, but kept clearly below the
+  // completion-% lines, which remain the main signal.
+  const unitsDomainMax = useMemo(() => {
+    let m = 0;
+    for (const d of chartData) m = Math.max(m, (d.prefilledUnits ?? 0) + (d.unfilledUnits ?? 0));
+    return m > 0 ? m / 0.45 : 1;
+  }, [chartData]);
 
   const stages =
     snap.total > 0
@@ -339,7 +367,7 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
               </div>
             </div>
             <ResponsiveContainer width="100%" height={230}>
-              <LineChart data={chartData} margin={{ top: 24, right: 12, left: 0, bottom: 0 }}>
+              <ComposedChart data={chartData} margin={{ top: 24, right: 12, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(0,0%,18%)" />
                 <XAxis
                   dataKey="day"
@@ -355,11 +383,15 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
                   minTickGap={40}
                 />
                 <YAxis
+                  yAxisId="pct"
                   domain={[0, 100]}
                   width={36}
                   tick={{ fontSize: 10, fill: "hsl(0,0%,55%)" }}
                   tickFormatter={(v: number) => `${v}%`}
                 />
+                {/* Hidden axis scales the freight bars by unit count, kept
+                    independent of the completion-% axis. */}
+                <YAxis yAxisId="units" orientation="right" hide domain={[0, unitsDomainMax]} />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: "hsl(0,0%,10%)",
@@ -375,16 +407,45 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
                       return v;
                     }
                   }}
-                  formatter={(value: number, name: string) => [`${Math.round(value)}%`, name]}
+                  formatter={(value: number, name: string) =>
+                    name === "Pre-filled (sea)" || name === "Unfilled (sea)"
+                      ? [`${Math.round(value).toLocaleString()} units`, name]
+                      : [`${Math.round(value)}%`, name]
+                  }
                 />
                 <Legend wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
                 <ReferenceLine
+                  yAxisId="pct"
                   x={todayStr}
                   stroke="hsl(0,0%,75%)"
                   strokeDasharray="3 3"
                   label={{ value: "Today", fill: "hsl(0,0%,75%)", fontSize: 10, position: "top" }}
                 />
+                {/* Inbound sea freight (fillable units) as sized stacked bars —
+                    unfilled (raw) on the bottom, pre-filled on top. Declared
+                    before the lines so the completion curves render on top. */}
+                <Bar
+                  yAxisId="units"
+                  dataKey="unfilledUnits"
+                  stackId="freight"
+                  name="Unfilled (sea)"
+                  fill={RAW_COLOR}
+                  fillOpacity={0.7}
+                  maxBarSize={12}
+                  isAnimationActive={false}
+                />
+                <Bar
+                  yAxisId="units"
+                  dataKey="prefilledUnits"
+                  stackId="freight"
+                  name="Pre-filled (sea)"
+                  fill={PREFILLED_COLOR}
+                  fillOpacity={0.8}
+                  maxBarSize={12}
+                  isAnimationActive={false}
+                />
                 <Line
+                  yAxisId="pct"
                   type="monotone"
                   dataKey="pct"
                   stroke={PCT_COLOR}
@@ -394,6 +455,7 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
                   connectNulls={false}
                 />
                 <Line
+                  yAxisId="pct"
                   type="monotone"
                   dataKey="projectedPct"
                   stroke={PROJECTED_COLOR}
@@ -403,38 +465,11 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
                   name="Projected"
                   connectNulls={false}
                 />
-                {/* Sea freight arrival markers — small dots along the bottom.
-                    Filled = already arrived, hollow = expected (by ETA). */}
-                {seaArrivals.map((m) => (
-                  <ReferenceDot
-                    key={m.id}
-                    x={m.day}
-                    y={4}
-                    r={3.5}
-                    fill={m.arrived ? SEA_COLOR : CHART_BG}
-                    stroke={SEA_COLOR}
-                    strokeWidth={1.5}
-                    ifOverflow="hidden"
-                  />
-                ))}
-              </LineChart>
+              </ComposedChart>
             </ResponsiveContainer>
-            <div className="mt-1 flex items-center justify-end gap-3 text-[10px] text-muted-foreground">
-              <span className="flex items-center gap-1">
-                <span
-                  className="inline-block h-2 w-2 rounded-full"
-                  style={{ backgroundColor: SEA_COLOR }}
-                />
-                sea arrival
-              </span>
-              <span className="flex items-center gap-1">
-                <span
-                  className="inline-block h-2 w-2 rounded-full border"
-                  style={{ borderColor: SEA_COLOR, backgroundColor: "transparent" }}
-                />
-                expected
-              </span>
-            </div>
+            <p className="mt-1 text-right text-[10px] text-muted-foreground/70">
+              Bars: inbound sea freight (fillable units) on its arrival / ETA day, sized by quantity — pre-filled vs. unfilled.
+            </p>
             {isLoading && (
               <p className="text-center text-xs text-muted-foreground">Loading history…</p>
             )}
