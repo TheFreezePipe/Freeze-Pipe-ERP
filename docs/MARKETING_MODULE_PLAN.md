@@ -44,8 +44,8 @@ The key structural insight from discovery: **a Sale is a container; the Offers a
 - `id` · `sale_id` FK
 - `label` (human description, e.g. "LOVE — 20% off sitewide + free grinder")
 - `code` (nullable; null = automatic / no-code sale)
-- `scope` (sitewide / sku_set / collection)
-- `collection_id` (nullable FK → `mkt_collections`; set when scope = collection)
+- `scope` (sitewide / sku_set / category)
+- `category` (nullable; a `product_skus.display_category` value — the existing "Category" / Product Line — set when scope = category)
 - Components (any combination):
   - `percent_off` numeric (nullable)
   - `dollar_off` numeric (nullable)
@@ -58,10 +58,7 @@ The key structural insight from discovery: **a Sale is a container; the Offers a
 **`mkt_offer_skus`** *(which SKUs an offer covers when scope = sku_set)*
 - `offer_id` FK · `sku_id` FK · optional per-SKU override (`percent_off` / `dollar_off`) · optional `planner_uplift_pct`
 
-**`mkt_collections`** / **`mkt_collection_skus`** *(local SKU segmentation — native to this app, NOT Shopify collections)*
-- `mkt_collections`: `id` · `name` · `description` · timestamps
-- `mkt_collection_skus`: `collection_id` FK · `sku_id` FK
-- An offer with `scope = collection` points at one `mkt_collections` row. Reusable named groupings (e.g. "Bongs", "Accessories", "Holiday gift picks") that the team curates in-app — deliberately decoupled from Shopify collections.
+> **No new collections table.** "Collection" segmentation **reuses the existing `product_skus.display_category`** field — the "Category" / Product Line list (`DISPLAY_CATEGORIES` in `src/lib/constants.ts`). An offer with `scope = category` applies to every SKU whose `display_category` matches; arbitrary curated sets use `scope = sku_set` (explicit list via `mkt_offer_skus`). Deliberately decoupled from Shopify collections.
 
 > Mapping check — every case from discovery fits: `$ off SKU` → {dollar_off, sku_set}; `% off sitewide` → {percent_off, sitewide}; `free item over $X` → {free_item_sku_id, min_order_amount}; `X% off over $Y` → {percent_off, min_order_amount}; `code = x% off + free item` → {code, percent_off, free_item_sku_id}; `Valentine's LOVE/CUPID/HEART` → one sale, three offers.
 
@@ -214,7 +211,7 @@ The ERP is ~1 year old, but **sales + promo history is deep** (Shopify since 201
 
 ## 8. Decisions (resolved 2026-06-18)
 - ✅ **Role:** no dedicated `marketing` role — stakeholders are already **admin-level**; gate writes to admin/manager.
-- ✅ **Collection scope:** a **local, in-app collection** concept (`mkt_collections`), deliberately **not** Shopify collections.
+- ✅ **Collection scope:** reuse the existing **`display_category`** ("Category" / Product Line) — **no new table**; deliberately **not** Shopify. Arbitrary curated sets use an explicit SKU list (`sku_set`).
 - ✅ **Planner confidence:** integer **1–5**.
 - ✅ **Holiday/event calendar:** **not seeded** — the team fills it in as plans are made; the model learns from those marks + historical spikes.
 - ✅ **Analytics sequencing:** build Marketing now **with forward-compatibility** for the parked Analytics module — the `fc_*` layer (prediction ledger, demand-events overlay), the promo-labeled sales history, and the order-by / Reorder-Radar surface are designed as **shared infrastructure both modules consume**, so Analytics slots in later without rework.
