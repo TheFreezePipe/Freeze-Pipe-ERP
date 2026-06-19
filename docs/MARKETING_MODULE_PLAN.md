@@ -74,16 +74,19 @@ The key structural insight from discovery: **a Sale is a container; the Offers a
 
 ### 2.3 Launches & Drops
 
-**`mkt_launches`**
-- `id` · `kind` (launch / drop / restock)
-- `sku_id` (nullable FK — null until the SKU exists) · `planned_name` (working name pre-SKU)
-- `pd_project_id` (nullable FK — genealogy link)
-- `launch_date` date · `inventory_ready_by` date
-- `limited_qty` int (nullable; drops) · `preorder` boolean
-- `expected_first_30d_units` int (nullable; planner estimate)
-- `planner_confidence` (integer 1–5)
-- *(no stored status — derived: **Upcoming** (future date) → **Launched**, flipping to **Sold out** when the linked SKU has zero stock on hand. Canceled launches are deleted.)*
+A launch is a **titled event with a list of member SKUs (1…N)** — a normal launch is a 1-member list; a **Studio Drop** typically has 3–4. Per-SKU quantities live on each member.
+
+**`mkt_launches`** *(the event)*
+- `id` · `name` (event title) · `kind` (launch / drop / **studio_drop** / restock)
+- `pd_project_id` (nullable FK — genealogy link; Phase 2)
+- `launch_date` date · `inventory_ready_by` date · `preorder` boolean · `notes`
+- *(no stored status — derived: **Upcoming** (future date) → **Launched**, with a partial **"N of M sold out"** indicator and full **Sold out** when every member SKU has zero on-hand stock. Canceled launches are deleted.)*
 - timestamps
+
+**`mkt_launch_skus`** *(member products)*
+- `id` · `launch_id` FK · `sku_id` (nullable FK) · `planned_name` (working name pre-SKU)
+- per-SKU: `expected_first_30d_units` · `limited_qty` · `planner_confidence` (1–5) · `sort_order`
+- each member identifies a product (sku_id OR planned_name)
 
 > **Planned-SKU concept** is essential: launches and PD projects refer to products that don't exist in `product_skus` yet. They carry a `planned_name` + nullable `sku_id`, and a "promote to real SKU" action links them once the SKU is created (happens at the PD "Ordered" stage — see §2.4).
 
