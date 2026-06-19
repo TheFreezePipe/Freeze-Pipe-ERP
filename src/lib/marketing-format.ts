@@ -51,12 +51,30 @@ export function describeOffer(
   return { deal, target, code: o.code || null };
 }
 
-export const SALE_STATUS_COLOR: Record<string, string> = {
-  planned: "bg-muted/50 text-muted-foreground",
-  scheduled: "bg-blue-500/10 text-blue-400",
+/**
+ * A sale's running state is DERIVED from its dates (vs. today, YYYY-MM-DD) —
+ * never stored — so it can't drift. Unconfirmed/canceled sales aren't parked;
+ * they're deleted. Returns null when no start date is set yet.
+ */
+export type SalePhase = "upcoming" | "live" | "ended";
+
+export function salePhase(
+  startsAt: string | null,
+  endsAt: string | null,
+  todayKey: string,
+): SalePhase | null {
+  const s = dayKeyOf(startsAt);
+  if (!s) return null;
+  const e = dayKeyOf(endsAt) ?? s;
+  if (todayKey < s) return "upcoming";
+  if (todayKey > e) return "ended";
+  return "live";
+}
+
+export const PHASE_COLOR: Record<SalePhase, string> = {
+  upcoming: "bg-blue-500/10 text-blue-400",
   live: "bg-green-500/10 text-green-400",
   ended: "bg-muted/40 text-muted-foreground",
-  canceled: "bg-red-500/10 text-red-400",
 };
 
 export const LAUNCH_STATUS_COLOR: Record<string, string> = {

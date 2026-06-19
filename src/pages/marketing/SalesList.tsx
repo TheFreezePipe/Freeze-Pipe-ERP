@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useSales, type MktSale } from "@/lib/hooks";
 import { useAuth } from "@/lib/auth-context";
 import { SaleFormDialog } from "@/components/marketing/SaleFormDialog";
-import { SALE_STATUS_COLOR, isPastKey, dayKeyOf } from "@/lib/marketing-format";
+import { salePhase, PHASE_COLOR, isPastKey, dayKeyOf } from "@/lib/marketing-format";
 import { format, parseISO } from "date-fns";
 
 function fmt(d: string | null): string {
@@ -89,9 +89,14 @@ export default function SalesList() {
                     <td className="px-4 py-3 font-medium">{s.name}</td>
                     <td className="px-4 py-3 tabular-nums text-muted-foreground">{range(s.starts_at, s.ends_at)}</td>
                     <td className="px-4 py-3">
-                      <span className={`rounded px-2 py-0.5 text-xs capitalize ${SALE_STATUS_COLOR[s.status] ?? ""}`}>
-                        {s.status}
-                      </span>
+                      {(() => {
+                        const p = salePhase(s.starts_at, s.ends_at, todayKey);
+                        return p ? (
+                          <span className={`rounded px-2 py-0.5 text-xs capitalize ${PHASE_COLOR[p]}`}>{p}</span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground/60">no dates</span>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {canEdit && (

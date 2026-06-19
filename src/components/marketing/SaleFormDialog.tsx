@@ -12,13 +12,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
 import { useCreateSale, useUpdateSale, type MktSale } from "@/lib/hooks";
@@ -33,7 +26,6 @@ interface Props {
   datesLocked?: boolean;
 }
 
-const STATUSES = ["planned", "scheduled", "live", "ended", "canceled"] as const;
 const dateInput = (v: string | null) => (v ? v.slice(0, 10) : "");
 
 export function SaleFormDialog({ open, onOpenChange, sale, defaultDate, datesLocked }: Props) {
@@ -45,7 +37,6 @@ export function SaleFormDialog({ open, onOpenChange, sale, defaultDate, datesLoc
   const [name, setName] = useState("");
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
-  const [status, setStatus] = useState<string>("planned");
   const [notes, setNotes] = useState("");
 
   useEffect(() => {
@@ -53,7 +44,6 @@ export function SaleFormDialog({ open, onOpenChange, sale, defaultDate, datesLoc
       setName(sale?.name ?? "");
       setStartsAt(dateInput(sale?.starts_at ?? null) || (defaultDate ?? ""));
       setEndsAt(dateInput(sale?.ends_at ?? null) || (defaultDate ?? ""));
-      setStatus(sale?.status ?? "planned");
       setNotes(sale?.notes ?? "");
     }
   }, [open, sale, defaultDate]);
@@ -73,7 +63,6 @@ export function SaleFormDialog({ open, onOpenChange, sale, defaultDate, datesLoc
       name: name.trim(),
       starts_at: startsAt || null,
       ends_at: endsAt || null,
-      status,
       notes: notes.trim() || null,
     };
     try {
@@ -118,17 +107,6 @@ export function SaleFormDialog({ open, onOpenChange, sale, defaultDate, datesLoc
           {datesLocked && (
             <p className="-mt-2 text-[11px] text-amber-400/80">🔒 This sale has already started — its dates are locked.</p>
           )}
-          <div className="space-y-1.5">
-            <Label>Status</Label>
-            <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {STATUSES.map((s) => (
-                  <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
           <div className="space-y-1.5">
             <Label>Notes <span className="text-xs text-muted-foreground font-normal">optional</span></Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />

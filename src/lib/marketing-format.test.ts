@@ -5,6 +5,7 @@ import {
   shiftDayKey,
   daysBetweenKeys,
   isPastKey,
+  salePhase,
   type OfferLike,
 } from "./marketing-format";
 
@@ -90,5 +91,26 @@ describe("day-key helpers", () => {
     expect(isPastKey("2026-02-10", "2026-02-10")).toBe(false);
     expect(isPastKey("2026-02-11", "2026-02-10")).toBe(false);
     expect(isPastKey(null, "2026-02-10")).toBe(false);
+  });
+});
+
+describe("salePhase (derived from dates)", () => {
+  const today = "2026-02-10";
+  it("upcoming when start is in the future", () => {
+    expect(salePhase("2026-02-12", "2026-02-14", today)).toBe("upcoming");
+  });
+  it("live when today is within the range (inclusive)", () => {
+    expect(salePhase("2026-02-08", "2026-02-12", today)).toBe("live");
+    expect(salePhase("2026-02-10", "2026-02-10", today)).toBe("live");
+  });
+  it("ended when the end date has passed", () => {
+    expect(salePhase("2026-02-01", "2026-02-09", today)).toBe("ended");
+  });
+  it("treats a missing end as a single-day sale", () => {
+    expect(salePhase("2026-02-10", null, today)).toBe("live");
+    expect(salePhase("2026-02-09", null, today)).toBe("ended");
+  });
+  it("returns null when no start date is set", () => {
+    expect(salePhase(null, null, today)).toBeNull();
   });
 });

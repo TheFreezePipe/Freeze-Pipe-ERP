@@ -12,7 +12,7 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import { SaleFormDialog } from "@/components/marketing/SaleFormDialog";
 import { OfferFormDialog } from "@/components/marketing/OfferFormDialog";
-import { describeOffer, SALE_STATUS_COLOR, isPastKey, dayKeyOf } from "@/lib/marketing-format";
+import { describeOffer, salePhase, PHASE_COLOR, isPastKey, dayKeyOf } from "@/lib/marketing-format";
 import { toast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
 import { format, parseISO } from "date-fns";
@@ -28,6 +28,7 @@ export default function SalesDetail() {
   const { data: sale, isLoading } = useSaleWithOffers(id);
   const { isAdmin, isManager } = useAuth();
   const canEdit = isAdmin || isManager;
+  const todayKey = format(new Date(), "yyyy-MM-dd");
   const deleteSale = useDeleteSale();
   const deleteOffer = useDeleteOffer();
 
@@ -80,7 +81,7 @@ export default function SalesDetail() {
         open={editSaleOpen}
         onOpenChange={setEditSaleOpen}
         sale={sale}
-        datesLocked={isPastKey(dayKeyOf(sale.starts_at), format(new Date(), "yyyy-MM-dd"))}
+        datesLocked={isPastKey(dayKeyOf(sale.starts_at), todayKey)}
       />
       <OfferFormDialog open={offerOpen} onOpenChange={setOfferOpen} saleId={sale.id} />
       <OfferFormDialog
@@ -95,9 +96,12 @@ export default function SalesDetail() {
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <h1 className="text-2xl font-bold">{sale.name}</h1>
-        <span className={`rounded px-2 py-0.5 text-xs capitalize ${SALE_STATUS_COLOR[sale.status] ?? ""}`}>
-          {sale.status}
-        </span>
+        {(() => {
+          const p = salePhase(sale.starts_at, sale.ends_at, todayKey);
+          return p ? (
+            <span className={`rounded px-2 py-0.5 text-xs capitalize ${PHASE_COLOR[p]}`}>{p}</span>
+          ) : null;
+        })()}
       </div>
 
       <Card>
