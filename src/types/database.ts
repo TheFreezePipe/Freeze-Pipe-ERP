@@ -247,8 +247,9 @@ export interface Database {
           notes: string | null;
           performed_by: string | null;
           created_at: string;
-          /** 'net_change' | 'category_move' | 'metadata' — controls how
-           *  to interpret quantity vs from_field/to_field. */
+          /** 'net_change' | 'category_move' | 'metadata' | 'write_off' —
+           *  controls how to interpret quantity vs from_field/to_field.
+           *  'write_off' = pure decrement of from_field (e.g. breakage). */
           movement_kind: string;
           /** Set only when movement_kind='category_move'; the source bucket. */
           from_field: string | null;
