@@ -266,13 +266,15 @@ export default function InventoryDashboard() {
       transit += t.transitTotal;
       onOrder += t.onOrderTotal;
       total += t.totalUnits;
-      // Projected revenue at the current demand estimate: each SKU's monthly
-      // demand × its MSRP. Summed, then /30 for an estimated daily figure.
+      // Projected revenue using the SAME demand the per-SKU table shows for
+      // each SKU — live forecast where one exists, else the trailing-30d
+      // ShipStation baseline (getEffectiveDemand) — × its MSRP. Summed, then
+      // /30 for an estimated daily figure.
       const p = inv.product;
-      if (p) estMonthlyRevenue += (p.monthly_demand ?? 0) * (p.retail_price ?? 0);
+      if (p) estMonthlyRevenue += getEffectiveDemand(p.id, p.monthly_demand, forecastMap) * (p.retail_price ?? 0);
     });
     return { warehouse, transit, onOrder, total, estDailySales: estMonthlyRevenue / 30 };
-  }, [inventory, inTransitMap, onOrderMap]);
+  }, [inventory, inTransitMap, onOrderMap, forecastMap]);
 
   const categories = useMemo(() => {
     const cats = new Set<string>();
@@ -535,7 +537,7 @@ export default function InventoryDashboard() {
         <StatCard title="In Warehouse" value={aggregated.warehouse.toLocaleString()} subtitle="Total units" icon={Warehouse} iconColor="text-green-400" />
         <StatCard title="In Transit" value={aggregated.transit.toLocaleString()} subtitle="Air + Sea" icon={Ship} iconColor="text-blue-400" />
         <StatCard title="On Order" value={aggregated.onOrder.toLocaleString()} subtitle="Nancy + YX" icon={Factory} iconColor="text-orange-400" />
-        <StatCard title="Est. Sales/Day" value={`$${Math.round(aggregated.estDailySales).toLocaleString()}`} subtitle="at current demand (monthly demand × MSRP ÷ 30)" icon={DollarSign} iconColor="text-emerald-400" />
+        <StatCard title="Est. Sales/Day" value={`$${Math.round(aggregated.estDailySales).toLocaleString()}`} subtitle="per-SKU demand (forecast / 30-day) × MSRP ÷ 30" icon={DollarSign} iconColor="text-emerald-400" />
       </div>
 
       <Card>
