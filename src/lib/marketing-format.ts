@@ -77,13 +77,37 @@ export const PHASE_COLOR: Record<SalePhase, string> = {
   ended: "bg-muted/40 text-muted-foreground",
 };
 
-export const LAUNCH_STATUS_COLOR: Record<string, string> = {
-  planned: "bg-muted/50 text-muted-foreground",
-  scheduled: "bg-blue-500/10 text-blue-400",
-  live: "bg-green-500/10 text-green-400",
+/**
+ * A launch's state is DERIVED, never stored:
+ *   Upcoming — launch_date is in the future
+ *   Launched — launch_date is today or past
+ *   Sold out — launched AND the linked SKU has no stock on hand (passed in
+ *              by the caller, read live from inventory)
+ * Returns null when no launch date is set yet.
+ */
+export type LaunchPhase = "upcoming" | "launched" | "sold_out";
+
+export function launchPhase(
+  launchDate: string | null,
+  todayKey: string,
+  soldOut: boolean,
+): LaunchPhase | null {
+  const d = dayKeyOf(launchDate);
+  if (!d) return null;
+  if (todayKey < d) return "upcoming";
+  return soldOut ? "sold_out" : "launched";
+}
+
+export const LAUNCH_PHASE_COLOR: Record<LaunchPhase, string> = {
+  upcoming: "bg-blue-500/10 text-blue-400",
+  launched: "bg-green-500/10 text-green-400",
   sold_out: "bg-amber-500/10 text-amber-400",
-  ended: "bg-muted/40 text-muted-foreground",
-  canceled: "bg-red-500/10 text-red-400",
+};
+
+export const LAUNCH_PHASE_LABEL: Record<LaunchPhase, string> = {
+  upcoming: "Upcoming",
+  launched: "Launched",
+  sold_out: "Sold out",
 };
 
 /** Marketing event-type colors for the calendar (sale / launch / broadcast). */

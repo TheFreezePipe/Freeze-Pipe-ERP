@@ -6,6 +6,7 @@ import {
   daysBetweenKeys,
   isPastKey,
   salePhase,
+  launchPhase,
   type OfferLike,
 } from "./marketing-format";
 
@@ -112,5 +113,23 @@ describe("salePhase (derived from dates)", () => {
   });
   it("returns null when no start date is set", () => {
     expect(salePhase(null, null, today)).toBeNull();
+  });
+});
+
+describe("launchPhase (date + inventory)", () => {
+  const today = "2026-02-10";
+  it("upcoming when launch date is in the future (ignores sold-out)", () => {
+    expect(launchPhase("2026-02-12", today, false)).toBe("upcoming");
+    expect(launchPhase("2026-02-12", today, true)).toBe("upcoming");
+  });
+  it("launched once the date arrives and stock remains", () => {
+    expect(launchPhase("2026-02-10", today, false)).toBe("launched");
+    expect(launchPhase("2026-02-01", today, false)).toBe("launched");
+  });
+  it("sold out when launched and no stock on hand", () => {
+    expect(launchPhase("2026-02-01", today, true)).toBe("sold_out");
+  });
+  it("returns null when no launch date is set", () => {
+    expect(launchPhase(null, today, false)).toBeNull();
   });
 });

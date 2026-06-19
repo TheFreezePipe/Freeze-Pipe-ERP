@@ -40,7 +40,6 @@ interface Props {
 
 const NONE = "__none__";
 const KINDS = ["launch", "drop", "restock"] as const;
-const STATUSES = ["planned", "scheduled", "live", "sold_out", "ended", "canceled"] as const;
 const dateInput = (v: string | null) => (v ? v.slice(0, 10) : "");
 const numOrNull = (s: string): number | null => {
   const t = s.trim();
@@ -64,7 +63,6 @@ export function LaunchFormDialog({ open, onOpenChange, launch, defaultDate, date
   const [preorder, setPreorder] = useState(false);
   const [expectedUnits, setExpectedUnits] = useState("");
   const [confidence, setConfidence] = useState<string>(NONE);
-  const [status, setStatus] = useState<string>("planned");
   const [notes, setNotes] = useState("");
 
   useEffect(() => {
@@ -78,7 +76,6 @@ export function LaunchFormDialog({ open, onOpenChange, launch, defaultDate, date
     setPreorder(launch?.preorder ?? false);
     setExpectedUnits(launch?.expected_first_30d_units != null ? String(launch.expected_first_30d_units) : "");
     setConfidence(launch?.planner_confidence != null ? String(launch.planner_confidence) : NONE);
-    setStatus(launch?.status ?? "planned");
     setNotes(launch?.notes ?? "");
   }, [open, launch, defaultDate]);
 
@@ -104,7 +101,6 @@ export function LaunchFormDialog({ open, onOpenChange, launch, defaultDate, date
       preorder,
       expected_first_30d_units: numOrNull(expectedUnits),
       planner_confidence: confidence === NONE ? null : Number(confidence),
-      status,
       notes: notes.trim() || null,
     };
     try {
@@ -142,14 +138,8 @@ export function LaunchFormDialog({ open, onOpenChange, launch, defaultDate, date
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label>Status</Label>
-              <Select value={status} onValueChange={setStatus}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {STATUSES.map((s) => <SelectItem key={s} value={s} className="capitalize">{s.replace("_", " ")}</SelectItem>)}
-                </SelectContent>
-              </Select>
+            <div className="flex items-end pb-2 text-[11px] text-muted-foreground">
+              Status (Upcoming / Launched / Sold out) is derived automatically.
             </div>
           </div>
 

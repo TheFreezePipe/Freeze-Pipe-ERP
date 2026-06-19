@@ -1236,7 +1236,6 @@ export type Database = {
           planner_confidence: number | null
           preorder: boolean
           sku_id: string | null
-          status: string
           updated_at: string
         }
         Insert: {
@@ -1253,7 +1252,6 @@ export type Database = {
           planner_confidence?: number | null
           preorder?: boolean
           sku_id?: string | null
-          status?: string
           updated_at?: string
         }
         Update: {
@@ -1270,7 +1268,6 @@ export type Database = {
           planner_confidence?: number | null
           preorder?: boolean
           sku_id?: string | null
-          status?: string
           updated_at?: string
         }
         Relationships: [

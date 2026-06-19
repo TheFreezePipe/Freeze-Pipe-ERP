@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Plus, Rocket, Pencil, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useLaunches, useDeleteLaunch, type MktLaunchWithProduct } from "@/lib/hooks";
+import { useLaunches, useDeleteLaunch, useInventory, type MktLaunchWithProduct } from "@/lib/hooks";
 import { useAuth } from "@/lib/auth-context";
 import { LaunchFormDialog } from "@/components/marketing/LaunchFormDialog";
-import { LAUNCH_STATUS_COLOR, isPastKey, dayKeyOf } from "@/lib/marketing-format";
+import { launchPhase, LAUNCH_PHASE_COLOR, LAUNCH_PHASE_LABEL, isPastKey, dayKeyOf } from "@/lib/marketing-format";
 import { toast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
 import { format, parseISO } from "date-fns";
@@ -17,10 +17,28 @@ function fmt(d: string | null): string {
 
 export default function Launches() {
   const { data: launches = [], isLoading } = useLaunches();
+  const { data: inventory = [] } = useInventory();
   const { isAdmin, isManager } = useAuth();
   const canEdit = isAdmin || isManager;
   const del = useDeleteLaunch();
   const todayKey = format(new Date(), "yyyy-MM-dd");
+
+  // Total on-hand units per SKU — a launch reads "Sold out" once its linked
+  // SKU has nothing left in the building.
+  const onHandBySku = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const inv of inventory) {
+      m.set(
+        inv.sku_id,
+        (inv.warehouse_raw ?? 0) +
+          (inv.warehouse_prefilled_raw ?? 0) +
+          (inv.warehouse_in_production ?? 0) +
+          (inv.warehouse_finished ?? 0) +
+          (inv.warehouse_other ?? 0),
+      );
+    }
+    return m;
+  }, [inventory]);
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<MktLaunchWithProduct | null>(null);
 
@@ -102,9 +120,15 @@ export default function Launches() {
                     <td className="px-4 py-3 tabular-nums">{fmt(l.launch_date)}</td>
                     <td className="px-4 py-3 tabular-nums text-muted-foreground">{fmt(l.inventory_ready_by)}</td>
                     <td className="px-4 py-3">
-                      <span className={`rounded px-2 py-0.5 text-xs capitalize ${LAUNCH_STATUS_COLOR[l.status] ?? ""}`}>
-                        {l.status.replace("_", " ")}
-                      </span>
+                      {(() => {
+                        const soldOut = l.sku_id ? (onHandBySku.get(l.sku_id) ?? 0) <= 0 : false;
+                        const p = launchPhase(l.launch_date, todayKey, soldOut);
+                        return p ? (
+                          <span className={`rounded px-2 py-0.5 text-xs ${LAUNCH_PHASE_COLOR[p]}`}>{LAUNCH_PHASE_LABEL[p]}</span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground/60">no date</span>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {canEdit && (

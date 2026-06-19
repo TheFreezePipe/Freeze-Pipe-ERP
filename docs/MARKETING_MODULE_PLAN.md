@@ -82,7 +82,7 @@ The key structural insight from discovery: **a Sale is a container; the Offers a
 - `limited_qty` int (nullable; drops) · `preorder` boolean
 - `expected_first_30d_units` int (nullable; planner estimate)
 - `planner_confidence` (integer 1–5)
-- `status` (planned / scheduled / live / sold_out / ended / canceled)
+- *(no stored status — derived: **Upcoming** (future date) → **Launched**, flipping to **Sold out** when the linked SKU has zero stock on hand. Canceled launches are deleted.)*
 - timestamps
 
 > **Planned-SKU concept** is essential: launches and PD projects refer to products that don't exist in `product_skus` yet. They carry a `planned_name` + nullable `sku_id`, and a "promote to real SKU" action links them once the SKU is created (happens at the PD "Ordered" stage — see §2.4).
