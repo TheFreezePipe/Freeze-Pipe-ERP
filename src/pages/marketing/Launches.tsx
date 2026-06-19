@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Plus, Rocket, Pencil, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useLaunches, useDeleteLaunch, useInventory, type MktLaunchWithProduct } from "@/lib/hooks";
+import { useLaunches, useDeleteLaunch, useInventory, type MktLaunchWithMembers } from "@/lib/hooks";
 import { useAuth } from "@/lib/auth-context";
 import { LaunchFormDialog } from "@/components/marketing/LaunchFormDialog";
 import { launchPhase, LAUNCH_PHASE_COLOR, LAUNCH_PHASE_LABEL, isPastKey, dayKeyOf } from "@/lib/marketing-format";
@@ -40,11 +40,10 @@ export default function Launches() {
     return m;
   }, [inventory]);
   const [createOpen, setCreateOpen] = useState(false);
-  const [editing, setEditing] = useState<MktLaunchWithProduct | null>(null);
+  const [editing, setEditing] = useState<MktLaunchWithMembers | null>(null);
 
-  async function handleDelete(l: MktLaunchWithProduct) {
-    const name = l.product?.sku || l.planned_name || "this launch";
-    if (!window.confirm(`Delete ${name}?`)) return;
+  async function handleDelete(l: MktLaunchWithMembers) {
+    if (!window.confirm(`Delete "${l.name}"?`)) return;
     try {
       await del.mutateAsync(l.id);
       toast({ title: "Launch deleted" });
@@ -95,40 +94,46 @@ export default function Launches() {
             <table className="w-full text-sm">
               <thead className="border-b border-border/50 text-left text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-2.5 font-medium">Product</th>
-                  <th className="px-4 py-2.5 font-medium">Type</th>
                   <th className="px-4 py-2.5 font-medium">Launch</th>
+                  <th className="px-4 py-2.5 font-medium">Type</th>
+                  <th className="px-4 py-2.5 font-medium">Date</th>
                   <th className="px-4 py-2.5 font-medium">Ready by</th>
                   <th className="px-4 py-2.5 font-medium">Status</th>
                   <th className="px-4 py-2.5" />
                 </tr>
               </thead>
               <tbody>
-                {launches.map((l) => (
+                {launches.map((l) => {
+                  const memberLabels = l.skus.map((m) => m.product?.sku || m.planned_name || "?");
+                  const realMembers = l.skus.filter((m) => m.sku_id);
+                  const soldCount = realMembers.filter((m) => (onHandBySku.get(m.sku_id!) ?? 0) <= 0).length;
+                  const total = realMembers.length;
+                  const allSold = total > 0 && soldCount === total;
+                  const phase = launchPhase(l.launch_date, todayKey, allSold);
+                  return (
                   <tr key={l.id} className="border-t border-border/40 hover:bg-muted/20">
                     <td className="px-4 py-3">
-                      {l.product ? (
-                        <span>
-                          <span className="font-mono text-xs">{l.product.sku}</span>
-                          <span className="ml-2 text-muted-foreground">{l.product.product_name}</span>
-                        </span>
-                      ) : (
-                        <span className="italic text-muted-foreground">{l.planned_name ?? "—"} <span className="not-italic text-[10px]">(planned)</span></span>
+                      <p className="font-medium">{l.name}</p>
+                      {memberLabels.length > 0 && (
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground" title={memberLabels.join(", ")}>
+                          {l.skus.length} {l.skus.length === 1 ? "product" : "products"} · {memberLabels.join(", ")}
+                        </p>
                       )}
                     </td>
-                    <td className="px-4 py-3 capitalize text-muted-foreground">{l.kind}</td>
+                    <td className="px-4 py-3 capitalize text-muted-foreground">{l.kind.replace("_", " ")}</td>
                     <td className="px-4 py-3 tabular-nums">{fmt(l.launch_date)}</td>
                     <td className="px-4 py-3 tabular-nums text-muted-foreground">{fmt(l.inventory_ready_by)}</td>
                     <td className="px-4 py-3">
-                      {(() => {
-                        const soldOut = l.sku_id ? (onHandBySku.get(l.sku_id) ?? 0) <= 0 : false;
-                        const p = launchPhase(l.launch_date, todayKey, soldOut);
-                        return p ? (
-                          <span className={`rounded px-2 py-0.5 text-xs ${LAUNCH_PHASE_COLOR[p]}`}>{LAUNCH_PHASE_LABEL[p]}</span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground/60">no date</span>
-                        );
-                      })()}
+                      {!phase ? (
+                        <span className="text-xs text-muted-foreground/60">no date</span>
+                      ) : (
+                        <div className="flex flex-col gap-0.5">
+                          <span className={`w-fit rounded px-2 py-0.5 text-xs ${LAUNCH_PHASE_COLOR[phase]}`}>{LAUNCH_PHASE_LABEL[phase]}</span>
+                          {phase === "launched" && soldCount > 0 && (
+                            <span className="text-[10px] text-amber-400/80">{soldCount} of {total} sold out</span>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {canEdit && (
@@ -143,7 +148,8 @@ export default function Launches() {
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </CardContent>

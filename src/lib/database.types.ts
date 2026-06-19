@@ -1221,53 +1221,109 @@ export type Database = {
           },
         ]
       }
+      mkt_launch_skus: {
+        Row: {
+          created_at: string
+          expected_first_30d_units: number | null
+          id: string
+          launch_id: string
+          limited_qty: number | null
+          planned_name: string | null
+          planner_confidence: number | null
+          sku_id: string | null
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          expected_first_30d_units?: number | null
+          id?: string
+          launch_id: string
+          limited_qty?: number | null
+          planned_name?: string | null
+          planner_confidence?: number | null
+          sku_id?: string | null
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          expected_first_30d_units?: number | null
+          id?: string
+          launch_id?: string
+          limited_qty?: number | null
+          planned_name?: string | null
+          planner_confidence?: number | null
+          sku_id?: string | null
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mkt_launch_skus_launch_id_fkey"
+            columns: ["launch_id"]
+            isOneToOne: false
+            referencedRelation: "mkt_launches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_launch_skus_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_launch_skus_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus_active"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_launch_skus_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_skus"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       mkt_launches: {
         Row: {
           created_at: string
           created_by: string | null
-          expected_first_30d_units: number | null
           id: string
           inventory_ready_by: string | null
           kind: string
           launch_date: string | null
-          limited_qty: number | null
+          name: string
           notes: string | null
-          planned_name: string | null
-          planner_confidence: number | null
           preorder: boolean
-          sku_id: string | null
           updated_at: string
         }
         Insert: {
           created_at?: string
           created_by?: string | null
-          expected_first_30d_units?: number | null
           id?: string
           inventory_ready_by?: string | null
           kind?: string
           launch_date?: string | null
-          limited_qty?: number | null
+          name: string
           notes?: string | null
-          planned_name?: string | null
-          planner_confidence?: number | null
           preorder?: boolean
-          sku_id?: string | null
           updated_at?: string
         }
         Update: {
           created_at?: string
           created_by?: string | null
-          expected_first_30d_units?: number | null
           id?: string
           inventory_ready_by?: string | null
           kind?: string
           launch_date?: string | null
-          limited_qty?: number | null
+          name?: string
           notes?: string | null
-          planned_name?: string | null
-          planner_confidence?: number | null
           preorder?: boolean
-          sku_id?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -1276,27 +1332,6 @@ export type Database = {
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "mkt_launches_sku_id_fkey"
-            columns: ["sku_id"]
-            isOneToOne: false
-            referencedRelation: "product_skus"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "mkt_launches_sku_id_fkey"
-            columns: ["sku_id"]
-            isOneToOne: false
-            referencedRelation: "product_skus_active"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "mkt_launches_sku_id_fkey"
-            columns: ["sku_id"]
-            isOneToOne: false
-            referencedRelation: "supplier_portal_skus"
             referencedColumns: ["id"]
           },
         ]

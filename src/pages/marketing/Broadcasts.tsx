@@ -104,7 +104,7 @@ export default function Broadcasts() {
                       {b.audience_size != null && <span className="ml-1 tabular-nums">({b.audience_size.toLocaleString()})</span>}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      {b.sale?.name ?? (b.launch ? (b.launch.planned_name ?? "Launch") : "—")}
+                      {b.sale?.name ?? (b.launch ? b.launch.name : "—")}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {canEdit && (

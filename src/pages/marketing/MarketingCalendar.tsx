@@ -17,7 +17,7 @@ import {
   useUpdateLaunch,
   useUpdateBroadcast,
   type MktSale,
-  type MktLaunchWithProduct,
+  type MktLaunchWithMembers,
   type MktBroadcastWithLinks,
 } from "@/lib/hooks";
 import { useAuth } from "@/lib/auth-context";
@@ -81,7 +81,7 @@ export default function MarketingCalendar() {
   const [addDay, setAddDay] = useState<string | null>(null);
   const [create, setCreate] = useState<{ type: EvType; date: string } | null>(null);
   const [editSale, setEditSale] = useState<MktSale | null>(null);
-  const [editLaunch, setEditLaunch] = useState<MktLaunchWithProduct | null>(null);
+  const [editLaunch, setEditLaunch] = useState<MktLaunchWithMembers | null>(null);
   const [editBroadcast, setEditBroadcast] = useState<MktBroadcastWithLinks | null>(null);
 
   const saleById = useMemo(() => new Map(sales.map((s) => [s.id, s])), [sales]);
@@ -112,8 +112,7 @@ export default function MarketingCalendar() {
     for (const l of launches) {
       const k = dayKeyOf(l.launch_date);
       if (!k) continue;
-      const label = l.product?.sku || l.planned_name || "Launch";
-      push(k, { id: l.id, type: "launch", label, anchorKey: k, originKey: k, past: isPastKey(k, todayKey) });
+      push(k, { id: l.id, type: "launch", label: l.name, anchorKey: k, originKey: k, past: isPastKey(k, todayKey) });
     }
     for (const b of broadcasts) {
       const k = dayKeyOf(b.sent_at) ?? dayKeyOf(b.scheduled_at);
@@ -306,7 +305,7 @@ export default function MarketingCalendar() {
     const monthLaunches = launches.filter((l) => (dayKeyOf(l.launch_date) ?? "").startsWith(ym));
     const items = [
       ...monthSales.map((s) => ({ id: `s-${s.id}`, type: "sale" as const, label: s.name })),
-      ...monthLaunches.map((l) => ({ id: `l-${l.id}`, type: "launch" as const, label: l.product?.sku || l.planned_name || "Launch" })),
+      ...monthLaunches.map((l) => ({ id: `l-${l.id}`, type: "launch" as const, label: l.name })),
     ];
     const isThisMonth = ym === todayMonthKey;
     return (

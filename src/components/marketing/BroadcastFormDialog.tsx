@@ -84,8 +84,7 @@ export function BroadcastFormDialog({ open, onOpenChange, broadcast, defaultDate
   }, [open, broadcast, defaultDate]);
 
   const pending = create.isPending || update.isPending;
-  const launchLabel = (l: (typeof launches)[number]) =>
-    l.planned_name || l.product?.sku || "Launch";
+  const launchLabel = (l: (typeof launches)[number]) => l.name;
 
   async function handleSubmit() {
     if (!name.trim()) {

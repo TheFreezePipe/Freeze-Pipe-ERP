@@ -17,6 +17,8 @@ export type MktOffer = Tables["mkt_offers"]["Row"];
 export type MktOfferInsert = Tables["mkt_offers"]["Insert"];
 export type MktLaunch = Tables["mkt_launches"]["Row"];
 export type MktLaunchInsert = Tables["mkt_launches"]["Insert"];
+export type MktLaunchSku = Tables["mkt_launch_skus"]["Row"];
+export type MktLaunchSkuInsert = Tables["mkt_launch_skus"]["Insert"];
 export type MktBroadcast = Tables["mkt_broadcasts"]["Row"];
 export type MktBroadcastInsert = Tables["mkt_broadcasts"]["Insert"];
 
@@ -25,12 +27,24 @@ export type MktOfferWithSkus = MktOffer & {
   free_item: { id: string; sku: string; product_name: string } | null;
 };
 export type MktSaleWithOffers = MktSale & { offers: MktOfferWithSkus[] };
-export type MktLaunchWithProduct = MktLaunch & {
+
+export type MktLaunchMember = MktLaunchSku & {
   product: { id: string; sku: string; product_name: string } | null;
 };
+export type MktLaunchWithMembers = MktLaunch & { skus: MktLaunchMember[] };
+
+/** A member row as entered in the launch form (before it has an id). */
+export interface LaunchMemberInput {
+  sku_id: string | null;
+  planned_name: string | null;
+  expected_first_30d_units: number | null;
+  limited_qty: number | null;
+  planner_confidence: number | null;
+}
+
 export type MktBroadcastWithLinks = MktBroadcast & {
   sale: { id: string; name: string } | null;
-  launch: { id: string; planned_name: string | null; sku_id: string | null } | null;
+  launch: { id: string; name: string } | null;
 };
 
 const STALE = 2 * 60 * 1000;
@@ -184,25 +198,34 @@ export function useSetOfferSkus() {
 export function useLaunches() {
   return useQuery({
     queryKey: ["mkt-launches"],
-    queryFn: async (): Promise<MktLaunchWithProduct[]> => {
+    queryFn: async (): Promise<MktLaunchWithMembers[]> => {
       const { data, error } = await supabase
         .from("mkt_launches")
-        .select("*, product:product_skus(id, sku, product_name)")
+        .select("*, skus:mkt_launch_skus(*, product:product_skus(id, sku, product_name))")
         .order("launch_date", { ascending: false, nullsFirst: false });
       if (error) throw error;
-      return data as MktLaunchWithProduct[];
+      return data as MktLaunchWithMembers[];
     },
     staleTime: STALE,
   });
 }
 
+function memberRows(launchId: string, members: LaunchMemberInput[]) {
+  return members.map((m, i) => ({ ...m, launch_id: launchId, sort_order: i }));
+}
+
 export function useCreateLaunch() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (launch: MktLaunchInsert): Promise<MktLaunch> => {
+    mutationFn: async ({ launch, members }: { launch: MktLaunchInsert; members: LaunchMemberInput[] }): Promise<MktLaunch> => {
       const { data, error } = await supabase.from("mkt_launches").insert(launch).select().single();
       if (error) throw error;
-      return data as MktLaunch;
+      const created = data as MktLaunch;
+      if (members.length > 0) {
+        const { error: mErr } = await supabase.from("mkt_launch_skus").insert(memberRows(created.id, members));
+        if (mErr) throw mErr;
+      }
+      return created;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["mkt-launches"] }),
   });
@@ -211,9 +234,18 @@ export function useCreateLaunch() {
 export function useUpdateLaunch() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, updates }: { id: string; updates: Partial<MktLaunchInsert> }) => {
+    // members omitted (e.g. a calendar drag that only shifts dates) → members untouched.
+    mutationFn: async ({ id, updates, members }: { id: string; updates: Partial<MktLaunchInsert>; members?: LaunchMemberInput[] }) => {
       const { error } = await supabase.from("mkt_launches").update(updates).eq("id", id);
       if (error) throw error;
+      if (members) {
+        const { error: delErr } = await supabase.from("mkt_launch_skus").delete().eq("launch_id", id);
+        if (delErr) throw delErr;
+        if (members.length > 0) {
+          const { error: insErr } = await supabase.from("mkt_launch_skus").insert(memberRows(id, members));
+          if (insErr) throw insErr;
+        }
+      }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["mkt-launches"] }),
   });
@@ -238,7 +270,7 @@ export function useBroadcasts() {
       const { data, error } = await supabase
         .from("mkt_broadcasts")
         .select(
-          "*, sale:mkt_sales(id, name), launch:mkt_launches(id, planned_name, sku_id)",
+          "*, sale:mkt_sales(id, name), launch:mkt_launches(id, name)",
         )
         .order("scheduled_at", { ascending: false, nullsFirst: false });
       if (error) throw error;
