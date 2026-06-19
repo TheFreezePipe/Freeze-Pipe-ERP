@@ -42,12 +42,12 @@ import {
   addMonths,
   subMonths,
   format,
-  isSameMonth,
 } from "date-fns";
 
 type EvType = "sale" | "launch" | "broadcast";
 type Ev = { id: string; type: EvType; label: string; anchorKey: string; originKey: string; past: boolean };
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const HEADER_OFFSET = 62; // sticky month + weekday header height, for scroll math
 
 function monthsDiff(a: Date, b: Date): number {
   return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
@@ -72,7 +72,9 @@ export default function MarketingCalendar() {
   const [monthsBack, setMonthsBack] = useState(1);
   const [monthsForward, setMonthsForward] = useState(12);
   const [year, setYear] = useState(today.getFullYear());
-  const monthRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [stickyMonth, setStickyMonth] = useState(() => format(today, "MMMM yyyy"));
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const monthAnchors = useRef<Record<string, HTMLDivElement | null>>({});
   const [pendingScroll, setPendingScroll] = useState<string | null>(todayMonthKey);
 
   // Add / edit dialog state
@@ -121,22 +123,56 @@ export default function MarketingCalendar() {
     return m;
   }, [sales, launches, broadcasts, todayKey]);
 
-  // The stacked month list for the scroll view.
   const months = useMemo(() => {
     const start = subMonths(startOfMonth(today), monthsBack);
     const n = monthsBack + monthsForward + 1;
     return Array.from({ length: n }, (_, i) => addMonths(start, i));
   }, [today, monthsBack, monthsForward]);
 
-  // Scroll a requested month into view (from "Today" or a year-view click).
+  // One continuous run of days (each date appears exactly once — no per-month
+  // grids, so a mid-week month boundary is never shown twice).
+  const allDays = useMemo(() => {
+    if (months.length === 0) return [] as Date[];
+    return eachDayOfInterval({
+      start: startOfWeek(startOfMonth(months[0])),
+      end: endOfWeek(endOfMonth(months[months.length - 1])),
+    });
+  }, [months]);
+
+  function scrollToMonth(ym: string) {
+    const cont = scrollRef.current;
+    const anchor = monthAnchors.current[ym];
+    if (!cont || !anchor) return;
+    const top = anchor.getBoundingClientRect().top - cont.getBoundingClientRect().top + cont.scrollTop - HEADER_OFFSET;
+    cont.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  }
+
+  // Update the sticky month label to whatever month sits at the top of the view.
+  function updateStickyMonth() {
+    const cont = scrollRef.current;
+    if (!cont) return;
+    const line = cont.getBoundingClientRect().top + HEADER_OFFSET + 4;
+    let label: string | null = null;
+    for (const m of months) {
+      const a = monthAnchors.current[format(m, "yyyy-MM")];
+      if (!a) continue;
+      if (a.getBoundingClientRect().top <= line) label = format(m, "MMMM yyyy");
+      else break;
+    }
+    if (label) setStickyMonth(label);
+  }
+
   useEffect(() => {
     if (view !== "scroll" || !pendingScroll) return;
-    const el = monthRefs.current[pendingScroll];
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    // Let the grid paint, then scroll the requested month into view.
+    const id = requestAnimationFrame(() => {
+      scrollToMonth(pendingScroll);
+      updateStickyMonth();
       setPendingScroll(null);
-    }
-  }, [view, pendingScroll, months]);
+    });
+    return () => cancelAnimationFrame(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, pendingScroll, allDays]);
 
   function openEdit(ev: Ev) {
     if (ev.type === "sale") setEditSale(saleById.get(ev.id) ?? null);
@@ -196,70 +232,67 @@ export default function MarketingCalendar() {
     }
   }
 
-  // One full month grid (used in the scroll view).
-  function renderMonth(monthDate: Date) {
-    const days = eachDayOfInterval({
-      start: startOfWeek(startOfMonth(monthDate)),
-      end: endOfWeek(endOfMonth(monthDate)),
-    });
+  // One day cell in the continuous grid.
+  function renderDayCell(day: Date, idx: number) {
+    const key = format(day, "yyyy-MM-dd");
+    const ym = format(day, "yyyy-MM");
+    const evs = byDay.get(key) ?? [];
+    const isToday = key === todayKey;
+    const isPast = isPastKey(key, todayKey);
+    const isMonthStart = day.getDate() === 1;
+    const showMonth = isMonthStart || idx === 0;
+    const clickable = canEdit && !isPast;
     return (
-      <div className="grid grid-cols-7 gap-px overflow-hidden rounded-md border border-border/50 bg-border/50">
-        {WEEKDAYS.map((d) => (
-          <div key={d} className="bg-muted/40 px-2 py-1 text-center text-[10px] font-medium text-muted-foreground">{d}</div>
-        ))}
-        {days.map((day) => {
-          const key = format(day, "yyyy-MM-dd");
-          const evs = byDay.get(key) ?? [];
-          const inMonth = isSameMonth(day, monthDate);
-          const isToday = key === todayKey;
-          const isPast = isPastKey(key, todayKey);
-          const clickable = canEdit && !isPast;
-          return (
-            <div
-              key={key}
-              onClick={() => clickable && setAddDay(key)}
-              onDragOver={(e) => { if (canEdit && !isPast) e.preventDefault(); }}
-              onDrop={(e) => handleDrop(e, key)}
-              title={clickable ? "Click to add an event" : undefined}
-              className={`min-h-[88px] p-1.5 ${inMonth ? "bg-background" : "bg-background/60 opacity-50"} ${isPast ? "bg-muted/10" : ""} ${clickable ? "cursor-pointer hover:bg-muted/25" : ""}`}
+      <div
+        key={key}
+        ref={isMonthStart ? (el) => { monthAnchors.current[ym] = el; } : undefined}
+        onClick={() => clickable && setAddDay(key)}
+        onDragOver={(e) => { if (canEdit && !isPast) e.preventDefault(); }}
+        onDrop={(e) => handleDrop(e, key)}
+        title={clickable ? "Click to add an event" : undefined}
+        className={`min-h-[92px] bg-background p-1.5 ${isPast ? "bg-muted/10" : ""} ${clickable ? "cursor-pointer hover:bg-muted/25" : ""} ${isMonthStart ? "border-t-2 border-primary/50" : ""}`}
+      >
+        <div className="mb-1 flex items-center justify-between">
+          {showMonth ? (
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-primary">{format(day, "MMM")}</span>
+          ) : (
+            <span />
+          )}
+          <span className={`text-[11px] tabular-nums ${isToday ? "rounded bg-primary px-1.5 font-bold text-primary-foreground" : "text-muted-foreground"}`}>
+            {format(day, "d")}
+          </span>
+        </div>
+        <div className="space-y-0.5">
+          {evs.slice(0, 3).map((ev, i) => (
+            <button
+              key={`${ev.type}-${ev.id}-${i}`}
+              type="button"
+              draggable={canEdit && !ev.past}
+              onDragStart={(e) => {
+                e.dataTransfer.setData("text/plain", JSON.stringify({ type: ev.type, id: ev.id, originKey: ev.originKey }));
+                e.dataTransfer.effectAllowed = "move";
+              }}
+              onClick={(e) => { e.stopPropagation(); openEdit(ev); }}
+              title={ev.past ? `${ev.label} — locked (past)` : ev.label}
+              className={`block w-full truncate rounded px-1 py-0.5 text-left text-[10px] text-white/95 hover:opacity-90 ${
+                ev.past ? "cursor-pointer opacity-60" : canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
+              }`}
+              style={{ backgroundColor: EVENT_TYPE_COLOR[ev.type] }}
             >
-              <div className={`mb-1 text-right text-[11px] tabular-nums ${isToday ? "font-bold text-primary" : "text-muted-foreground"}`}>
-                {format(day, "d")}
-              </div>
-              <div className="space-y-0.5">
-                {evs.slice(0, 3).map((ev, i) => (
-                  <button
-                    key={`${ev.type}-${ev.id}-${i}`}
-                    type="button"
-                    draggable={canEdit && !ev.past}
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData("text/plain", JSON.stringify({ type: ev.type, id: ev.id, originKey: ev.originKey }));
-                      e.dataTransfer.effectAllowed = "move";
-                    }}
-                    onClick={(e) => { e.stopPropagation(); openEdit(ev); }}
-                    title={ev.past ? `${ev.label} — locked (past)` : ev.label}
-                    className={`block w-full truncate rounded px-1 py-0.5 text-left text-[10px] text-white/95 hover:opacity-90 ${
-                      ev.past ? "cursor-pointer opacity-60" : canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
-                    }`}
-                    style={{ backgroundColor: EVENT_TYPE_COLOR[ev.type] }}
-                  >
-                    {ev.past && "🔒 "}{ev.label}
-                  </button>
-                ))}
-                {evs.length > 3 && (
-                  <p className="px-1 text-[10px] text-muted-foreground" onClick={(e) => e.stopPropagation()}>
-                    +{evs.length - 3} more
-                  </p>
-                )}
-              </div>
-            </div>
-          );
-        })}
+              {ev.past && "🔒 "}{ev.label}
+            </button>
+          ))}
+          {evs.length > 3 && (
+            <p className="px-1 text-[10px] text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+              +{evs.length - 3} more
+            </p>
+          )}
+        </div>
       </div>
     );
   }
 
-  // One compact month panel (used in the year view) — sales + launches only.
+  // One compact month panel (year view) — sales + launches only.
   function renderMiniMonth(monthDate: Date) {
     const ym = format(monthDate, "yyyy-MM");
     const monthStart = `${ym}-01`;
@@ -347,7 +380,6 @@ export default function MarketingCalendar() {
             <Legend color={EVENT_TYPE_COLOR.launch} label="Launch" />
             <Legend color={EVENT_TYPE_COLOR.broadcast} label="Broadcast" />
           </div>
-          {/* View toggle */}
           <div className="flex rounded-md border border-border/60 p-0.5">
             <Button size="sm" variant={view === "scroll" ? "default" : "ghost"} className="h-7 px-3 text-xs" onClick={() => setView("scroll")}>Calendar</Button>
             <Button size="sm" variant={view === "year" ? "default" : "ghost"} className="h-7 px-3 text-xs" onClick={() => setView("year")}>Year</Button>
@@ -361,26 +393,30 @@ export default function MarketingCalendar() {
             <div className="flex items-center justify-end border-b border-border/50 px-4 py-2">
               <Button variant="outline" size="sm" onClick={() => goToMonth(today)}>Jump to today</Button>
             </div>
-            <div className="max-h-[72vh] overflow-y-auto">
+            <div ref={scrollRef} onScroll={() => requestAnimationFrame(updateStickyMonth)} className="max-h-[72vh] overflow-y-auto">
+              {/* Sticky month label + weekday header */}
+              <div className="sticky top-0 z-20 bg-card/95 backdrop-blur">
+                <div className="px-4 py-2 text-sm font-semibold">{stickyMonth}</div>
+                <div className="grid grid-cols-7 gap-px border-y border-border/50 bg-border/50">
+                  {WEEKDAYS.map((d) => (
+                    <div key={d} className="bg-card px-2 py-1 text-center text-[10px] font-medium text-muted-foreground">{d}</div>
+                  ))}
+                </div>
+              </div>
+
               <div className="p-2 text-center">
                 <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => setMonthsBack((b) => b + 6)}>
-                  <ChevronLeft className="mr-1 h-3 w-3 rotate-90" /> Earlier months
+                  ↑ Earlier months
                 </Button>
               </div>
-              {months.map((m) => {
-                const ym = format(m, "yyyy-MM");
-                return (
-                  <div key={ym} ref={(el) => { monthRefs.current[ym] = el; }} className="px-4 pb-6">
-                    <h3 className="sticky top-0 z-10 -mx-4 mb-2 bg-card/95 px-4 py-2 text-sm font-semibold backdrop-blur">
-                      {format(m, "MMMM yyyy")}
-                    </h3>
-                    {renderMonth(m)}
-                  </div>
-                );
-              })}
+
+              <div className="grid grid-cols-7 gap-px bg-border/50">
+                {allDays.map((day, idx) => renderDayCell(day, idx))}
+              </div>
+
               <div className="p-2 text-center">
                 <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => setMonthsForward((f) => f + 6)}>
-                  More months <ChevronRight className="ml-1 h-3 w-3 rotate-90" />
+                  ↓ More months
                 </Button>
               </div>
             </div>
