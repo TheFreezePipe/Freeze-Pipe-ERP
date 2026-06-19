@@ -1,5 +1,5 @@
 import { StatCard } from "@/components/shared/StatCard";
-import { Package, Warehouse, Ship, Factory, Pencil, X, Save, Search, Plane } from "lucide-react";
+import { Warehouse, Ship, Factory, Pencil, X, Save, Search, Plane, DollarSign } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format, parseISO, differenceInDays } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -259,15 +259,19 @@ export default function InventoryDashboard() {
   }, [dosTarget]);
 
   const aggregated = useMemo(() => {
-    let warehouse = 0, transit = 0, onOrder = 0, total = 0;
+    let warehouse = 0, transit = 0, onOrder = 0, total = 0, estMonthlyRevenue = 0;
     inventory.forEach(inv => {
       const t = inventoryTotalsReal(inv, inTransitMap, onOrderMap);
       warehouse += t.warehouseTotal;
       transit += t.transitTotal;
       onOrder += t.onOrderTotal;
       total += t.totalUnits;
+      // Projected revenue at the current demand estimate: each SKU's monthly
+      // demand × its MSRP. Summed, then /30 for an estimated daily figure.
+      const p = inv.product;
+      if (p) estMonthlyRevenue += (p.monthly_demand ?? 0) * (p.retail_price ?? 0);
     });
-    return { warehouse, transit, onOrder, total };
+    return { warehouse, transit, onOrder, total, estDailySales: estMonthlyRevenue / 30 };
   }, [inventory, inTransitMap, onOrderMap]);
 
   const categories = useMemo(() => {
@@ -531,7 +535,7 @@ export default function InventoryDashboard() {
         <StatCard title="In Warehouse" value={aggregated.warehouse.toLocaleString()} subtitle="Total units" icon={Warehouse} iconColor="text-green-400" />
         <StatCard title="In Transit" value={aggregated.transit.toLocaleString()} subtitle="Air + Sea" icon={Ship} iconColor="text-blue-400" />
         <StatCard title="On Order" value={aggregated.onOrder.toLocaleString()} subtitle="Nancy + YX" icon={Factory} iconColor="text-orange-400" />
-        <StatCard title="Total Units" value={aggregated.total.toLocaleString()} subtitle="All locations" icon={Package} />
+        <StatCard title="Est. Sales/Day" value={`$${Math.round(aggregated.estDailySales).toLocaleString()}`} subtitle="at current demand (monthly demand × MSRP ÷ 30)" icon={DollarSign} iconColor="text-emerald-400" />
       </div>
 
       <Card>
