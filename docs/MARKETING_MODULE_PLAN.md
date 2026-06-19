@@ -37,7 +37,7 @@ The key structural insight from discovery: **a Sale is a container; the Offers a
 
 **`mkt_sales`** *(the container)*
 - `id` · `campaign_id` (nullable FK) · `name` · `starts_at` · `ends_at`
-- `status` (planned / scheduled / live / ended / canceled)
+- *(no stored status — the running state **Upcoming / Live / Ended** is derived from `starts_at`/`ends_at` at display time so it can't drift; unconfirmed/canceled sales are deleted, not parked)*
 - `notes` · `created_by` · timestamps
 
 **`mkt_offers`** *(composable child offer)*
