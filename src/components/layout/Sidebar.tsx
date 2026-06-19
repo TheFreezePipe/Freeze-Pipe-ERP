@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useAuth, type UserRole } from "@/lib/auth-context";
 import {
@@ -13,6 +13,7 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Home,
   ClipboardList,
   PackageOpen,
@@ -55,21 +56,14 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
-    label: "Freight",
-    items: [
-      { to: "/freight", label: "Shipments", icon: Ship, roles: ["admin", "manager"] },
-    ],
-  },
-  {
     label: "Inventory",
     items: [
       { to: "/inventory", label: "Stock Levels", icon: Package, roles: ["admin", "manager"] },
+      // Inbound freight — lives here now (the on-order → in-transit → on-hand flow);
+      // page route stays /freight.
+      { to: "/freight", label: "Shipments", icon: Ship, roles: ["admin", "manager"] },
       { to: "/inventory/factory-orders", label: "Factory Orders", icon: Truck, roles: ["admin", "manager"] },
-      // Materials — feature-flagged. Removed from the rendered list for users
-      // who aren't in the feature-flag allow-list (see render logic below).
       { to: "/inventory/materials", label: "Materials", icon: Beaker, roles: ["admin", "manager"] },
-      // Quality Issues shelved out of scope. Route + page + RPCs remain wired
-      // at /inventory/quality-issues so re-enabling is a one-line change.
     ],
   },
   {
@@ -94,8 +88,6 @@ const navGroups: NavGroup[] = [
     ],
   },
   // Supplier-only nav. Internal roles don't see any of these.
-  // Breakage + variances surfaces exist in the DB and routes stay wired, but
-  // they're hidden from nav for the pilot — suppliers handle these off-app.
   {
     label: "Supplier Portal",
     items: [
@@ -105,6 +97,8 @@ const navGroups: NavGroup[] = [
     ],
   },
 ];
+
+const COLLAPSED_GROUPS_KEY = "sidebar.collapsedGroups";
 
 interface SidebarProps {
   collapsed?: boolean;
@@ -116,6 +110,30 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse, onNavClick
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const collapsed = controlledCollapsed ?? internalCollapsed;
   const { role } = useAuth();
+  const { pathname } = useLocation();
+
+  // Which labeled groups the user has collapsed (persisted). Default: none —
+  // every folder starts expanded.
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => {
+    try {
+      const raw = localStorage.getItem(COLLAPSED_GROUPS_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  function toggleGroup(label: string) {
+    setCollapsedGroups((prev) => {
+      const next = { ...prev, [label]: !prev[label] };
+      try {
+        localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify(next));
+      } catch {
+        /* ignore storage failures */
+      }
+      return next;
+    });
+  }
 
   function handleCollapse() {
     const next = !collapsed;
@@ -123,13 +141,15 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse, onNavClick
     onCollapse?.(next);
   }
 
+  const isActivePath = (to: string) => pathname === to || pathname.startsWith(`${to}/`);
+
   // Filter nav groups based on user role
   const filteredGroups = navGroups
-    .map(group => ({
+    .map((group) => ({
       ...group,
-      items: group.items.filter(item => item.roles.includes(role)),
+      items: group.items.filter((item) => item.roles.includes(role)),
     }))
-    .filter(group => group.items.length > 0);
+    .filter((group) => group.items.length > 0);
 
   return (
     <aside
@@ -155,36 +175,52 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse, onNavClick
       </div>
       <Separator />
       <ScrollArea className="flex-1 px-2 py-2">
-        {filteredGroups.map((group, gi) => (
-          <div key={gi} className="mb-2">
-            {group.label && !collapsed && (
-              <p className="mb-1 px-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                {group.label}
-              </p>
-            )}
-            {gi > 0 && !group.label && <Separator className="my-2" />}
-            {group.items.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === "/manufacturing" || item.to === "/freight" || item.to === "/inventory" || item.to === "/economics" || item.to === "/supplier" || item.to === "/marketing"}
-                className={({ isActive }) =>
-                  cn(
-                    "flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors",
-                    isActive
-                      ? "bg-sidebar-accent text-primary"
-                      : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                  )
-                }
-                title={collapsed ? item.label : undefined}
-                onClick={onNavClick}
-              >
-                <item.icon className="h-4 w-4 shrink-0" />
-                {!collapsed && <span className="truncate">{item.label}</span>}
-              </NavLink>
-            ))}
-          </div>
-        ))}
+        {filteredGroups.map((group, gi) => {
+          const hasLabel = !!group.label;
+          const groupActive = group.items.some((item) => isActivePath(item.to));
+          // A labeled folder shows its items when: the sidebar is in icon mode
+          // (labels hidden anyway), the user hasn't collapsed it, OR it contains
+          // the current page (so you never lose your place).
+          const open =
+            !hasLabel || collapsed || !collapsedGroups[group.label!] || groupActive;
+
+          return (
+            <div key={gi} className="mb-2">
+              {hasLabel && !collapsed && (
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group.label!)}
+                  className="mb-1 flex w-full items-center justify-between rounded px-2 py-1 text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <span>{group.label}</span>
+                  {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+                </button>
+              )}
+              {gi > 0 && !hasLabel && <Separator className="my-2" />}
+              {open &&
+                group.items.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.to === "/manufacturing" || item.to === "/freight" || item.to === "/inventory" || item.to === "/economics" || item.to === "/supplier" || item.to === "/marketing"}
+                    className={({ isActive }) =>
+                      cn(
+                        "flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors",
+                        isActive
+                          ? "bg-sidebar-accent text-primary"
+                          : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                      )
+                    }
+                    title={collapsed ? item.label : undefined}
+                    onClick={onNavClick}
+                  >
+                    <item.icon className="h-4 w-4 shrink-0" />
+                    {!collapsed && <span className="truncate">{item.label}</span>}
+                  </NavLink>
+                ))}
+            </div>
+          );
+        })}
       </ScrollArea>
     </aside>
   );
