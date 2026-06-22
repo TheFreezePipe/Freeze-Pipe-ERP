@@ -21,11 +21,15 @@
  */
 export function getEffectiveDemand(
   productId: string,
-  monthlyDemand?: number,
+  monthlyDemand?: number | null,
   forecastMap?: Map<string, number>,
 ): number {
   const forecast = forecastMap?.get(productId);
   if (forecast != null) return forecast;
-  if (monthlyDemand !== undefined) return monthlyDemand;
+  // `monthly_demand` is nullable in the DB (e.g. brand-new SKUs, most Bases)
+  // even though the generated type says `number`. Treat null the same as
+  // missing — fall through to 0 — so callers never receive a null they then
+  // call .toString()/arithmetic on.
+  if (monthlyDemand != null) return monthlyDemand;
   return 0;
 }

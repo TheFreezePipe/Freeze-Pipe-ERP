@@ -71,7 +71,7 @@ export function InventoryProjectionChart({ product, inventory, demandOverride }:
   );
 
   const { combined, arrivingFreight, reorderPoint, todayStr } = useMemo(() => {
-    const demand = demandOverride ?? product.monthly_demand;
+    const demand = demandOverride ?? product.monthly_demand ?? 0;
     const dailyBurn = demand / 30;
 
     // Find arriving freight for this SKU (non-delivered, with ETA).

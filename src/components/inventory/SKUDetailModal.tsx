@@ -188,7 +188,7 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
               product.abc_classification === "B" ? "border-yellow-500 text-yellow-400" :
               "border-muted text-muted-foreground"
             }>
-              {product.abc_classification}
+              {product.abc_classification ?? "—"}
             </Badge>
           </div>
           <p className="text-sm text-muted-foreground">{product.product_name}</p>
@@ -236,7 +236,7 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
           <div className="grid grid-cols-3 gap-4">
             <div>
               <Label className="text-xs text-muted-foreground">ShipStation (30-day trailing)</Label>
-              <p className="text-lg font-bold tabular-nums">{product.monthly_demand}/mo</p>
+              <p className="text-lg font-bold tabular-nums">{product.monthly_demand ?? "—"}/mo</p>
             </div>
             <div>
               <Label className="text-xs text-muted-foreground">
@@ -264,7 +264,7 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
                     type="number"
                     value={forecastOverride}
                     onChange={e => setForecastOverride(e.target.value)}
-                    placeholder={effectiveDemand.toString()}
+                    placeholder={String(effectiveDemand ?? 0)}
                     className="h-8"
                   />
                   <Button

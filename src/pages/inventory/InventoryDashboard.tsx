@@ -728,7 +728,7 @@ export default function InventoryDashboard() {
                                 </span>
                               </span>
                             ) : (
-                              <span className="text-muted-foreground">{product.monthly_demand}</span>
+                              <span className="text-muted-foreground">{product.monthly_demand ?? "—"}</span>
                             )}
                           </td>
                           <td className="px-3 py-2 text-right tabular-nums border-l border-border/50 font-medium">
