@@ -356,11 +356,27 @@ export default function FactoryOrderDetail() {
 
   const items = order.items ?? [];
 
+  // Units already shipped for a line, EXCLUDING manual (which is edited live
+  // in the progress form): freight + parent-consumed. Used to convert between
+  // the editor's "finished & awaiting shipment" input and the stored
+  // quantity_finished, which is CUMULATIVE (it counts shipped units too).
+  function nonManualShipped(it: (typeof items)[number]): number {
+    const freight = (freightMap.get(it.id) ?? []).reduce((s, l) => s + (l.quantity ?? 0), 0);
+    return freight + (it.quantity_consumed_by_parent ?? 0);
+  }
+  // The "finished & awaiting shipment" count = cumulative finished minus
+  // everything already shipped. Never negative.
+  function awaitingFinished(it: (typeof items)[number]): number {
+    return Math.max(0, (it.quantity_finished ?? 0) - nonManualShipped(it) - (it.quantity_shipped_manual ?? 0));
+  }
+
   function startProgress() {
     const init: Record<string, { finished: string; manual: string }> = {};
     for (const it of items) {
       init[it.id] = {
-        finished: String(it.quantity_finished ?? 0),
+        // Pre-fill with awaiting-shipment (what the user thinks of as
+        // "finished"), not the cumulative stored value.
+        finished: String(awaitingFinished(it)),
         manual: String(it.quantity_shipped_manual ?? 0),
       };
     }
@@ -379,10 +395,17 @@ export default function FactoryOrderDetail() {
       .map((it) => {
         const d = progressDrafts[it.id];
         if (!d) return null;
-        const finished = Math.max(0, parseInt(d.finished, 10) || 0);
+        const awaiting = Math.max(0, parseInt(d.finished, 10) || 0);
         const manual = Math.max(0, parseInt(d.manual, 10) || 0);
-        if (finished === (it.quantity_finished ?? 0) && manual === (it.quantity_shipped_manual ?? 0)) return null;
-        return { line_id: it.id, quantity_finished: finished, quantity_shipped_manual: manual };
+        // Stored quantity_finished is cumulative (includes everything shipped).
+        // Convert the awaiting-shipment input back: cumulative = awaiting +
+        // already-shipped (freight + consumed + this manual). Capped at ordered.
+        const cumulativeFinished = Math.min(
+          it.quantity_ordered,
+          awaiting + nonManualShipped(it) + manual,
+        );
+        if (cumulativeFinished === (it.quantity_finished ?? 0) && manual === (it.quantity_shipped_manual ?? 0)) return null;
+        return { line_id: it.id, quantity_finished: cumulativeFinished, quantity_shipped_manual: manual };
       })
       .filter((x): x is { line_id: string; quantity_finished: number; quantity_shipped_manual: number } => x !== null);
     if (ops.length === 0) {
@@ -800,7 +823,7 @@ export default function FactoryOrderDetail() {
           </div>
           {progressMode && (
             <p className="text-xs text-muted-foreground mt-1">
-              <span className="text-foreground font-medium">Finished</span> = made at the factory, still on order ·{" "}
+              <span className="text-foreground font-medium">Finished</span> = made &amp; awaiting shipment (units finished but not yet shipped) ·{" "}
               <span className="text-foreground font-medium">Shipped (manual)</span> = units shipped outside the system (reduces on-order). The order auto-completes once every unit is shipped.
             </p>
           )}
@@ -986,7 +1009,7 @@ export default function FactoryOrderDetail() {
                             <Input
                               type="number"
                               min={0}
-                              max={it.quantity_ordered}
+                              max={Math.max(0, it.quantity_ordered - nonManualShipped(it) - (it.quantity_breakage ?? 0))}
                               value={progressDrafts[it.id]?.finished ?? ""}
                               onChange={(e) =>
                                 setProgressDrafts((prev) => ({
@@ -997,7 +1020,7 @@ export default function FactoryOrderDetail() {
                               className="h-8 w-20 text-right ml-auto"
                             />
                           ) : (
-                            (it.quantity_finished ?? 0).toLocaleString()
+                            awaitingFinished(it).toLocaleString()
                           )}
                         </td>
                         <td className="py-2 text-right tabular-nums">
