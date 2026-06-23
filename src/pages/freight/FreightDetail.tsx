@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Ship, Plane, Package, DollarSign, FileText, RefreshCw, TrendingUp, TrendingDown, Pencil, Check, X, ExternalLink } from "lucide-react";
+import { ArrowLeft, Ship, Plane, Package, DollarSign, FileText, RefreshCw, TrendingUp, TrendingDown, Pencil, Check, X, ExternalLink, ShieldAlert } from "lucide-react";
 import { FREIGHT_TYPES, type FreightStatus } from "@/lib/constants";
-import { format, parseISO, formatDistanceToNow } from "date-fns";
+import { format, parseISO, formatDistanceToNow, addDays } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useShipmentTracking } from "@/lib/tracking/use-shipment-tracking";
 import { etaDriftDays } from "@/lib/tracking/reconcile";
@@ -98,6 +98,23 @@ export default function FreightDetail() {
       setCarrierDraft("");
     } catch (err) {
       setCarrierError(err instanceof Error ? err.message : "Failed to save carrier");
+    }
+  }
+
+  // China Customs Inspection: push the ETA out 7 days and flag the shipment.
+  // Repeatable — each inspection adds another 7 days.
+  async function markChinaCustomsInspection() {
+    if (!shipment) return;
+    if (!window.confirm("Log a China Customs Inspection?\n\nThis pushes the ETA out by 7 days and flags the shipment with a China Customs Delay marker.")) return;
+    const base = shipment.eta ? parseISO(shipment.eta) : new Date();
+    const newEta = format(addDays(base, 7), "yyyy-MM-dd");
+    try {
+      await updateShipment.mutateAsync({
+        id: shipment.id,
+        updates: { eta: newEta, china_customs_delay: true },
+      });
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Failed to log inspection");
     }
   }
 
@@ -216,6 +233,9 @@ export default function FreightDetail() {
             <Badge variant="outline" className="text-xs">{typeInfo.label}</Badge>
             {isHighRisk && (
               <Badge variant="outline" className="border-red-500 text-red-400">High Risk</Badge>
+            )}
+            {shipment.china_customs_delay && (
+              <Badge variant="outline" className="border-amber-500 text-amber-400">China Customs Delay</Badge>
             )}
           </div>
           <p className="text-muted-foreground text-sm">{shipment.carrier_name ?? "No carrier"} &middot; {shipment.tracking_number ?? "No tracking"}</p>
@@ -454,6 +474,25 @@ export default function FreightDetail() {
                 </div>
               )}
             </div>
+
+            {/* China Customs Inspection — pushes ETA +7 days and flags the shipment. */}
+            {shipment.status !== "delivered" && (
+              <div className="mt-4 border-t border-border/50 pt-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={markChinaCustomsInspection}
+                  disabled={updateShipment.isPending}
+                  className="border-amber-500/40 text-amber-400 hover:text-amber-300"
+                >
+                  <ShieldAlert className="mr-2 h-3.5 w-3.5" />
+                  China Customs Inspection (+7 days)
+                </Button>
+                {shipment.china_customs_delay && (
+                  <span className="ml-3 text-[11px] text-amber-400/80">Flagged: China Customs Delay</span>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
 

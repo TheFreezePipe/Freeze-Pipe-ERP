@@ -573,6 +573,7 @@ export type Database = {
           actual_arrival_date: string | null
           broker_name: string | null
           carrier_name: string | null
+          china_customs_delay: boolean
           created_at: string
           created_by_supplier_user_id: string | null
           duties_cost: number | null
@@ -604,6 +605,7 @@ export type Database = {
           actual_arrival_date?: string | null
           broker_name?: string | null
           carrier_name?: string | null
+          china_customs_delay?: boolean
           created_at?: string
           created_by_supplier_user_id?: string | null
           duties_cost?: number | null
@@ -635,6 +637,7 @@ export type Database = {
           actual_arrival_date?: string | null
           broker_name?: string | null
           carrier_name?: string | null
+          china_customs_delay?: boolean
           created_at?: string
           created_by_supplier_user_id?: string | null
           duties_cost?: number | null

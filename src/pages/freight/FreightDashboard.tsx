@@ -558,6 +558,14 @@ function ShipmentCard({
                     {daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue` : `${daysLeft}d left`}
                   </Badge>
                 )}
+                {shipment.china_customs_delay && (
+                  <Badge
+                    variant="outline"
+                    className="border-amber-500/40 text-amber-400 text-[10px] py-0"
+                  >
+                    China Customs Delay
+                  </Badge>
+                )}
               </div>
             </div>
             {/* Totals callout — cartons primary (matches supplier),
