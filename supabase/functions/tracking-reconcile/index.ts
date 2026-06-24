@@ -161,22 +161,20 @@ async function fetchCarrierUpdate(shipment: Shipment): Promise<TrackingUpdate | 
   if (!shipment.carrier_name || !shipment.tracking_number) return null;
   const carrier = shipment.carrier_name.toLowerCase().trim();
 
-  try {
-    switch (carrier) {
-      case "maersk":     return await fetchMaersk(shipment.tracking_number);
-      case "cosco":      return await fetchCosco(shipment.tracking_number);
-      case "evergreen":  return await fetchEvergreen(shipment.tracking_number);
-      case "fedex":      return await fetchFedEx(shipment.tracking_number);
-      case "ups":        return await fetchUps(shipment.tracking_number);
-      case "dhl":        return await fetchDhl(shipment.tracking_number);
-      default:
-        console.warn(`No carrier integration for "${carrier}" on shipment ${shipment.shipment_number}`);
-        return null;
-    }
-  } catch (err) {
-    // Per-carrier failures should not abort the whole run.
-    console.error(`Carrier ${carrier} failed:`, err);
-    return null;
+  // Carrier errors propagate to the per-shipment handler in the main loop, which
+  // records them in report.error_details and moves on. (Previously these were
+  // caught and swallowed here, which made a misconfigured carrier — bad key,
+  // changed endpoint — look like a clean "no update" instead of a failure.)
+  switch (carrier) {
+    case "maersk":     return await fetchMaersk(shipment.tracking_number);
+    case "cosco":      return await fetchCosco(shipment.tracking_number);
+    case "evergreen":  return await fetchEvergreen(shipment.tracking_number);
+    case "fedex":      return await fetchFedEx(shipment.tracking_number);
+    case "ups":        return await fetchUps(shipment.tracking_number);
+    case "dhl":        return await fetchDhl(shipment.tracking_number);
+    default:
+      console.warn(`No carrier integration for "${carrier}" on shipment ${shipment.shipment_number}`);
+      return null;
   }
 }
 
