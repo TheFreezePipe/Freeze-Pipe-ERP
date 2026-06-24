@@ -31,6 +31,9 @@ const FEDEX_BASE = FEDEX_USE_SANDBOX
   ? "https://apis-sandbox.fedex.com"
   : "https://apis.fedex.com";
 const DHL_API_KEY = Deno.env.get("DHL_API_KEY") ?? "";
+// DHL "Shipment Tracking — Unified" API. Single API-key header (no OAuth).
+// Base is overridable for tests but defaults to DHL's EU gateway.
+const DHL_BASE = Deno.env.get("DHL_BASE") ?? "https://api-eu.dhl.com";
 // UPS — same OAuth2 client_credentials shape as FedEx, just a different
 // base URL pair. CIE is UPS's test environment; new apps default to it
 // until "Promote to Production" is approved on the developer portal.
@@ -648,10 +651,77 @@ function formatUpsLocation(loc: any): string | null {
   return parts.length ? parts.join(", ") : null;
 }
 
+// DHL Shipment Tracking — Unified API. Auth is a single API key in the
+// `DHL-API-Key` header (no OAuth token step). GET /track/shipments?trackingNumber=…
+// Reference: https://developer.dhl.com/api-reference/shipment-tracking
 async function fetchDhl(trackingNumber: string): Promise<TrackingUpdate | null> {
   if (!DHL_API_KEY) return notReceivedNow();
-  // TODO: GET /track/shipments?trackingNumber={awb} with DHL-API-Key header
-  return notReceivedNow();
+
+  const url = `${DHL_BASE}/track/shipments?trackingNumber=${encodeURIComponent(trackingNumber)}`;
+  const res = await fetch(url, {
+    headers: { "DHL-API-Key": DHL_API_KEY, "Accept": "application/json" },
+  });
+  // 404 = not in DHL's system yet (freshly labelled, pre-first-scan). Treat as
+  // not-received-yet rather than an error, same as the UPS path.
+  if (res.status === 404) return notReceivedNow();
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`DHL track ${res.status}: ${body.slice(0, 200)}`);
+  }
+
+  // deno-lint-ignore no-explicit-any
+  const json = await res.json() as any;
+  const ship = json?.shipments?.[0];
+  if (!ship) return notReceivedNow();
+
+  const statusCode: string | undefined = ship.status?.statusCode;
+  const statusText = String(ship.status?.description ?? ship.status?.status ?? "");
+  const status: TrackingStatus = mapDhlStatus(statusCode, statusText);
+
+  // ETA: prefer the point estimate, fall back to the far end of a time-frame.
+  const carrierEta = toDateOnly(
+    ship.estimatedTimeOfDelivery ?? ship.estimatedDeliveryTimeFrame?.estimatedThrough ?? null,
+  );
+  const deliveredAt = statusCode === "delivered" ? toDateOnly(ship.status?.timestamp ?? null) : null;
+
+  // DHL returns events oldest-first; reverse so the most recent is first,
+  // matching how FedEx/UPS scan events are stored.
+  // deno-lint-ignore no-explicit-any
+  const rawEvents: Array<any> = ship.events ?? [];
+  const events = rawEvents.slice(-25).reverse().map((e: any) => ({
+    timestamp: e.timestamp ?? "",
+    description: e.description ?? e.status ?? e.statusCode ?? "",
+    location: formatDhlLocation(e.location),
+  }));
+
+  return { status, carrierEta, deliveredAt, events, checkedAt: new Date().toISOString() };
+}
+
+// DHL Unified Tracking statusCode enum: pre-transit | transit | delivered |
+// failure | unknown. There's no dedicated "out for delivery" code, so detect
+// it from the latest status text when present.
+function mapDhlStatus(code: string | undefined, description: string): TrackingStatus {
+  switch (code) {
+    case "delivered":
+      return "delivered";
+    case "transit":
+      return /out for delivery/i.test(description) ? "out_for_delivery" : "in_transit";
+    case "pre-transit":
+    case "failure":
+    case "unknown":
+      return "not_received";
+    default:
+      console.warn(`Unknown DHL statusCode "${code}"; treating as not_received. Add mapping in mapDhlStatus().`);
+      return "not_received";
+  }
+}
+
+// deno-lint-ignore no-explicit-any
+function formatDhlLocation(loc: any): string | null {
+  const addr = loc?.address ?? loc;
+  if (!addr) return null;
+  const parts = [addr.addressLocality, addr.streetAddress, addr.countryCode].filter(Boolean);
+  return parts.length ? parts.join(", ") : null;
 }
 
 // Pretty-print errors that aren't proper Error instances (PostgrestError,
