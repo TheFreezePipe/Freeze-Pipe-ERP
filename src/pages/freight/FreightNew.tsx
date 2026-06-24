@@ -15,6 +15,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ArrowLeft, Plus, Trash2, Ship, Plane, Package, PackagePlus, X } from "lucide-react";
 import {
   useProducts,
@@ -97,6 +107,14 @@ export default function FreightNew() {
   const { data: primaryCostBySkuId } = useAllPrimarySkuSupplierCosts();
   const createShipment = useCreateFreightShipment();
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Save-time "you left units unlinked" guard. Populated with the SKU lines
+  // that ship units against a SKU which HAS an open factory order but whose
+  // allocation was left on "No order link". The AlertDialog asks the operator
+  // to go back and link, or confirm they're spot shipments.
+  const [spotWarnLines, setSpotWarnLines] = useState<
+    Array<{ sku: string; qty: number; orders: string[] }>
+  >([]);
+  const [showSpotWarn, setShowSpotWarn] = useState(false);
 
   // Shipment fields
   const [freightType, setFreightType] = useState<"sea" | "air">("sea");
@@ -228,11 +246,25 @@ export default function FreightNew() {
             // data that doesn't carry. Collapse back to a single allocation,
             // preserving any quantity the operator already typed.
             const keptQty = skuTotal(s);
+            // Auto-link to the sole open factory order for this SKU, when
+            // exactly one exists. This makes "linked" the default for the
+            // common case (a SKU with one open order), so units correctly
+            // count as shipped against that order instead of silently saving
+            // as an unlinked spot shipment. With zero or multiple open
+            // orders we leave it unset — the operator picks (and the
+            // save-time guard catches a forgotten link).
+            const openForSku = getOpenFactoryItemsForSku(
+              value as string,
+              factoryOrders,
+              freightLineItems,
+            );
+            const autoSource =
+              openForSku.length === 1 ? openForSku[0].factory_order_item_id : null;
             return {
               ...s,
               sku_id: value as string,
               pre_filled: false,
-              allocations: [{ id: nextId(), quantity: keptQty, source_factory_order_item_id: null }],
+              allocations: [{ id: nextId(), quantity: keptQty, source_factory_order_item_id: autoSource }],
             };
           }
           return { ...s, pre_filled: value as boolean };
@@ -288,8 +320,46 @@ export default function FreightNew() {
     }));
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  // Scan the current carton groups for SKU units left unlinked to a factory
+  // order while an open order for that SKU exists. Those are the ones at risk
+  // of silently not counting as shipped against the order. Aggregated per SKU.
+  function computeUnlinkedWithOpenOrders(): Array<{ sku: string; qty: number; orders: string[] }> {
+    const bySku = new Map<string, { sku: string; qty: number; orders: string[] }>();
+    for (const group of cartonGroups) {
+      for (const s of group.skus) {
+        if (!s.sku_id) continue;
+        let unlinkedQty = 0;
+        for (const alloc of s.allocations) {
+          if (alloc.quantity > 0 && alloc.source_factory_order_item_id == null) {
+            unlinkedQty += alloc.quantity;
+          }
+        }
+        if (unlinkedQty <= 0) continue;
+        const open = getOpenFactoryItemsForSku(s.sku_id, factoryOrders, freightLineItems);
+        if (open.length === 0) continue; // no open order to link → legitimately spot
+        const product = products.find((p) => p.id === s.sku_id);
+        const skuLabel = product?.sku ?? s.sku_id.slice(0, 8);
+        const orderNums = open.map(
+          (o) => o.factory_order_number ?? o.factory_order_id.slice(0, 8),
+        );
+        const existing = bySku.get(s.sku_id);
+        if (existing) {
+          existing.qty += unlinkedQty;
+          for (const on of orderNums) if (!existing.orders.includes(on)) existing.orders.push(on);
+        } else {
+          bySku.set(s.sku_id, { sku: skuLabel, qty: unlinkedQty, orders: orderNums });
+        }
+      }
+    }
+    return Array.from(bySku.values());
+  }
+
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    void submitCore(false);
+  }
+
+  async function submitCore(skipSpotCheck: boolean) {
     setSubmitError(null);
 
     // Parse freight cost defensively. An empty string is fine (treat as 0
@@ -341,6 +411,20 @@ export default function FreightNew() {
     if (!hasCatalogLines && validCustom.length === 0) {
       setSubmitError("Add at least one carton group or one non-catalog item");
       return;
+    }
+
+    // Save-time guard: if any SKU ships units while it has an open factory
+    // order but the allocation was left unlinked, stop and confirm. Those
+    // units would otherwise silently NOT count as shipped against the order
+    // (exactly the bug that prompted this). Skipped once the operator
+    // explicitly confirms they're spot shipments in the dialog.
+    if (!skipSpotCheck) {
+      const unlinked = computeUnlinkedWithOpenOrders();
+      if (unlinked.length > 0) {
+        setSpotWarnLines(unlinked);
+        setShowSpotWarn(true);
+        return;
+      }
     }
 
     // Flatten to line_items. The unique index on the table is now
@@ -1097,6 +1181,61 @@ export default function FreightNew() {
           </Button>
         </div>
       </form>
+
+      {/* Save-time guard: units left unlinked while an open factory order
+          exists for that SKU. Lets the operator go back and link, or
+          confirm they really are spot/untracked shipments. */}
+      <AlertDialog open={showSpotWarn} onOpenChange={setShowSpotWarn}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Ship without linking to a factory order?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  These units aren't linked to a factory order, so they
+                  <span className="font-medium text-foreground"> won't count as shipped</span>{" "}
+                  against any order (they'll sit as in-transit spot stock):
+                </p>
+                <ul className="space-y-1 rounded-md border border-border bg-muted/30 p-2 text-sm">
+                  {spotWarnLines.map((l) => (
+                    <li key={l.sku} className="flex items-center justify-between gap-3">
+                      <span>
+                        <span className="font-mono font-medium text-foreground">{l.sku}</span>
+                        <span className="text-muted-foreground"> × {l.qty.toLocaleString()}</span>
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        open: {l.orders.join(", ")}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs">
+                  Go back to pick the order in each SKU's <span className="font-medium">From:</span>{" "}
+                  dropdown, or confirm these are spot shipments.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={createShipment.isPending}>
+              Go back &amp; link
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={createShipment.isPending}
+              onClick={(e) => {
+                // Keep the dialog flow in our hands: prevent the default
+                // auto-close so the button can show the pending state while
+                // the create runs, then navigate on success.
+                e.preventDefault();
+                setShowSpotWarn(false);
+                void submitCore(true);
+              }}
+            >
+              {createShipment.isPending ? "Creating…" : "Ship as spot anyway"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
