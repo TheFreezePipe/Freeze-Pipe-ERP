@@ -34,7 +34,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
-import type { FreightLineItemWithProduct } from "@/lib/hooks";
+import type { FreightLineItemWithProduct, FactoryOrderWithItems } from "@/lib/hooks";
 
 // Category priority + rank helper moved to src/lib/constants.ts so the
 // SKU Economics page can share the exact same sequence without drift.
@@ -134,6 +134,137 @@ function TransitBreakdownPopover({
                     {/* Status pill — dot + label so "is it tracking yet?"
                         is answerable at a glance without parsing the
                         underlying enum value. */}
+                    <p className={`mt-0.5 inline-flex items-center gap-1 text-[10px] ${pill.text}`}>
+                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${pill.dot}`} />
+                      {pill.label}
+                    </p>
+                  </div>
+                  <p className="text-sm font-semibold tabular-nums">{quantity.toLocaleString()}</p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * Status pill styles for factory orders inside the on-order popover —
+ * the on-order analogue of FREIGHT_STATUS_PILL above. `finished` is the
+ * actionable "made, just needs to ship" state, so it gets the green dot.
+ */
+const FACTORY_STATUS_PILL: Record<string, { label: string; dot: string; text: string }> = {
+  finished:      { label: "Finished",      dot: "bg-green-400", text: "text-green-300" },
+  in_production: { label: "In production", dot: "bg-amber-400", text: "text-amber-300" },
+  ordered:       { label: "Ordered",       dot: "bg-blue-400",  text: "text-blue-300" },
+};
+
+/** Hover popover showing which factory orders make up a SKU's on-order total.
+ *  Mirrors TransitBreakdownPopover; rows use the same math as buildOnOrderMap
+ *  so the per-order quantities sum exactly to totalUnits. */
+function OnOrderBreakdownPopover({
+  skuId,
+  totalUnits,
+  factoryOrders,
+  freightLineItems,
+}: {
+  skuId: string;
+  totalUnits: number;
+  factoryOrders: FactoryOrderWithItems[];
+  freightLineItems: FreightLineItemWithProduct[];
+}) {
+  const [open, setOpen] = useState(false);
+
+  const orders = useMemo(() => {
+    // Total freight already shipped per factory_order_item — netted out of
+    // each order's remaining (a line can be split across shipments).
+    const shippedByFoi = new Map<string, number>();
+    for (const line of freightLineItems) {
+      const foi = line.source_factory_order_item_id;
+      if (!foi) continue;
+      shippedByFoi.set(foi, (shippedByFoi.get(foi) ?? 0) + (line.quantity ?? 0));
+    }
+    // Same active-order statuses as buildOnOrderMap (ON_ORDER_STATUSES).
+    const active = new Set(["ordered", "in_production", "finished"]);
+    const rows: { order: FactoryOrderWithItems; quantity: number }[] = [];
+    for (const order of factoryOrders) {
+      if (!active.has(order.status)) continue;
+      let remainingForSku = 0;
+      for (const item of order.items ?? []) {
+        if (item.sku_id !== skuId) continue;
+        const shipped = shippedByFoi.get(item.id) ?? 0;
+        remainingForSku += Math.max(
+          0,
+          (item.quantity_ordered ?? 0) -
+            (item.quantity_breakage ?? 0) -
+            shipped -
+            (item.quantity_shipped_manual ?? 0) -
+            (item.quantity_consumed_by_parent ?? 0),
+        );
+      }
+      if (remainingForSku > 0) rows.push({ order, quantity: remainingForSku });
+    }
+    // Soonest expected completion first; null completion sinks to the bottom.
+    return rows.sort((a, b) =>
+      (a.order.expected_completion ?? "9999-99-99").localeCompare(
+        b.order.expected_completion ?? "9999-99-99",
+      ),
+    );
+  }, [skuId, factoryOrders, freightLineItems]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          onMouseEnter={() => setOpen(true)}
+          onMouseLeave={() => setOpen(false)}
+          className="tabular-nums hover:text-primary transition-colors"
+        >
+          {totalUnits.toLocaleString()}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side="top"
+        align="end"
+        className="w-[320px] p-0"
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+      >
+        <div className="border-b border-border px-3 py-2">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">On Order Breakdown</p>
+          <p className="text-sm font-semibold tabular-nums">{totalUnits.toLocaleString()} units across {orders.length} order{orders.length === 1 ? "" : "s"}</p>
+        </div>
+        {orders.length === 0 ? (
+          <div className="px-3 py-4 text-xs text-muted-foreground text-center">No open factory orders</div>
+        ) : (
+          <div className="divide-y divide-border/50">
+            {orders.map(({ order, quantity }) => {
+              const daysLeft = order.expected_completion
+                ? differenceInDays(parseISO(order.expected_completion), new Date())
+                : null;
+              const pill =
+                FACTORY_STATUS_PILL[order.status] ?? {
+                  label: order.status,
+                  dot: "bg-zinc-500",
+                  text: "text-zinc-400",
+                };
+              return (
+                <div key={order.id} className="flex items-center gap-3 px-3 py-2">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-md bg-orange-400/10 text-orange-400">
+                    <Factory className="h-4 w-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium truncate">
+                      {order.order_number ?? order.supplier?.code ?? "Awaiting #"}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {order.expected_completion ? `ETA ${format(parseISO(order.expected_completion), "MMM d")}` : "ETA —"}
+                      {daysLeft !== null && daysLeft >= 0 && ` · ${daysLeft}d`}
+                      {daysLeft !== null && daysLeft < 0 && ` · ${Math.abs(daysLeft)}d overdue`}
+                    </p>
+                    {/* Status pill — dot + label, matching the freight popover. */}
                     <p className={`mt-0.5 inline-flex items-center gap-1 text-[10px] ${pill.text}`}>
                       <span className={`inline-block h-1.5 w-1.5 rounded-full ${pill.dot}`} />
                       {pill.label}
@@ -771,7 +902,16 @@ export default function InventoryDashboard() {
                             )}
                           </td>
                           <td className="px-3 py-2 text-right tabular-nums border-l border-border/50">
-                            {totals.onOrderTotal > 0 ? totals.onOrderTotal.toLocaleString() : <span className="text-muted-foreground/50">-</span>}
+                            {totals.onOrderTotal > 0 ? (
+                              <OnOrderBreakdownPopover
+                                skuId={product.id}
+                                totalUnits={totals.onOrderTotal}
+                                factoryOrders={factoryOrders}
+                                freightLineItems={freightLineItems}
+                              />
+                            ) : (
+                              <span className="text-muted-foreground/50">-</span>
+                            )}
                           </td>
                           <td
                             className="px-3 py-2 text-right tabular-nums"
