@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -18,13 +18,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Trash2, Sparkles, AlertTriangle } from "lucide-react";
-import { computeDOS } from "@/lib/inventory-math";
-import { getEffectiveDemand } from "@/lib/demand";
 import {
   buildInTransitMap,
   buildOnOrderMap,
-  inventoryTotalsReal,
 } from "@/lib/inventory-aggregates";
+import { getEffectiveDemand } from "@/lib/demand";
+import { buildOrderPreview } from "@/lib/order-preview";
 import {
   useProducts,
   useInventory,
@@ -60,6 +59,17 @@ interface LineItem {
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Pre-seed the supplier when opened from a draft (e.g. the Stock Levels
+   *  order builder, which splits a cart by supplier). */
+  initialSupplierId?: string;
+  /** Pre-seed line items {sku_id, quantity} when opened from a draft. */
+  initialItems?: { sku_id: string; quantity: number }[];
+  /** Lock the supplier picker — used when the order builder has already
+   *  decided the supplier for this group. */
+  lockSupplier?: boolean;
+  /** Called after a successful create (in addition to onOpenChange(false)),
+   *  so a caller can clear the corresponding lines from its draft. */
+  onCreated?: () => void;
 }
 
 const TARGET_DOS = 120;
@@ -71,7 +81,14 @@ function dosColor(dos: number): string {
   return "text-green-400";
 }
 
-export function NewFactoryOrderDialog({ open, onOpenChange }: Props) {
+export function NewFactoryOrderDialog({
+  open,
+  onOpenChange,
+  initialSupplierId,
+  initialItems,
+  lockSupplier = false,
+  onCreated,
+}: Props) {
   const { data: products = [] } = useProducts();
   const { data: inventory = [] } = useInventory();
   const { data: suppliers = [] } = useSuppliers({ activeOnly: true });
@@ -117,6 +134,25 @@ export function NewFactoryOrderDialog({ open, onOpenChange }: Props) {
   const [showBudgetAllocator, setShowBudgetAllocator] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // Seed supplier + line items from the draft whenever the dialog opens with
+  // pre-fill props (Stock Levels order builder). Keyed on `open` so it only
+  // fires on the open transition, not on every keystroke while editing.
+  useEffect(() => {
+    if (!open) return;
+    if (initialSupplierId !== undefined) setSupplierId(initialSupplierId);
+    if (initialItems) {
+      setItems(
+        initialItems.map((i) => ({
+          id: crypto.randomUUID(),
+          sku_id: i.sku_id,
+          quantity: i.quantity,
+          alternateEta: "",
+        })),
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   const activeProducts = useMemo(
     () => products.filter((p) => p.is_active).sort((a, b) => a.sku.localeCompare(b.sku)),
     [products],
@@ -127,53 +163,31 @@ export function NewFactoryOrderDialog({ open, onOpenChange }: Props) {
     [activeProducts, items],
   );
 
-  /**
-   * Real primary supplier unit_cost for a SKU. Returns null when no
-   * primary cost row exists — callers must handle that explicitly.
-   * No silent fallbacks: writing a guessed value to factory_order_items
-   * pollutes downstream cost rollups (Open Value KPI, etc) in ways the
-   * user can't see. Better to surface the gap as $0 / "no cost data"
-   * so the operator knows they need to add costs for the SKU first.
-   */
-  function rawCostFor(skuId: string): number | null {
-    const primary = primaryCostBySkuId?.get(skuId);
-    return primary && primary.unit_cost > 0 ? primary.unit_cost : null;
-  }
+  // Shared cost + days-of-stock math — identical to the Stock Levels order
+  // builder so the two surfaces never disagree on cost / DOS / margin.
+  const preview = useMemo(
+    () =>
+      buildOrderPreview({
+        products,
+        inventory,
+        inTransitMap,
+        onOrderMap,
+        primaryCostBySkuId,
+        forecastMap,
+      }),
+    [products, inventory, inTransitMap, onOrderMap, primaryCostBySkuId, forecastMap],
+  );
+  // Local aliases keep the existing call sites below unchanged. `rawCostFor`
+  // returns null when no primary supplier cost is on file (never a guess) so
+  // the line lands with NULL unit_cost rather than polluting cost rollups.
+  const rawCostFor = preview.rawCostFor;
+  const retailFor = preview.retailFor;
+  const dosFor = preview.dosFor;
 
-  function retailFor(skuId: string): number {
-    return products.find((x) => x.id === skuId)?.retail_price ?? 0;
-  }
-
-  function currentUnitsFor(skuId: string): number {
-    const inv = inventory.find((i) => i.sku_id === skuId);
-    if (!inv) return 0;
-    return inventoryTotalsReal(inv, inTransitMap, onOrderMap).totalUnits;
-  }
-
-  function dosFor(skuId: string, extraUnits = 0): number {
-    const product = products.find((p) => p.id === skuId);
-    const demand = getEffectiveDemand(skuId, product?.monthly_demand, forecastMap);
-    return computeDOS(currentUnitsFor(skuId) + extraUnits, demand);
-  }
-
-  const totals = useMemo(() => {
-    let units = 0;
-    let rawCost = 0;
-    let retail = 0;
-    items.forEach((i) => {
-      // Lines without a real primary supplier cost contribute 0 to the
-      // raw-cost rollup — we don't fabricate a number. The UI surfaces
-      // "no cost data" elsewhere so the operator can fix the gap.
-      const lineRaw = (rawCostFor(i.sku_id) ?? 0) * i.quantity;
-      const lineRetail = retailFor(i.sku_id) * i.quantity;
-      units += i.quantity;
-      rawCost += lineRaw;
-      retail += lineRetail;
-    });
-    return { units, rawCost, retail, margin: retail - rawCost };
-    // Products needed so raw/retail lookups re-run when product prices change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, products]);
+  const totals = useMemo(
+    () => preview.lineTotals(items.map((i) => ({ sku_id: i.sku_id, quantity: i.quantity }))),
+    [preview, items],
+  );
 
   function addLine(skuId: string) {
     if (!skuId) return;
@@ -277,6 +291,8 @@ export function NewFactoryOrderDialog({ open, onOpenChange }: Props) {
       setOrderDate(new Date().toISOString().slice(0, 10));
       setOrderNumber("");
       setSupplierId("");
+      // Let a draft-driven caller (order builder) clear the lines it handed in.
+      onCreated?.();
     } catch (err) {
       // PostgREST errors are plain objects with {message, details, hint, code}.
       let msg = "Unknown error";
@@ -315,7 +331,7 @@ export function NewFactoryOrderDialog({ open, onOpenChange }: Props) {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="space-y-2">
               <Label>Supplier</Label>
-              <Select value={supplierId} onValueChange={setSupplierId}>
+              <Select value={supplierId} onValueChange={setSupplierId} disabled={lockSupplier}>
                 <SelectTrigger>
                   <SelectValue placeholder="Pick a supplier" />
                 </SelectTrigger>

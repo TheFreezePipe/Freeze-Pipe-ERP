@@ -1,5 +1,5 @@
 import { StatCard } from "@/components/shared/StatCard";
-import { Warehouse, Ship, Factory, Pencil, X, Save, Search, Plane, DollarSign } from "lucide-react";
+import { Warehouse, Ship, Factory, Pencil, X, Save, Search, Plane, DollarSign, ShoppingCart, Trash2, ArrowRight } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format, parseISO, differenceInDays } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,7 +21,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useUrlFilter, useUrlBoolFilter } from "@/lib/use-url-filter";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { ProductSKU, InventoryLevel, FreightShipment } from "@/types/database";
-import { useInventory, useBulkCycleCount, useFreightShipments, useFreightLineItems, useFactoryOrders, useForecastDemandMap, type CycleCountField, type CycleCountReason } from "@/lib/hooks";
+import { useInventory, useBulkCycleCount, useFreightShipments, useFreightLineItems, useFactoryOrders, useForecastDemandMap, useSuppliers, useAllPrimarySkuSupplierCosts, type CycleCountField, type CycleCountReason } from "@/lib/hooks";
 import { useAuth } from "@/lib/auth-context";
 import {
   AlertDialog,
@@ -34,6 +34,16 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { buildOrderPreview, type OrderPreviewLine } from "@/lib/order-preview";
+import { NewFactoryOrderDialog } from "@/components/manufacturing/NewFactoryOrderDialog";
 import type { FreightLineItemWithProduct, FactoryOrderWithItems } from "@/lib/hooks";
 
 // Category priority + rank helper moved to src/lib/constants.ts so the
@@ -366,6 +376,29 @@ export default function InventoryDashboard() {
   const bulkCycleCount = useBulkCycleCount();
   const { profile } = useAuth();
 
+  // ===== Order builder support =====
+  // Suppliers (for grouping/labels) + primary costs (for cost preview and
+  // supplier routing). Products come off the joined inventory rows.
+  const { data: suppliers = [] } = useSuppliers({ activeOnly: true });
+  const { data: primaryCostBySkuId } = useAllPrimarySkuSupplierCosts();
+  const orderProducts = useMemo(
+    () => inventory.map((i) => i.product).filter(Boolean) as ProductSKU[],
+    [inventory],
+  );
+  // Shared cost + DOS math — identical to the New Factory Order dialog.
+  const orderPreview = useMemo(
+    () =>
+      buildOrderPreview({
+        products: orderProducts,
+        inventory,
+        inTransitMap,
+        onOrderMap,
+        primaryCostBySkuId,
+        forecastMap,
+      }),
+    [orderProducts, inventory, inTransitMap, onOrderMap, primaryCostBySkuId, forecastMap],
+  );
+
   // Pending-save state — when the user clicks Save, we open a reason dialog
   // because every cycle count must be attributed to a reason code.
   const [reasonDialogOpen, setReasonDialogOpen] = useState(false);
@@ -388,6 +421,64 @@ export default function InventoryDashboard() {
     if (typeof window === "undefined") return;
     window.localStorage.setItem("freeze-pipe-dos-target", String(dosTarget));
   }, [dosTarget]);
+
+  // ===== Order builder state =====
+  // A supplier-agnostic "shopping list" (sku_id -> qty) the user fills while
+  // scanning. Persisted so a planning session survives navigation/refresh.
+  const [orderMode, setOrderMode] = useState(false);
+  const [cart, setCart] = useState<Record<string, number>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      return JSON.parse(window.localStorage.getItem("fp-erp-order-cart") || "{}") as Record<string, number>;
+    } catch {
+      return {};
+    }
+  });
+  const [reviewOpen, setReviewOpen] = useState(false);
+  // The supplier group currently being turned into a real factory order.
+  const [createGroup, setCreateGroup] = useState<{ supplierId: string | null; items: OrderPreviewLine[] } | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("fp-erp-order-cart", JSON.stringify(cart));
+  }, [cart]);
+
+  function setCartQty(skuId: string, qty: number) {
+    setCart((prev) => {
+      const next = { ...prev };
+      if (qty > 0) next[skuId] = qty;
+      else delete next[skuId];
+      return next;
+    });
+  }
+
+  const cartLines = useMemo<OrderPreviewLine[]>(
+    () =>
+      Object.entries(cart)
+        .filter(([, q]) => q > 0)
+        .map(([sku_id, quantity]) => ({ sku_id, quantity })),
+    [cart],
+  );
+  const cartTotals = useMemo(() => orderPreview.lineTotals(cartLines), [orderPreview, cartLines]);
+  // Group the cart by each SKU's primary supplier so a mixed list becomes one
+  // factory order per supplier at create time.
+  const cartGroups = useMemo(() => {
+    const groups = new Map<string, { supplierId: string | null; supplierName: string; items: OrderPreviewLine[] }>();
+    for (const line of cartLines) {
+      const sid = orderPreview.supplierIdFor(line.sku_id);
+      const key = sid ?? "__none__";
+      let g = groups.get(key);
+      if (!g) {
+        const name = sid
+          ? suppliers.find((s) => s.id === sid)?.name ?? "Unknown supplier"
+          : "No supplier on file";
+        g = { supplierId: sid, supplierName: name, items: [] };
+        groups.set(key, g);
+      }
+      g.items.push(line);
+    }
+    return [...groups.values()];
+  }, [cartLines, orderPreview, suppliers]);
 
   const aggregated = useMemo(() => {
     let warehouse = 0, transit = 0, onOrder = 0, total = 0, estMonthlyRevenue = 0;
@@ -655,11 +746,38 @@ export default function InventoryDashboard() {
                 {bulkCycleCount.isPending ? "Saving…" : "Save Cycle Count"}
               </Button>
             </>
+          ) : orderMode ? (
+            <>
+              <Button variant="ghost" size="sm" onClick={() => setOrderMode(false)}>
+                <X className="mr-1.5 h-4 w-4" />
+                Done
+              </Button>
+              <Button size="sm" onClick={() => setReviewOpen(true)} disabled={cartLines.length === 0}>
+                <ShoppingCart className="mr-1.5 h-4 w-4" />
+                Review &amp; create
+                {cartLines.length > 0 && (
+                  <span className="ml-1.5 rounded-full bg-primary-foreground/20 px-1.5 text-xs tabular-nums">
+                    {cartLines.length}
+                  </span>
+                )}
+              </Button>
+            </>
           ) : (
-            <Button variant="outline" size="sm" onClick={startEdit}>
-              <Pencil className="mr-1.5 h-4 w-4" />
-              Edit
-            </Button>
+            <>
+              <Button variant="outline" size="sm" onClick={() => setOrderMode(true)}>
+                <ShoppingCart className="mr-1.5 h-4 w-4" />
+                Build order
+                {cartLines.length > 0 && (
+                  <span className="ml-1.5 rounded-full bg-muted px-1.5 text-xs tabular-nums text-muted-foreground">
+                    {cartLines.length}
+                  </span>
+                )}
+              </Button>
+              <Button variant="outline" size="sm" onClick={startEdit}>
+                <Pencil className="mr-1.5 h-4 w-4" />
+                Edit
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -777,6 +895,9 @@ export default function InventoryDashboard() {
                         <th className="px-3 py-3 text-center border-l border-border/50" colSpan={2}>In Transit</th>
                         <th className="px-3 py-3 text-center border-l border-border/50" colSpan={2}>On Order</th>
                         <SortableTh sortKey="dosTotal" sort={sort} onToggle={toggleSort} className="px-4 py-3 text-center border-l border-border/50">DOS Total</SortableTh>
+                        {orderMode && (
+                          <th className="px-3 py-3 text-center border-l border-border/50 text-primary">Order</th>
+                        )}
                       </tr>
                       <tr className="border-b border-border text-[10px] text-muted-foreground">
                         <th className="sticky left-0 bg-card px-4 py-1 z-10" />
@@ -790,6 +911,7 @@ export default function InventoryDashboard() {
                         <SortableTh sortKey="onOrderUnits" sort={sort} onToggle={toggleSort} className="px-3 py-1 text-right border-l border-border/50">Units</SortableTh>
                         <SortableTh sortKey="onOrderDOS" sort={sort} onToggle={toggleSort} className="px-3 py-1 text-right">DOS</SortableTh>
                         <th className="px-4 py-1 text-center border-l border-border/50" />
+                        {orderMode && <th className="px-3 py-1 border-l border-border/50" />}
                       </tr>
                     </>
                   )}
@@ -937,6 +1059,49 @@ export default function InventoryDashboard() {
                               `${overallDOS}d`
                             )}
                           </td>
+                          {orderMode && (
+                            <td
+                              className="px-3 py-2 border-l border-border/50 align-middle"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {(() => {
+                                const qty = cart[product.id] ?? 0;
+                                const projected = orderPreview.dosFor(product.id, qty);
+                                const noCost = qty > 0 && orderPreview.rawCostFor(product.id) === null;
+                                return (
+                                  <div className="flex flex-col items-end gap-0.5">
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      value={cart[product.id] ?? ""}
+                                      placeholder="0"
+                                      onChange={(e) =>
+                                        setCartQty(product.id, Math.max(0, parseInt(e.target.value, 10) || 0))
+                                      }
+                                      className="h-8 w-20 text-right tabular-nums"
+                                    />
+                                    {qty > 0 && overallDOS !== NO_DEMAND_DOS && (
+                                      <span
+                                        className="text-[10px] tabular-nums"
+                                        style={{ color: dosTotalStyle(projected, dosTarget).color as string }}
+                                      >
+                                        → {projected}d{" "}
+                                        <span className="text-green-400">(+{projected - overallDOS})</span>
+                                      </span>
+                                    )}
+                                    {noCost && (
+                                      <span
+                                        className="text-[10px] text-amber-400"
+                                        title="No primary supplier cost on file — this line will be created with no cost."
+                                      >
+                                        no cost data
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </td>
+                          )}
                         </>
                       )}
                     </tr>
@@ -945,6 +1110,30 @@ export default function InventoryDashboard() {
               </table>
             </div>
           </ScrollArea>
+          {orderMode && (
+            <div className="sticky bottom-0 z-20 flex flex-wrap items-center justify-between gap-4 border-t border-border bg-card/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-card/80">
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+                <span><span className="text-muted-foreground">Lines </span><span className="font-semibold tabular-nums">{cartLines.length}</span></span>
+                <span><span className="text-muted-foreground">Units </span><span className="font-semibold tabular-nums">{cartTotals.units.toLocaleString()}</span></span>
+                <span><span className="text-muted-foreground">Est. cost </span><span className="font-semibold tabular-nums">${Math.round(cartTotals.rawCost).toLocaleString()}</span></span>
+                <span><span className="text-muted-foreground">Splits into </span><span className="font-semibold tabular-nums">{cartGroups.length === 0 ? "—" : `${cartGroups.length} order${cartGroups.length > 1 ? "s" : ""}`}</span></span>
+                {cartLines.length === 0 && (
+                  <span className="text-xs text-muted-foreground italic">Enter quantities in the Order column to start a draft.</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {cartLines.length > 0 && (
+                  <Button variant="ghost" size="sm" onClick={() => setCart({})}>
+                    <Trash2 className="mr-1.5 h-4 w-4" />
+                    Clear
+                  </Button>
+                )}
+                <Button size="sm" onClick={() => setReviewOpen(true)} disabled={cartLines.length === 0}>
+                  Review &amp; create
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -956,6 +1145,82 @@ export default function InventoryDashboard() {
           onOpenChange={(open) => { if (!open) setSelectedSKU(null); }}
         />
       )}
+
+      {/* Order builder — review the draft, then create one factory order per
+          supplier group via the shared New Factory Order dialog. */}
+      <Dialog open={reviewOpen} onOpenChange={setReviewOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Review draft order</DialogTitle>
+            <DialogDescription>
+              {cartGroups.length <= 1
+                ? "Review cost and days-of-stock, then create the factory order."
+                : `This draft spans ${cartGroups.length} suppliers — create one factory order per group below.`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+            {cartGroups.length === 0 && (
+              <p className="text-sm text-muted-foreground">Your draft is empty.</p>
+            )}
+            {cartGroups.map((g) => {
+              const t = orderPreview.lineTotals(g.items);
+              return (
+                <div key={g.supplierId ?? "__none__"} className="rounded-lg border border-border p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium">{g.supplierName}</p>
+                      <p className="text-xs text-muted-foreground tabular-nums">
+                        {g.items.length} SKU{g.items.length > 1 ? "s" : ""} · {t.units.toLocaleString()} units · ${Math.round(t.rawCost).toLocaleString()} est. cost
+                      </p>
+                    </div>
+                    <Button size="sm" onClick={() => setCreateGroup({ supplierId: g.supplierId, items: g.items })}>
+                      Create order
+                      <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {g.items.map((it) => {
+                      const p = orderProducts.find((x) => x.id === it.sku_id);
+                      return (
+                        <span key={it.sku_id} className="rounded bg-muted px-1.5 py-0.5 text-[11px] tabular-nums">
+                          <span className="font-mono">{p?.sku ?? it.sku_id.slice(0, 8)}</span> ×{it.quantity.toLocaleString()}
+                        </span>
+                      );
+                    })}
+                  </div>
+                  {g.supplierId === null && (
+                    <p className="mt-2 text-[11px] text-amber-400">
+                      No primary supplier on file for these SKUs — you'll pick a supplier in the order form.
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReviewOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <NewFactoryOrderDialog
+        open={createGroup !== null}
+        onOpenChange={(o) => { if (!o) setCreateGroup(null); }}
+        initialSupplierId={createGroup?.supplierId ?? undefined}
+        initialItems={createGroup?.items}
+        lockSupplier={!!createGroup?.supplierId}
+        onCreated={() => {
+          // Drop the just-created group's SKUs from the draft so the review
+          // list shrinks as each supplier order is placed.
+          setCart((prev) => {
+            if (!createGroup) return prev;
+            const next = { ...prev };
+            for (const it of createGroup.items) delete next[it.sku_id];
+            return next;
+          });
+          setCreateGroup(null);
+        }}
+      />
 
       {/* Reason dialog — every cycle count adjustment must have a reason code.
           The RPC writes an audit entry per changed field. */}
