@@ -1067,36 +1067,48 @@ export default function InventoryDashboard() {
                               {(() => {
                                 const qty = cart[product.id] ?? 0;
                                 const projected = orderPreview.dosFor(product.id, qty);
+                                const showProjection = qty > 0 && overallDOS !== NO_DEMAND_DOS;
                                 const noCost = qty > 0 && orderPreview.rawCostFor(product.id) === null;
                                 return (
-                                  <div className="flex flex-col items-end gap-0.5">
-                                    <Input
-                                      type="number"
-                                      min={0}
-                                      value={cart[product.id] ?? ""}
-                                      placeholder="0"
-                                      onChange={(e) =>
-                                        setCartQty(product.id, Math.max(0, parseInt(e.target.value, 10) || 0))
-                                      }
-                                      className="h-8 w-20 text-right tabular-nums"
-                                    />
-                                    {qty > 0 && overallDOS !== NO_DEMAND_DOS && (
-                                      <span
-                                        className="text-[10px] tabular-nums"
-                                        style={{ color: dosTotalStyle(projected, dosTarget).color as string }}
-                                      >
-                                        → {projected}d{" "}
-                                        <span className="text-green-400">(+{projected - overallDOS})</span>
-                                      </span>
-                                    )}
-                                    {noCost && (
-                                      <span
-                                        className="text-[10px] text-amber-400"
-                                        title="No primary supplier cost on file — this line will be created with no cost."
-                                      >
-                                        no cost data
-                                      </span>
-                                    )}
+                                  <div className="flex items-center justify-end gap-2">
+                                    {/* Projected DOS Total — styled like the real
+                                        DOS Total column so the effect of this order
+                                        reads at a glance. */}
+                                    <div className="flex flex-col items-center leading-tight w-[58px]">
+                                      {showProjection && (
+                                        <>
+                                          <span
+                                            className="rounded px-2 py-1 text-base tabular-nums"
+                                            style={dosTotalStyle(projected, dosTarget)}
+                                          >
+                                            {projected}d
+                                          </span>
+                                          <span className="text-[10px] text-green-400 tabular-nums">
+                                            +{Math.round(projected - overallDOS)}
+                                          </span>
+                                        </>
+                                      )}
+                                    </div>
+                                    <div className="flex flex-col items-end gap-0.5">
+                                      <Input
+                                        type="number"
+                                        min={0}
+                                        value={cart[product.id] ?? ""}
+                                        placeholder="0"
+                                        onChange={(e) =>
+                                          setCartQty(product.id, Math.max(0, parseInt(e.target.value, 10) || 0))
+                                        }
+                                        className="h-8 w-20 text-right tabular-nums"
+                                      />
+                                      {noCost && (
+                                        <span
+                                          className="text-[10px] text-amber-400"
+                                          title="No primary supplier cost on file — this line will be created with no cost."
+                                        >
+                                          no cost data
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
                                 );
                               })()}
