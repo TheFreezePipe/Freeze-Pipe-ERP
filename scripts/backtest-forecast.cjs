@@ -25,6 +25,18 @@ const path = require('path');
 
 const DAY_MS = 86400000;
 
+// Stockout unconstraining ("demand restoration"): a long interior run of
+// zero-sales days for an otherwise-steady seller is almost always a stockout
+// (empty shelf), not zero demand. Left as-is it censors the baseline/EWMA and
+// under-forecasts supply-constrained products (e.g. a SKU that sold ~200/mo,
+// went out of stock for two months, then resumed — the engine would average
+// in those zeros and lowball the reorder). We detect such runs and impute the
+// surrounding run-rate so the model learns true demand. Deliberately
+// conservative — see unconstrainStockouts for the firing conditions.
+const STOCKOUT_MIN_RUN = 14;        // consecutive zero days to suspect a stockout
+const STOCKOUT_CONTEXT_WINDOW = 30; // days before/after used to gauge run-rate
+const STOCKOUT_MIN_PRE_RATE = 0.5;  // pre-gap units/day to qualify as "established" (~15/mo)
+
 // ---- Minimal re-implementation of needed functions ----
 // (These mirror build-forecast.cjs exactly)
 
@@ -99,6 +111,51 @@ function extractBaseline(dailyArray, dateArray, eventMask) {
     baseline[i] = neighbors.length > 0 ? neighbors.sort((a, b) => a - b)[Math.floor(neighbors.length / 2)] : 0;
   }
   return { baseline, spikeFlags: flags };
+}
+
+/**
+ * Replace long INTERIOR zero-runs (suspected stockouts) with the local
+ * run-rate so the downstream baseline/EWMA see true demand instead of
+ * supply-censored zeros. Returns a NEW array; the input is not mutated.
+ *
+ * Fires only when ALL of these hold, to avoid imputing demand that was never
+ * there:
+ *   - run length >= STOCKOUT_MIN_RUN consecutive zero days,
+ *   - the run is interior (real sales exist both before and after it — so
+ *     pre-launch ramps and discontinued/end-of-life tails are never touched,
+ *     nor is an ongoing current stockout, which is left for the cap floor),
+ *   - the SKU was an established seller right before the gap
+ *     (pre-rate >= STOCKOUT_MIN_PRE_RATE units/day — keeps naturally
+ *     intermittent/low-volume SKUs, which Croston handles, out of scope),
+ *   - sales actually recovered after the gap (post-rate > 0).
+ * The gap is filled with the average of the pre- and post-gap daily rates.
+ */
+function unconstrainStockouts(dailyArray) {
+  const n = dailyArray.length;
+  const out = dailyArray.slice();
+  let i = 0;
+  while (i < n) {
+    if (dailyArray[i] !== 0) { i++; continue; }
+    // Extend to the maximal run of consecutive zero days [i..j].
+    let j = i;
+    while (j + 1 < n && dailyArray[j + 1] === 0) j++;
+    const runLen = j - i + 1;
+    const interior = i > 0 && j < n - 1; // real data exists before AND after
+    if (runLen >= STOCKOUT_MIN_RUN && interior) {
+      let preUnits = 0, preDays = 0;
+      for (let k = Math.max(0, i - STOCKOUT_CONTEXT_WINDOW); k < i; k++) { preUnits += dailyArray[k]; preDays++; }
+      let postUnits = 0, postDays = 0;
+      for (let k = j + 1; k <= Math.min(n - 1, j + STOCKOUT_CONTEXT_WINDOW); k++) { postUnits += dailyArray[k]; postDays++; }
+      const preRate = preDays > 0 ? preUnits / preDays : 0;
+      const postRate = postDays > 0 ? postUnits / postDays : 0;
+      if (preRate >= STOCKOUT_MIN_PRE_RATE && postRate > 0) {
+        const fill = (preRate + postRate) / 2;
+        for (let k = i; k <= j; k++) out[k] = fill;
+      }
+    }
+    i = j + 1;
+  }
+  return out;
 }
 
 function computeCategoryWeeklySeasonal(catDailyArray, catDateArray) {
@@ -329,10 +386,15 @@ function forecastAtCutoff(dailyDemand, CATALOG, cutoffDate, events, skuOverrides
       dailyArray[i] = series[d] || 0;
     }
 
+    // Restore demand censored by stockouts BEFORE any baseline/EWMA math, so
+    // supply-constrained SKUs aren't under-forecast. Downstream (Croston,
+    // EWMA, category pooling) all consume this unconstrained series.
+    const unconstrained = unconstrainStockouts(dailyArray);
+
     const eventMask = buildEventMask(dateArray, events);
-    const { baseline } = extractBaseline(dailyArray, dateArray, eventMask);
+    const { baseline } = extractBaseline(unconstrained, dateArray, eventMask);
     skuData[catItem.sku] = {
-      dailyArray, dateArray, baseline, lastDate, firstDate,
+      dailyArray: unconstrained, dateArray, baseline, lastDate, firstDate,
       dataPoints: totalDays,
       catalogId: catItem.id,
       category: CATEGORY_MAP[catItem.id] || 'Unknown',

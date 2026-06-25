@@ -59,9 +59,18 @@ for (const sku of Object.keys(forecasts)) {
   // Catastrophe cap: never forecast > 2x the same 30-day window last year
   // (guards against rare un-planned anomalies; planned promos/giveaways are
   // handled via demand_overrides upstream).
+  //
+  // The year-ago window is only a valid ceiling when last year was
+  // representative. For a SKU that was new or out of stock then, 2x a
+  // near-zero number is a bogus ceiling that crushes a healthy product
+  // (e.g. bw64: 2 units in the year-ago window -> capped to 4 despite selling
+  // ~130/mo now). So we floor the ceiling at the recent trailing-30d run-rate:
+  // the cap can still catch a genuine over-forecast, but can never drag the
+  // number below what the SKU is actually selling right now.
   const lyStart = asOfMs - 365 * DAY_MS;
   const lyActual = windowSum(sku, lyStart, lyStart + 30 * DAY_MS);
-  if (lyActual > 0) f = Math.min(f, Math.round(2 * lyActual));
+  const recent30 = windowSum(sku, asOfMs - 30 * DAY_MS, asOfMs);
+  if (lyActual > 0) f = Math.min(f, Math.max(Math.round(2 * lyActual), recent30));
 
   // Rough confidence band (A-tier MAPE ~20-25%, wider upside).
   const lower = Math.round(f * 0.7);
