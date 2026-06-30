@@ -311,8 +311,9 @@ export default function MaterialsList() {
           <div className="flex-1">
             <p className="text-sm font-medium text-amber-100">Cycle Count Mode</p>
             <p className="text-xs text-amber-300/80">
-              Enter the actual on-hand quantity for any material you're
-              counting. Leave others blank — only changed values get logged.
+              Each on-hand count is pre-filled with its current value — just
+              edit the materials you counted. Rows you don't change are left
+              as-is.
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -375,9 +376,6 @@ export default function MaterialsList() {
                   <th className="px-3 py-2">Name</th>
                   <th className="px-3 py-2">Category</th>
                   <th className="px-3 py-2 text-right">On Hand</th>
-                  {cycleMode && (
-                    <th className="px-3 py-2 text-right bg-amber-500/5">Actual Count</th>
-                  )}
                   <th className="px-3 py-2">Unit</th>
                   {!cycleMode && <th className="px-3 py-2 text-right">Unit Cost</th>}
                   {!cycleMode && <th className="px-3 py-2 text-right">$ On Hand</th>}
@@ -564,34 +562,35 @@ function MaterialRow({
           {material.category}
         </Badge>
       </td>
-      <td className={`px-3 py-3 text-right tabular-nums font-medium ${belowReorder ? "text-red-400" : ""}`}>
-        {onHand.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-      </td>
-      {cycleMode && (
-        <td className="px-3 py-3 text-right bg-amber-500/5">
-          <div className="inline-flex items-center gap-2 justify-end">
-            <Input
-              type="number"
-              step="0.01"
-              min={0}
-              className="h-8 w-28 text-right tabular-nums"
-              placeholder="(blank = skip)"
-              value={editValue === undefined ? "" : editValue}
-              onChange={(e) => onCountChange(e.target.value)}
-              onClick={(e) => e.stopPropagation()}
-            />
+      <td className={`px-3 py-3 text-right tabular-nums font-medium ${!cycleMode && belowReorder ? "text-red-400" : ""}`}>
+        {cycleMode ? (
+          // Edit-in-place, pre-filled with the current count — same model as
+          // the Stock Levels cycle count. Untouched rows keep showing their
+          // current value and log nothing.
+          <div className="inline-flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
             {deltaStr && (
               <span
-                className={`text-xs tabular-nums w-16 text-left ${
+                className={`w-12 text-right text-xs tabular-nums ${
                   delta > 0 ? "text-green-400" : "text-red-400"
                 }`}
               >
                 {deltaStr}
               </span>
             )}
+            <Input
+              type="number"
+              step="0.01"
+              min={0}
+              className="h-8 w-28 text-right tabular-nums"
+              value={editValue === undefined ? onHand : editValue}
+              onChange={(e) => onCountChange(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+            />
           </div>
-        </td>
-      )}
+        ) : (
+          onHand.toLocaleString(undefined, { maximumFractionDigits: 2 })
+        )}
+      </td>
       <td className="px-3 py-3 text-xs text-muted-foreground">{material.unit_of_measure}</td>
       {!cycleMode && (
         <td className="px-3 py-3 text-right tabular-nums">
