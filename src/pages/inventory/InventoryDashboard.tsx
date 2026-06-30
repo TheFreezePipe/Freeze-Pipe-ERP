@@ -97,7 +97,7 @@ function TransitBreakdownPopover({
         <button
           onMouseEnter={() => setOpen(true)}
           onMouseLeave={() => setOpen(false)}
-          className="tabular-nums hover:text-primary transition-colors"
+          className="block w-full px-3 py-2 text-right tabular-nums hover:text-primary transition-colors"
         >
           {totalUnits.toLocaleString()}
         </button>
@@ -230,7 +230,7 @@ function OnOrderBreakdownPopover({
         <button
           onMouseEnter={() => setOpen(true)}
           onMouseLeave={() => setOpen(false)}
-          className="tabular-nums hover:text-primary transition-colors"
+          className="block w-full px-3 py-2 text-right tabular-nums hover:text-primary transition-colors"
         >
           {totalUnits.toLocaleString()}
         </button>
@@ -999,7 +999,7 @@ export default function InventoryDashboard() {
                               `${warehouseDOS}d`
                             )}
                           </td>
-                          <td className="px-3 py-2 text-right tabular-nums border-l border-border/50">
+                          <td className="text-right tabular-nums border-l border-border/50">
                             {totals.transitTotal > 0 ? (
                               <TransitBreakdownPopover
                                 skuId={product.id}
@@ -1008,7 +1008,7 @@ export default function InventoryDashboard() {
                                 freightLineItems={freightLineItems}
                               />
                             ) : (
-                              <span className="text-muted-foreground/50">-</span>
+                              <span className="block px-3 py-2 text-muted-foreground/50">-</span>
                             )}
                           </td>
                           <td
@@ -1023,7 +1023,7 @@ export default function InventoryDashboard() {
                               <span className="text-muted-foreground/50">-</span>
                             )}
                           </td>
-                          <td className="px-3 py-2 text-right tabular-nums border-l border-border/50">
+                          <td className="text-right tabular-nums border-l border-border/50">
                             {totals.onOrderTotal > 0 ? (
                               <OnOrderBreakdownPopover
                                 skuId={product.id}
@@ -1032,7 +1032,7 @@ export default function InventoryDashboard() {
                                 freightLineItems={freightLineItems}
                               />
                             ) : (
-                              <span className="text-muted-foreground/50">-</span>
+                              <span className="block px-3 py-2 text-muted-foreground/50">-</span>
                             )}
                           </td>
                           <td
