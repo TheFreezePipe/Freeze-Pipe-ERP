@@ -54,6 +54,8 @@ sales_rows AS (
   FROM sold
   JOIN product_skus ps ON ps.id = sold.sku_id
   LEFT JOIN avg30 ON avg30.sku_id = sold.sku_id
+  -- Bases & Coils product lines are excluded from the report per ops request.
+  WHERE COALESCE(ps.display_category, '') NOT IN ('Bases', 'Coils')
 ),
 incoming_rows AS (
   SELECT fs.shipment_number, fs.carrier_name, fs.freight_type, fs.eta,
@@ -61,7 +63,8 @@ incoming_rows AS (
          COALESCE(
            jsonb_agg(jsonb_build_object('sku', COALESCE(ps.sku, fli.custom_description), 'qty', fli.quantity)
                      ORDER BY ps.sku)
-           FILTER (WHERE fli.id IS NOT NULL AND fli.quantity > 0),
+           FILTER (WHERE fli.id IS NOT NULL AND fli.quantity > 0
+                   AND COALESCE(ps.display_category, '') NOT IN ('Bases', 'Coils')),
            '[]'::jsonb
          ) AS items
   FROM freight_shipments fs
@@ -69,6 +72,9 @@ incoming_rows AS (
   LEFT JOIN product_skus ps ON ps.id = fli.sku_id
   WHERE fs.status = 'tracking'
   GROUP BY fs.id, fs.shipment_number, fs.carrier_name, fs.freight_type, fs.eta
+  -- Drop shipments whose only contents are excluded (Bases/Coils) items.
+  HAVING count(*) FILTER (WHERE fli.id IS NOT NULL AND fli.quantity > 0
+                          AND COALESCE(ps.display_category, '') NOT IN ('Bases', 'Coils')) > 0
 ),
 eff AS (
   SELECT ps.id AS sku_id, ps.sku, ps.product_name,
@@ -77,6 +83,7 @@ eff AS (
   FROM product_skus ps
   LEFT JOIN sku_forecasts f ON f.sku_id = ps.id
   WHERE ps.is_active
+    AND COALESCE(ps.display_category, '') NOT IN ('Bases', 'Coils')
 ),
 wh AS (
   SELECT il.sku_id,
