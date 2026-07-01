@@ -41,7 +41,7 @@ function fmtDate(d: string | null, opts: Intl.DateTimeFormatOptions): string {
 // ---- brand tokens (from Freeze Pipe design system) ----
 const FONT = "'Lato',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
 const MONO = "'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace";
-const SERIF = "Didot,'Bodoni MT','Playfair Display',Georgia,'Times New Roman',serif";
+const SERIF = "'Minion Pro','Minion Pro Bold','Adobe Garamond Pro',Georgia,'Times New Roman',serif";
 const INK = "#0C0C0C", CARD = "#161616", SURF = "#1E1E1E", BORD = "#2A2A2A", DIV = "#232323";
 const WHITE = "#FFFFFF", SEC = "#C9C9C9", TER = "#8C8C8C";
 const BLUE = "#28A4F8", GREEN = "#36C88D", AMBER = "#F4B740", RED = "#F05252";
@@ -176,7 +176,7 @@ function renderLowStock(d: ReportData): string {
 function renderHtml(d: ReportData): string {
   const dateLong = fmtDate(d.report_date, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=JetBrains+Mono:wght@400;500&family=Playfair+Display:wght@500;600&display=swap" rel="stylesheet"></head>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"></head>
 <body style="margin:0;padding:0;background:${INK};">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${INK};">
   <tr><td align="center" style="padding:24px 12px;">
@@ -185,7 +185,7 @@ function renderHtml(d: ReportData): string {
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid ${BORD};">
           <tr><td style="padding-bottom:16px;">
             <div style="${EYEBROW}">Daily Operations Report</div>
-            <div style="font-family:${SERIF};font-size:30px;font-weight:600;color:${WHITE};letter-spacing:0.005em;margin-top:8px;">Freeze Pipe</div>
+            <div style="font-family:${SERIF};font-size:30px;font-weight:700;color:${WHITE};letter-spacing:0.005em;margin-top:8px;">Freeze Pipe</div>
             <div style="font-family:${FONT};font-size:13px;color:${TER};margin-top:5px;">${dateLong}</div>
           </td></tr>
         </table>
