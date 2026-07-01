@@ -53,7 +53,7 @@ const skuCell = (sku: string, name?: string) =>
   (name ? `<div style="font-family:${FONT};font-size:11px;color:${TER};margin-top:1px;">${esc(name)}</div>` : "");
 
 interface SalesRow { sku: string; product_name: string; units: number; avg_daily: number; flag: string | null; }
-interface IncomingRow { shipment_number: string; carrier_name: string | null; freight_type: string; eta: string | null; days_out: number | null; items: { sku: string; qty: number }[]; }
+interface IncomingRow { shipment_number: string; carrier_name: string | null; freight_type: string; eta: string | null; days_out: number | null; items: { sku: string; name: string | null; qty: number }[]; }
 interface LowRow { sku: string; product_name: string; wh_units: number; monthly_demand: number; dos_days: number; in_transit: number; next_eta: string | null; }
 interface ReportData {
   report_date: string; recipients: string[];
@@ -115,8 +115,11 @@ function renderIncoming(d: ReportData): string {
     const when = s.eta ? fmtDate(s.eta, { month: "short", day: "numeric" }) : "ETA —";
     const dLbl = s.days_out == null ? "" : s.days_out <= 0 ? " · due" : ` · in ${s.days_out}d`;
     const items = s.items.length
-      ? s.items.map((it) => `<span style="font-family:${MONO};color:${WHITE};font-weight:500;">${num(it.qty)}×</span> <span style="font-family:${MONO};color:${SEC};">${esc(it.sku)}</span>`).join('<span style="color:'+TER+';">   ·   </span>')
-      : `<span style="color:${TER};">no SKU lines</span>`;
+      ? s.items.map((it) => `<div style="margin-top:3px;">
+          <span style="font-family:${MONO};color:${WHITE};font-weight:500;">${num(it.qty)}×</span>
+          <span style="font-family:${MONO};color:${SEC};">${esc(it.sku)}</span>${it.name ? `<span style="font-family:${FONT};color:${TER};"> — ${esc(it.name)}</span>` : ""}
+        </div>`).join("")
+      : `<div style="margin-top:5px;color:${TER};font-family:${FONT};">no SKU lines</div>`;
     return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px;background:${SURF};border:1px solid ${BORD};border-radius:6px;">
       <tr><td style="padding:11px 13px;">
         <div style="font-family:${FONT};font-size:13px;color:${WHITE};">
@@ -124,7 +127,7 @@ function renderIncoming(d: ReportData): string {
           <span style="color:${TER};">·</span> ${esc(s.carrier_name ?? s.freight_type)}
           <span style="color:${TER};">·</span> <span style="color:${BLUE};">ETA ${when}</span><span style="color:${TER};">${dLbl}</span>
         </div>
-        <div style="font-family:${FONT};font-size:13px;color:${SEC};margin-top:5px;">${items}</div>
+        <div style="font-size:13px;margin-top:4px;">${items}</div>
       </td></tr>
     </table>`;
   }).join("");

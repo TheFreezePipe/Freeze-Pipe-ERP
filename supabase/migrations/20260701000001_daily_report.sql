@@ -60,7 +60,7 @@ incoming_rows AS (
   SELECT fs.shipment_number, fs.carrier_name, fs.freight_type, fs.eta,
          (fs.eta - (SELECT today FROM d)) AS days_out,
          COALESCE(
-           jsonb_agg(jsonb_build_object('sku', COALESCE(ps.sku, fli.custom_description), 'qty', fli.quantity)
+           jsonb_agg(jsonb_build_object('sku', COALESCE(ps.sku, fli.custom_description), 'name', ps.product_name, 'qty', fli.quantity)
                      ORDER BY ps.sku)
            FILTER (WHERE fli.id IS NOT NULL AND fli.quantity > 0
                    AND COALESCE(ps.display_category, '') NOT IN ('Bases', 'Coils')),
