@@ -586,6 +586,7 @@ export default function InventoryDashboard() {
       transitDOS: (r) => dos(r.transitDOS),
       onOrderUnits: (r) => r.totals.onOrderTotal,
       onOrderDOS: (r) => dos(r.onOrderDOS),
+      totalUnits: (r) => r.totals.totalUnits,
       dosTotal: (r) => dos(r.overallDOS),
     });
   }, [filteredRows, sort]);
@@ -894,7 +895,7 @@ export default function InventoryDashboard() {
                         <th className="px-3 py-3 text-center border-l border-border/50" colSpan={2}>Warehouse</th>
                         <th className="px-3 py-3 text-center border-l border-border/50" colSpan={2}>In Transit</th>
                         <th className="px-3 py-3 text-center border-l border-border/50" colSpan={2}>On Order</th>
-                        <SortableTh sortKey="dosTotal" sort={sort} onToggle={toggleSort} className="px-4 py-3 text-center border-l border-border/50">DOS Total</SortableTh>
+                        <th className="px-3 py-3 text-center border-l border-border/50" colSpan={2}>Total</th>
                         {orderMode && (
                           <th className="px-3 py-3 text-center border-l border-border/50 text-primary">Order</th>
                         )}
@@ -910,7 +911,8 @@ export default function InventoryDashboard() {
                         <SortableTh sortKey="transitDOS" sort={sort} onToggle={toggleSort} className="px-3 py-1 text-right">DOS</SortableTh>
                         <SortableTh sortKey="onOrderUnits" sort={sort} onToggle={toggleSort} className="px-3 py-1 text-right border-l border-border/50">Units</SortableTh>
                         <SortableTh sortKey="onOrderDOS" sort={sort} onToggle={toggleSort} className="px-3 py-1 text-right">DOS</SortableTh>
-                        <th className="px-4 py-1 text-center border-l border-border/50" />
+                        <SortableTh sortKey="totalUnits" sort={sort} onToggle={toggleSort} className="px-3 py-1 text-right border-l border-border/50">Units</SortableTh>
+                        <SortableTh sortKey="dosTotal" sort={sort} onToggle={toggleSort} className="px-4 py-1 text-right">DOS</SortableTh>
                         {orderMode && <th className="px-3 py-1 border-l border-border/50" />}
                       </tr>
                     </>
@@ -1047,8 +1049,11 @@ export default function InventoryDashboard() {
                               <span className="text-muted-foreground/50">-</span>
                             )}
                           </td>
+                          <td className="px-3 py-2 text-right tabular-nums border-l border-border/50 font-medium">
+                            {totals.totalUnits.toLocaleString()}
+                          </td>
                           <td
-                            className="px-4 py-2 text-center tabular-nums border-l border-border/50 text-base"
+                            className="px-4 py-2 text-center tabular-nums text-base"
                             style={overallDOS === NO_DEMAND_DOS ? undefined : dosTotalStyle(overallDOS, dosTarget)}
                           >
                             {overallDOS === NO_DEMAND_DOS ? (
