@@ -45,7 +45,6 @@ avg30 AS (
 sales_rows AS (
   SELECT ps.sku, ps.product_name, sold.units,
          ROUND(COALESCE(avg30.avg_daily, 0), 1) AS avg_daily,
-         ROUND(sold.units * COALESCE(ps.retail_price, 0), 2) AS revenue,
          CASE
            WHEN COALESCE(avg30.avg_daily, 0) >= 1 AND sold.units >= 2 * avg30.avg_daily THEN 'above'
            WHEN COALESCE(avg30.avg_daily, 0) >= 1 AND sold.units <= 0.5 * avg30.avg_daily THEN 'below'
@@ -127,7 +126,6 @@ SELECT jsonb_build_object(
   'sales', COALESCE((SELECT jsonb_agg(to_jsonb(sr) ORDER BY sr.units DESC) FROM sales_rows sr), '[]'::jsonb),
   'sales_totals', (SELECT jsonb_build_object(
      'units', COALESCE(SUM(units), 0),
-     'revenue', COALESCE(SUM(revenue), 0),
      'sku_count', COUNT(*)) FROM sales_rows),
   'incoming', COALESCE((SELECT jsonb_agg(to_jsonb(ir) ORDER BY ir.eta NULLS LAST) FROM incoming_rows ir), '[]'::jsonb),
   'low_stock', COALESCE((SELECT jsonb_agg(to_jsonb(lr) ORDER BY lr.dos_days ASC) FROM low_rows lr), '[]'::jsonb)

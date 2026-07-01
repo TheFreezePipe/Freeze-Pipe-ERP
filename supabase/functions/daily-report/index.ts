@@ -31,7 +31,6 @@ function json(body: unknown, status = 200): Response {
 // ---- formatting helpers ----
 const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
-const money = (n: number) => "$" + Math.round(Number(n) || 0).toLocaleString("en-US");
 const num = (n: unknown) => (Number(n) || 0).toLocaleString("en-US");
 function fmtDate(d: string | null, opts: Intl.DateTimeFormatOptions): string {
   if (!d) return "—";
@@ -53,12 +52,12 @@ const skuCell = (sku: string, name?: string) =>
   `<span style="font-family:${MONO};font-size:13px;font-weight:500;color:${WHITE};">${esc(sku)}</span>` +
   (name ? `<div style="font-family:${FONT};font-size:11px;color:${TER};margin-top:1px;">${esc(name)}</div>` : "");
 
-interface SalesRow { sku: string; product_name: string; units: number; avg_daily: number; revenue: number; flag: string | null; }
+interface SalesRow { sku: string; product_name: string; units: number; avg_daily: number; flag: string | null; }
 interface IncomingRow { shipment_number: string; carrier_name: string | null; freight_type: string; eta: string | null; days_out: number | null; items: { sku: string; qty: number }[]; }
 interface LowRow { sku: string; product_name: string; wh_units: number; monthly_demand: number; dos_days: number; in_transit: number; next_eta: string | null; }
 interface ReportData {
   report_date: string; recipients: string[];
-  sales: SalesRow[]; sales_totals: { units: number; revenue: number; sku_count: number };
+  sales: SalesRow[]; sales_totals: { units: number; sku_count: number };
   incoming: IncomingRow[]; low_stock: LowRow[];
 }
 
@@ -83,19 +82,17 @@ function renderSales(d: ReportData): string {
       <td style="${TD}">${skuCell(r.sku, r.product_name)}</td>
       <td style="${TD}text-align:right;font-family:${MONO};color:${WHITE};font-weight:500;">${num(r.units)}</td>
       <td style="${TD}text-align:right;font-family:${MONO};color:${TER};">${num(r.avg_daily)}</td>
-      <td style="${TD}text-align:right;font-family:${MONO};">${money(r.revenue)}</td>
       <td style="${TD}text-align:center;">${badge}</td>
     </tr>`;
   }).join("");
   const remaining = d.sales.length - shown.length;
   const more = remaining > 0
-    ? `<tr><td colspan="5" style="${TD}color:${TER};font-size:12px;border-bottom:none;">+${remaining} more SKUs</td></tr>`
+    ? `<tr><td colspan="4" style="${TD}color:${TER};font-size:12px;border-bottom:none;">+${remaining} more SKUs</td></tr>`
     : "";
   return `
     ${sectionLabel("Yesterday's sales")}
     <div style="font-family:${FONT};color:${SEC};font-size:14px;margin:0 0 6px;">
-      <span style="font-family:${MONO};color:${WHITE};font-weight:500;">${num(t.units)}</span> units ·
-      <span style="font-family:${MONO};color:${WHITE};font-weight:500;">${money(t.revenue)}</span> ·
+      <span style="font-family:${MONO};color:${WHITE};font-weight:500;">${num(t.units)}</span> units across
       <span style="font-family:${MONO};color:${WHITE};font-weight:500;">${num(t.sku_count)}</span> SKUs
     </div>
     <div style="font-family:${FONT};color:${TER};font-size:12px;margin:0 0 10px;">Top 15 sellers plus flagged movers — ≥2× (<span style="color:${GREEN};">▲</span>) or ≤½ (<span style="color:${AMBER};">▼</span>) the 30-day daily average.</div>
@@ -104,7 +101,6 @@ function renderSales(d: ReportData): string {
         <th style="${TH}text-align:left;">SKU</th>
         <th style="${TH}text-align:right;">Units</th>
         <th style="${TH}text-align:right;">30d avg</th>
-        <th style="${TH}text-align:right;">Revenue</th>
         <th style="${TH}text-align:center;">vs avg</th>
       </tr>
       ${rows}${more}
