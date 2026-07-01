@@ -68,18 +68,13 @@ function sectionLabel(text: string): string {
 
 function renderSales(d: ReportData): string {
   const t = d.sales_totals;
-  const flagged = d.sales.filter((r) => r.flag);
-  const chips = flagged.length
-    ? `<div style="margin:2px 0 14px;line-height:2.1;">` +
-      flagged.map((r) => {
-        const up = r.flag === "above";
-        const bg = up ? "#0F2A1F" : "#2C2413";
-        const fg = up ? GREEN : AMBER;
-        return `<span style="display:inline-block;margin:0 6px 0 0;padding:4px 10px;border-radius:999px;background:${bg};font-family:${FONT};font-size:12px;color:${fg};">${up ? "▲" : "▼"} <span style="font-family:${MONO};font-weight:500;">${esc(r.sku)}</span> ${num(r.units)} vs ${num(r.avg_daily)}/day</span>`;
-      }).join("") + `</div>`
-    : "";
-  const CAP = 40;
-  const rows = d.sales.slice(0, CAP).map((r) => {
+  // Top 15 sellers by units PLUS any flagged movers (faster/slower vs their
+  // 30-day average) outside the top 15 — so notable movers are never cut.
+  const top = d.sales.slice(0, 15);
+  const topSkus = new Set(top.map((r) => r.sku));
+  const extra = d.sales.filter((r) => r.flag && !topSkus.has(r.sku));
+  const shown = [...top, ...extra];
+  const rows = shown.map((r) => {
     const bg = r.flag === "above" ? "background:#101f18;" : r.flag === "below" ? "background:#221c10;" : "";
     const badge = r.flag === "above"
       ? `<span style="color:${GREEN};font-weight:700;">▲</span>`
@@ -92,8 +87,9 @@ function renderSales(d: ReportData): string {
       <td style="${TD}text-align:center;">${badge}</td>
     </tr>`;
   }).join("");
-  const more = d.sales.length > CAP
-    ? `<tr><td colspan="5" style="${TD}color:${TER};font-size:12px;border-bottom:none;">+${d.sales.length - CAP} more SKUs</td></tr>`
+  const remaining = d.sales.length - shown.length;
+  const more = remaining > 0
+    ? `<tr><td colspan="5" style="${TD}color:${TER};font-size:12px;border-bottom:none;">+${remaining} more SKUs</td></tr>`
     : "";
   return `
     ${sectionLabel("Yesterday's sales")}
@@ -102,8 +98,7 @@ function renderSales(d: ReportData): string {
       <span style="font-family:${MONO};color:${WHITE};font-weight:500;">${money(t.revenue)}</span> ·
       <span style="font-family:${MONO};color:${WHITE};font-weight:500;">${num(t.sku_count)}</span> SKUs
     </div>
-    <div style="font-family:${FONT};color:${TER};font-size:12px;margin:0 0 10px;">Flagged ≥2× (<span style="color:${GREEN};">▲</span>) or ≤½ (<span style="color:${AMBER};">▼</span>) the 30-day daily average.</div>
-    ${chips}
+    <div style="font-family:${FONT};color:${TER};font-size:12px;margin:0 0 10px;">Top 15 sellers plus flagged movers — ≥2× (<span style="color:${GREEN};">▲</span>) or ≤½ (<span style="color:${AMBER};">▼</span>) the 30-day daily average.</div>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
       <tr>
         <th style="${TH}text-align:left;">SKU</th>
