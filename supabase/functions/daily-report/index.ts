@@ -180,7 +180,7 @@ function renderHtml(d: ReportData): string {
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid ${BORD};">
           <tr><td style="padding-bottom:16px;">
             <div style="${EYEBROW}">Daily Operations Report</div>
-            <div style="font-family:${SERIF};font-size:30px;font-weight:700;color:${WHITE};letter-spacing:0.005em;margin-top:8px;">Freeze Pipe</div>
+            <div style="font-family:${SERIF};font-size:30px;font-weight:700;color:${WHITE};letter-spacing:0.05em;text-transform:uppercase;margin-top:8px;">Freeze Pipe</div>
             <div style="font-family:${FONT};font-size:13px;color:${TER};margin-top:5px;">${dateLong}</div>
           </td></tr>
         </table>
