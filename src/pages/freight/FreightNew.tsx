@@ -645,7 +645,7 @@ export default function FreightNew() {
               <div className="space-y-2">
                 <Label htmlFor="carrier">Carrier</Label>
                 {/* Constrained to the 3 carriers we integrate with for tracking
-                    (FedEx live; UPS + DHL stubbed). For sea freight from China,
+                    (FedEx, UPS and DHL — all live). For sea freight from China,
                     these are the US final-mile carriers — the original ocean
                     carrier (Maersk/COSCO/etc.) is captured in freight_type='sea'
                     and isn't tracked at the carrier_name level here. */}

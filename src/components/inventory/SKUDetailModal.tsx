@@ -60,10 +60,10 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
   const restoreSKU = useRestoreSKU();
   const { data: currentOverride } = useDemandOverride(product.id);
   const setDemandOverrideMut = useSetDemandOverride();
-  // Live-data derivations for the per-SKU In Transit + On Order cards. The
-  // legacy `inventory_levels.in_transit_* / nancy_* / yx_*` columns that
-  // `computeInventoryTotals` read are no longer maintained post-supplier-portal;
-  // pull from freight_shipments + factory_orders directly instead.
+  // Live-data derivations for the per-SKU In Transit + On Order cards,
+  // pulled from freight_shipments + factory_orders (the legacy
+  // inventory_levels.in_transit_*/nancy_*/yx_* columns were dropped in
+  // migration 041).
   const { data: shipments = [] } = useFreightShipments();
   const { data: freightLines = [] } = useFreightLineItems();
   const { data: factoryOrders = [] } = useFactoryOrders();

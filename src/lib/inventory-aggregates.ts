@@ -27,9 +27,9 @@
  *     Delivered shipments are excluded because their units have landed in
  *     warehouse_raw already.
  *
- * Callers should prefer `inventoryTotalsReal` over the legacy
- * `computeInventoryTotals` from demo-data — the legacy helper still sums
- * the stale columns and will read 0 for anything supplier-portal-created.
+ * `inventoryTotalsReal` below is the only totals helper — the legacy
+ * `computeInventoryTotals` (demo-data) that read the stale columns was
+ * deleted in the 2026-07 audit cleanup along with demo-data itself.
  */
 
 import type { FactoryOrderWithItems } from "./hooks/use-factory-orders";
@@ -124,9 +124,9 @@ export function buildOnOrderMap(
 }
 
 /**
- * Replacement for `computeInventoryTotals` from demo-data that derives the
- * transit + on-order buckets from real tables instead of the stale
- * `inventory_levels.in_transit_* / nancy_* / yx_*` columns.
+ * Per-SKU totals with transit + on-order derived from the real tables
+ * (freight_shipments / factory_orders) rather than any denormalized
+ * inventory_levels columns.
  *
  * Warehouse numbers (raw / in_production / finished / other) still come
  * from inventory_levels — those columns ARE kept live by the task-log RPC

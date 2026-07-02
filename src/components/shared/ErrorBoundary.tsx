@@ -1,7 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { AlertTriangle, RefreshCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { captureException } from "@/lib/monitoring/sentry";
+import { captureException } from "@/lib/observability";
 
 /**
  * Catches render-time errors below a route and shows a recoverable message
@@ -33,10 +33,9 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     this.setState({ info });
-    // Route through the monitoring layer so once Sentry is wired up
-    // (currently a dev-only console.error stub) errors get reported
-    // automatically. The boundary's fallbackContext is included as a
-    // tag so we can group errors by page/section.
+    // Report render crashes to Sentry (live via observability.ts when a
+    // DSN is configured; console in dev). The boundary's fallbackContext
+    // is included so errors group by page/section.
     captureException(error, {
       tags: { boundary: this.props.fallbackContext ?? "unknown" },
       extra: { componentStack: info.componentStack },

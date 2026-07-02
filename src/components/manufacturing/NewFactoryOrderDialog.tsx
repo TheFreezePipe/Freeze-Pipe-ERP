@@ -101,10 +101,9 @@ export function NewFactoryOrderDialog({
   const forecastMap = useForecastDemandMap();
   const createFactoryOrder = useCreateFactoryOrder();
 
-  // Per-SKU aggregates derived from live sources. Replaces reads of the
-  // legacy `inventory_levels.in_transit_* / nancy_* / yx_*` columns that
-  // are no longer maintained post-supplier-portal (and will be dropped
-  // in migration 041).
+  // Per-SKU aggregates derived from live sources (freight_shipments +
+  // factory_orders). The legacy inventory_levels.in_transit_*/nancy_*/yx_*
+  // columns were dropped in migration 041.
   const inTransitMap = useMemo(
     () => buildInTransitMap(shipments, freightLines),
     [shipments, freightLines],
