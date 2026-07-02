@@ -37,6 +37,7 @@
 // we enforce our own secret-in-URL authentication instead.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { resolveLineItems } from "../_shared/shipstation-resolve.ts";
 
 // -----------------------------------------------------------------------------
 // Env & clients
@@ -347,7 +348,7 @@ async function upsertOrder(order: ShipStationOrder, seenVia: string): Promise<st
     .delete()
     .eq("shipstation_order_id", orderRowId);
 
-  const rowsToInsert = await resolveLineItems(orderRowId, order.items);
+  const rowsToInsert = await resolveLineItems(supabase, orderRowId, order.items);
   if (rowsToInsert.length > 0) {
     await supabase.from("shipstation_order_items").insert(rowsToInsert);
   }
@@ -355,62 +356,9 @@ async function upsertOrder(order: ShipStationOrder, seenVia: string): Promise<st
   return orderRowId;
 }
 
-// -----------------------------------------------------------------------------
-// Resolve ShipStation line items into shipstation_order_items rows.
-// Filtering: skip empty sku_code, skip qty <= 0, skip non-inventory entries.
-// SKU id resolution priority:
-//   1. shipstation_sku_handling.resolved_sku_id (alias)
-//   2. case-insensitive product_skus.sku match
-//   3. NULL → goes to triage queue, blocks the order's apply
-// Same logic is duplicated in shipstation-reconcile/index.ts; if you change
-// one, change the other.
-// -----------------------------------------------------------------------------
-async function resolveLineItems(
-  orderRowId: string,
-  items: ShipStationOrder["items"],
-): Promise<Array<Record<string, unknown>>> {
-  const trackable = items.filter(i =>
-    i.sku && i.sku.trim() !== "" && i.quantity > 0
-  );
-  if (trackable.length === 0) return [];
-
-  const skuCodes = [...new Set(trackable.map(i => i.sku))];
-
-  const [{ data: handlingRows }, { data: allSkus }] = await Promise.all([
-    supabase
-      .from("shipstation_sku_handling")
-      .select("sku_code, resolved_sku_id, is_non_inventory")
-      .in("sku_code", skuCodes),
-    supabase
-      .from("product_skus")
-      .select("id, sku"),
-  ]);
-
-  const handlingMap = new Map(
-    (handlingRows ?? []).map(r => [r.sku_code, r as { resolved_sku_id: string | null; is_non_inventory: boolean }]),
-  );
-  const skuByLowercase = new Map(
-    (allSkus ?? []).map(r => [(r.sku as string).toLowerCase(), r.id as string]),
-  );
-
-  return trackable
-    .map(i => {
-      const handling = handlingMap.get(i.sku);
-      if (handling?.is_non_inventory) return null;
-      const sku_id = handling?.resolved_sku_id
-        ?? skuByLowercase.get(i.sku.toLowerCase())
-        ?? null;
-      return {
-        shipstation_order_id: orderRowId,
-        shipstation_line_item_id: i.orderItemId,
-        sku_code: i.sku,
-        sku_id,
-        quantity: i.quantity,
-        unit_price_cents: Math.round(i.unitPrice * 100),
-      };
-    })
-    .filter((r): r is NonNullable<typeof r> => r !== null);
-}
+// Line-item resolution (alias table → exact catalog match → prefix rule)
+// lives in _shared/shipstation-resolve.ts — one implementation for both
+// this function and shipstation-reconcile.
 
 // -----------------------------------------------------------------------------
 // Apply inventory delta via the atomic RPC
