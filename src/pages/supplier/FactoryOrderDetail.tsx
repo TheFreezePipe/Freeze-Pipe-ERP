@@ -26,13 +26,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, XCircle, PackageCheck, AlertTriangle, Link as LinkIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-const STATUS_COLOR: Record<SupplierFactoryOrderRow["status"], string> = {
-  ordered: "bg-blue-500/10 text-blue-400 border-blue-500/30",
-  in_production: "bg-amber-500/10 text-amber-400 border-amber-500/30",
-  finished: "bg-green-500/10 text-green-400 border-green-500/30",
-  shipped: "bg-slate-500/10 text-slate-400 border-slate-500/30",
-  canceled: "bg-red-500/10 text-red-400 border-red-500/30",
-};
+import { FACTORY_ORDER_STATUS_COLORS as STATUS_COLOR } from "@/lib/status-colors";
 
 // Small query to resolve whether the current caller consolidates for the
 // producing supplier on this order. Empty result = no, non-empty = yes.

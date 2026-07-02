@@ -9,12 +9,7 @@ import {
 } from "@/lib/hooks";
 import { useToast } from "@/hooks/use-toast";
 
-const STATUS_COLOR: Record<ShipmentVarianceRow["status"], string> = {
-  open: "bg-red-500/10 text-red-400 border-red-500/30",
-  acknowledged: "bg-amber-500/10 text-amber-400 border-amber-500/30",
-  resolved: "bg-green-500/10 text-green-400 border-green-500/30",
-  written_off: "bg-slate-500/10 text-slate-400 border-slate-500/30",
-};
+import { VARIANCE_STATUS_COLORS as STATUS_COLOR } from "@/lib/status-colors";
 
 const TYPE_LABEL: Record<ShipmentVarianceRow["variance_type"], string> = {
   shortage: "Shortage",

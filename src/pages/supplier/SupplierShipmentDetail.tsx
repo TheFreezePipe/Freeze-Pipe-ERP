@@ -9,20 +9,12 @@ import { Label } from "@/components/ui/label";
 import {
   useSupplierFreightShipment,
   useUpdateSupplierShipmentTracking,
-  type SupplierFreightShipmentRow,
   type SupplierFreightLineItemRow,
 } from "@/lib/hooks";
 import { ArrowLeft, Save, Ship, Plane } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-const STATUS_COLOR: Record<SupplierFreightShipmentRow["status"], string> = {
-  pending: "bg-slate-500/10 text-slate-400 border-slate-500/30",
-  on_the_water: "bg-indigo-500/10 text-indigo-400 border-indigo-500/30",
-  high_risk: "bg-amber-500/10 text-amber-400 border-amber-500/30",
-  cleared_customs: "bg-teal-500/10 text-teal-400 border-teal-500/30",
-  tracking: "bg-purple-500/10 text-purple-400 border-purple-500/30",
-  delivered: "bg-green-500/10 text-green-400 border-green-500/30",
-};
+import { FREIGHT_STATUS_COLORS as STATUS_COLOR } from "@/lib/status-colors";
 
 /**
  * Supplier-side shipment detail. Editable while pending or on_the_water;

@@ -14,13 +14,7 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/hooks/use-toast";
 
-const STATUS_COLOR: Record<BreakageReportRow["status"], string> = {
-  open: "bg-red-500/10 text-red-400 border-red-500/30",
-  acknowledged: "bg-amber-500/10 text-amber-400 border-amber-500/30",
-  disputed: "bg-purple-500/10 text-purple-400 border-purple-500/30",
-  resolved: "bg-green-500/10 text-green-400 border-green-500/30",
-  written_off: "bg-slate-500/10 text-slate-400 border-slate-500/30",
-};
+import { BREAKAGE_STATUS_COLORS as STATUS_COLOR } from "@/lib/status-colors";
 
 export default function BreakageInbox() {
   const { supplierId } = useAuth();
