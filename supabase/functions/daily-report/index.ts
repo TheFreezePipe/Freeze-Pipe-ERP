@@ -197,8 +197,29 @@ function renderHtml(d: ReportData): string {
 </body></html>`;
 }
 
+/** Extract the `role` claim from a JWT without verifying the signature —
+ *  the Supabase gateway (verify_jwt) has already done that. Payload is
+ *  base64url, which atob can't digest directly. */
+function jwtRole(authHeader: string | null): string | null {
+  const token = (authHeader ?? "").replace(/^Bearer\s+/i, "");
+  const part = token.split(".")[1];
+  if (!part) return null;
+  try {
+    const b64 = part.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(part.length / 4) * 4, "=");
+    return (JSON.parse(atob(b64)) as { role?: string }).role ?? null;
+  } catch {
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
+  // Defense-in-depth: only the service-role JWT (pg_cron / ops) may trigger
+  // sends. The gateway already rejects unsigned callers; pinning the role
+  // claim additionally locks out anon/user JWTs regardless of gateway config.
+  if (jwtRole(req.headers.get("Authorization")) !== "service_role") {
+    return json({ error: "forbidden - service role required" }, 403);
+  }
 
   let opts: { dry_run?: boolean; test_to?: string | string[] } = {};
   try { opts = await req.json(); } catch { /* empty body ok */ }
