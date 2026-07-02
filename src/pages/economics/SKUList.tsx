@@ -109,7 +109,7 @@ export default function SKUList() {
       const d2c = computeListD2C(econ, primaryUnitCost, product.retail_price ?? 0, product.category);
       const demand = getEffectiveDemand(product.id, product.monthly_demand, forecastMap);
       const marginPerUnit =
-        d2c && product.retail_price > 0 ? product.retail_price - d2c.totalD2C : null;
+        d2c && (product.retail_price ?? 0) > 0 ? (product.retail_price ?? 0) - d2c.totalD2C : null;
       const monthlyContribution =
         marginPerUnit !== null && demand > 0 ? marginPerUnit * demand : null;
       const archivedAt = (product as ProductSKU & { archived_at?: string | null }).archived_at;
@@ -126,7 +126,7 @@ export default function SKUList() {
         sku: (r) => r.product.sku,
         line: (r) => r.product.display_category,
         abc: (r) => r.product.abc_classification,
-        retail: (r) => (r.product.retail_price > 0 ? r.product.retail_price : null),
+        retail: (r) => ((r.product.retail_price ?? 0) > 0 ? r.product.retail_price : null),
         demand: (r) => (r.demand > 0 ? r.demand : null),
         raw: (r) => r.d2c?.rawCost ?? null,
         imp: (r) => r.d2c?.importCost ?? null,
@@ -135,7 +135,7 @@ export default function SKUList() {
         total: (r) => r.d2c?.totalD2C ?? null,
         marginD: (r) => r.marginPerUnit,
         marginPct: (r) =>
-          r.d2c && r.product.retail_price > 0 ? r.d2c.contributionMargin : null,
+          r.d2c && (r.product.retail_price ?? 0) > 0 ? r.d2c.contributionMargin : null,
         monthly: (r) => r.monthlyContribution,
       }),
     [tableRows, sort],
@@ -354,8 +354,8 @@ export default function SKUList() {
                       </Badge>
                     </td>
                     <td className="px-3 py-3 text-right tabular-nums">
-                      {product.retail_price > 0 ? (
-                        `$${product.retail_price.toFixed(2)}`
+                      {(product.retail_price ?? 0) > 0 ? (
+                        `$${(product.retail_price ?? 0).toFixed(2)}`
                       ) : (
                         <span className="text-muted-foreground">-</span>
                       )}
@@ -442,7 +442,7 @@ export default function SKUList() {
                       )}
                     </td>
                     <td className="px-2 py-3 text-right tabular-nums">
-                      {d2c && product.retail_price > 0 ? (
+                      {d2c && (product.retail_price ?? 0) > 0 ? (
                         <span className={marginColor(d2c.contributionMargin)}>
                           {(d2c.contributionMargin * 100).toFixed(1)}%
                         </span>

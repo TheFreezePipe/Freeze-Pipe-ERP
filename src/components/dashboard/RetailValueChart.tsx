@@ -37,7 +37,7 @@ export function RetailValueChart() {
       const product = inv.product;
       if (!product) return;
       const totals = inventoryTotalsReal(inv, inTransitMap, onOrderMap);
-      const price = product.retail_price;
+      const price = product.retail_price ?? 0;
       const category = product.display_category;
 
       if (!byCat[category]) {

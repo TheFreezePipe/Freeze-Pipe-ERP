@@ -105,7 +105,7 @@ export function AlertsPanel() {
 
       // Compare forecast vs static demand
       const forecastDemand = getEffectiveDemand(product.id, product.monthly_demand, forecastMap);
-      const staticDemand = product.monthly_demand;
+      const staticDemand = product.monthly_demand ?? 0;
       if (forecastDemand !== staticDemand && staticDemand > 0) {
         const ratio = forecastDemand / staticDemand;
         if (ratio > ALERT_DEMAND_UP_RATIO) {

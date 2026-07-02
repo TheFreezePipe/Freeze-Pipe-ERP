@@ -99,7 +99,7 @@ export function buildRetailValueBreakdown(
   for (const inv of inventory) {
     const product = inv.product;
     if (!product) continue;
-    const price = product.retail_price;
+    const price = product.retail_price ?? 0;
     if (price <= 0) continue;
 
     const totals = inventoryTotalsReal(inv, inTransitMap, onOrderMap);

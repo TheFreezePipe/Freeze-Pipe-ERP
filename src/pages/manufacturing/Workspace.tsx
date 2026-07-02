@@ -37,7 +37,7 @@ export default function Workspace() {
     // nowhere near a full carton; pre-populating the carton qty would be
     // misleading. Leave qty at whatever it was.
     if (product && taskType !== "breakage") {
-      setQuantity(product.standard_quantity_per_carton);
+      setQuantity(product.standard_quantity_per_carton ?? 0);
     }
   }
 

@@ -15,10 +15,10 @@ export default function ManufacturingDashboard() {
   const forecastMap = useForecastDemandMap();
 
   const stats = useMemo(() => {
-    const raw = inventory.reduce((s, i) => s + i.warehouse_raw, 0);
+    const raw = inventory.reduce((s, i) => s + (i.warehouse_raw ?? 0), 0);
     const prefilledRaw = inventory.reduce((s, i) => s + (i.warehouse_prefilled_raw ?? 0), 0);
-    const wip = inventory.reduce((s, i) => s + i.warehouse_in_production, 0);
-    const finished = inventory.reduce((s, i) => s + i.warehouse_finished, 0);
+    const wip = inventory.reduce((s, i) => s + (i.warehouse_in_production ?? 0), 0);
+    const finished = inventory.reduce((s, i) => s + (i.warehouse_finished ?? 0), 0);
     // "Today" = start of today in the browser's local timezone. Prefer
     // time_completed (when the operator actually finished the task); fall
     // back to created_at for older rows that pre-date the column. Earlier
@@ -53,12 +53,12 @@ export default function ManufacturingDashboard() {
       .map(inv => {
         const product = inv.product;
         const prefilledRaw = inv.warehouse_prefilled_raw ?? 0;
-        const total = inv.warehouse_raw + prefilledRaw + inv.warehouse_in_production + inv.warehouse_finished;
+        const total = (inv.warehouse_raw ?? 0) + prefilledRaw + (inv.warehouse_in_production ?? 0) + (inv.warehouse_finished ?? 0);
         const priority = computeManufacturingPriority(
-          inv.warehouse_raw,
+          inv.warehouse_raw ?? 0,
           prefilledRaw,
-          inv.warehouse_in_production,
-          inv.warehouse_finished,
+          inv.warehouse_in_production ?? 0,
+          inv.warehouse_finished ?? 0,
           getEffectiveDemand(product.id, product.monthly_demand, forecastMap),
           product.abc_classification,
         );
@@ -145,10 +145,10 @@ export default function ManufacturingDashboard() {
         <CardContent className="space-y-4">
           {pipelineRows.map(({ inv, product, total, priority }, index) => {
             const prefilledRaw = inv.warehouse_prefilled_raw ?? 0;
-            const rawPct = total > 0 ? (inv.warehouse_raw / total) * 100 : 0;
+            const rawPct = total > 0 ? ((inv.warehouse_raw ?? 0) / total) * 100 : 0;
             const prefilledPct = total > 0 ? (prefilledRaw / total) * 100 : 0;
-            const wipPct = total > 0 ? (inv.warehouse_in_production / total) * 100 : 0;
-            const finPct = total > 0 ? (inv.warehouse_finished / total) * 100 : 0;
+            const wipPct = total > 0 ? ((inv.warehouse_in_production ?? 0) / total) * 100 : 0;
+            const finPct = total > 0 ? ((inv.warehouse_finished ?? 0) / total) * 100 : 0;
             const urgency = urgencyLabel(priority.score);
 
             return (

@@ -3530,9 +3530,11 @@ export type Database = {
         Args: { p_actor_id: string; p_reason: string; p_sku_id: string }
         Returns: undefined
       }
+      fire_daily_report: { Args: never; Returns: undefined }
       jwt_is_internal: { Args: never; Returns: boolean }
       jwt_supplier_id: { Args: never; Returns: string }
       jwt_supplier_scope: { Args: never; Returns: string[] }
+      purge_ingest_telemetry: { Args: never; Returns: undefined }
       restore_sku: {
         Args: { p_actor_id: string; p_sku_id: string }
         Returns: undefined
@@ -3632,6 +3634,7 @@ export type Database = {
         }
         Returns: Json
       }
+      rpc_daily_report: { Args: never; Returns: Json }
       rpc_factory_order_component_status: {
         Args: { p_factory_order_id: string }
         Returns: Json

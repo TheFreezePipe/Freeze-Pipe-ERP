@@ -595,11 +595,11 @@ export default function InventoryDashboard() {
     const initial: Record<string, Record<string, number>> = {};
     inventory.forEach(inv => {
       initial[inv.id] = {
-        warehouse_raw: inv.warehouse_raw,
+        warehouse_raw: inv.warehouse_raw ?? 0,
         warehouse_prefilled_raw: inv.warehouse_prefilled_raw ?? 0,
-        warehouse_in_production: inv.warehouse_in_production,
-        warehouse_finished: inv.warehouse_finished,
-        warehouse_other: inv.warehouse_other,
+        warehouse_in_production: inv.warehouse_in_production ?? 0,
+        warehouse_finished: inv.warehouse_finished ?? 0,
+        warehouse_other: inv.warehouse_other ?? 0,
       };
     });
     setEditValues(initial);

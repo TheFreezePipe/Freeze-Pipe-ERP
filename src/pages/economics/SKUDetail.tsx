@@ -884,7 +884,7 @@ export default function SKUDetail() {
                 className="group inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground tabular-nums"
                 title="Click to edit retail price"
               >
-                ${product.retail_price.toFixed(2)}
+                ${(product.retail_price ?? 0).toFixed(2)}
                 <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
               </button>
             )}
@@ -1000,9 +1000,9 @@ export default function SKUDetail() {
             <span className="text-3xl font-bold tabular-nums tracking-tight text-primary">
               ${totalD2C.toFixed(2)}
             </span>
-            {product.retail_price > 0 && (() => {
-              const profit = product.retail_price - totalD2C;
-              const marginPct = Math.round((profit / product.retail_price) * 100);
+            {(product.retail_price ?? 0) > 0 && (() => {
+              const profit = (product.retail_price ?? 0) - totalD2C;
+              const marginPct = Math.round((profit / (product.retail_price ?? 0)) * 100);
               return (
                 <Badge variant="outline" className={profit > 0 ? "border-green-500 text-green-400" : "border-red-500 text-red-400"}>
                   {marginPct}% margin · ${profit.toFixed(2)} profit per unit
