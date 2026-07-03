@@ -1,8 +1,111 @@
 # Marketing Module — Planning Doc
 
-> Status: **v0.2, design — all open decisions resolved; not yet building.** Living document; expect iteration.
-> Last updated: 2026-06-18.
+> Status: **v0.3 — Phase 1 (calendar + CRUD shell) SHIPPED 2026-06-18; audited + industry-researched 2026-07-03; building the connective phases next.** Living document; expect iteration.
+> Last updated: 2026-07-03.
 > Companion to the parked Analytics module plan. Honors the **2022-01-01 data-relevance floor** (pre-2022 store/promo data is not representative).
+
+---
+
+## 0. v0.3 addendum — audit + industry research (2026-07-03)
+
+A full audit of the shipped Phase 1 shell plus deep research on industry leaders
+(DTC demand planning: Cogsy, Inventory Planner, Netstock, Alloy, Flieber,
+Prediko, Fabrikatör, Toolio · campaign calendars: Klaviyo, CoSchedule, Asana,
+Monday, Airtable, Planable · NPD/stage-gate: Stage-Gate Intl, Productboard,
+Kanbanize, Delogue, Anvyl, Arena, Backbone). Three conclusions:
+
+**A. The shell is sound and the original design is validated.** The learning
+flywheel this doc specifies (§4.1 predict→record→observe→update, promo-labeled
+history, uplift priors, launch analogs) is precisely what the market leaders
+sell as their differentiator (Netstock "ML Events", Alloy de-promoted baseline,
+Cogsy reference-SKU launch sims). Build THIS plan; don't pivot.
+
+**B. Organizing principle (owner mandate): the CALENDAR is the operating
+system.** Every capability below either renders ON the calendar or hangs off an
+event opened FROM it. No feature ships as a disconnected page.
+
+**C. What the audit found missing (the connective tissue), with the concrete
+mechanics research contributed:**
+
+1. **Scope→SKU expansion** (blocker for everything): a view/RPC resolving any
+   offer to concrete SKUs by date range (sitewide → active SKUs; category →
+   display_category; sku_set → mkt_offer_skus). Everything downstream keys on it.
+2. **Ops surfacing** (alignment goal): marketing badges on Stock Levels rows,
+   NewFactoryOrderDialog lines, and the order builder ("sale in 12d", "launch
+   Aug 1"); a "Marketing — next 14 days" section in the 8am daily report;
+   read access for all internal roles. *(Monday.com digest pattern.)*
+3. **Uplift as data** (§2.1 already spec'd it; Phase 1 omitted it): restore
+   `planner_uplift_pct` + per-SKU overrides on `mkt_offer_skus`, add
+   offer-level `expected_uplift_pct` for sitewide/category, and
+   `effective_discount_pct`. Rule (Inventory Planner): uplift is ALWAYS a
+   percent over baseline, never absolute units.
+4. **Recurring-event guard** (Cogsy): an `annual_recurring` flag on sales;
+   recurring events show on the calendar + label history but their uplift is
+   NOT overlaid on the forecast (YoY baseline already contains them) —
+   prevents double-counting BFCM/4-20.
+5. **Outcomes loop** (§2.5 fc_predictions, now concretized): when an event
+   ends, auto-compute actual-vs-baseline lift per affected SKU from
+   sales_daily; store on the event; PRE-FILL the measured lift next time a
+   similar event is scheduled (Netstock). Same for launches:
+   `actual_first_30d_units` vs expected, and persist `sold_out_at` per member
+   (censoring signal — currently derived live and lost on restock).
+6. **Launch↔ops linkage**: nullable `factory_order_id` on launch members;
+   derive "must order by" = ready-by − lead time; red **stock-risk chip on the
+   calendar event** when projected cover (run-rate + uplift) or PO ETA
+   conflicts with the event window. Derived, never manual — consistent with
+   the no-stored-status philosophy. *(Cogsy/Anvyl work-back pattern.)*
+7. **Inventory-aware broadcasts** (Fabrikatör): broadcasts gain optional
+   featured-SKU links; the form + calendar show a stock-adequacy hint
+   ("12 days of cover vs 80k-recipient send"). Broadcast metrics get typed
+   columns + surfaced results + a "log results" nudge on past sends.
+8. **Backfill/sync hooks**: `source` + `external_ref` (partial UNIQUE) on
+   sales/offers/broadcasts NOW, while tables are near-empty — prerequisite for
+   the 2022+ manual backfill and the eventual Shopify/Klaviyo import phase.
+9. **Launch cold-start via reference SKUs** (§4.4 confirmed; Cogsy/Flieber
+   mechanics): `reference_sku_id` + scale factor on launch members; forecast
+   blends reference curve → own actuals with a decaying weight, gated by the
+   existing 60/mo trust threshold.
+10. **NPD kanban mechanics** (for §2.4, stages unchanged): append-only
+    `stage_events` with outcome enum advance/hold/kill/recycle + required
+    reason on kill/hold (Stage-Gate) — Purgatory/Halted become outcomes with
+    stories; time-in-stage badges with per-stage expected days (Kanbanize);
+    an `npd_samples` child table for prototype rounds w/ verdicts + photos
+    (Delogue); structured card fields (factory, MOQ, quoted cost, lead-time,
+    target quarter — Backbone); soft WIP limits (Trello); and the handoff:
+    "Ready for Confirmation" → drafts the linked `mkt_launches` row;
+    "Complete/Ordered" → links the factory order with work-back milestone
+    dates (Productboard/Anvyl). Post-launch 60–90d review task closes the loop.
+
+**Reconciliations with prior decisions (old decision wins unless noted):**
+- *Holiday overlay* (research) vs *"don't seed holidays"* (§8): keep NOT
+  seeding events. If ever added, it's a read-only visual overlay layer,
+  default OFF — owner's call later.
+- *Approval lifecycle Draft→Ops-Confirmed* (Planable) vs *derived-only
+  statuses* (§2.1): rejected. Alignment pressure comes from the DERIVED
+  stock-risk chip + daily digest, not manual workflow states.
+- *ICS calendar feed* (Airtable pattern): nice-to-have, phase-later.
+
+**Revised phasing (supersedes §7 ordering; Q4 clock: the promo-aware forecast
+must land by early August for the Aug–Sep ordering window):**
+- **Phase A — Make it real:** scope-expansion view · ops badges + digest
+  section · calendar upgrades (agenda view for the weekly sync, +N-more day
+  popover, filters) · read access for all roles · additive schema (uplift
+  fields, source/external_ref, effective_discount_pct, annual_recurring) ·
+  manual backfill of 2022–2025 major events with the owner.
+- **Phase B — Close the loop:** post-event lift reports · broadcast results
+  surfacing + nudges · sold_out_at persistence · launch↔factory-order link,
+  order-by chips, stock-risk calendar chips.
+- **Phase C — Feed the forecast (by early Aug):** promo-labeled sales_daily
+  view → engine de-promotes baseline · fc_demand_events overlay replacing
+  scripts/forecast-overrides.json · recurring guard · reference-SKU launch
+  forecasts.
+- **Phase D — NPD kanban** per §2.4 + mechanics above.
+- **Phase E (last, unchanged):** Shopify/Klaviyo/Mailchimp import.
+
+Hardening backlog from the audit (fold into nearest phase): atomic
+launch+members / offer-SKU writes via RPCs · ON DELETE RESTRICT on
+launch/offer SKU FKs · category CHECK on offers · ends≥starts CHECK ·
+missing indexes · sale timestamp vs day-key semantics.
 
 ---
 
