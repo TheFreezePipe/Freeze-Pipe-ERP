@@ -21,7 +21,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useUrlFilter, useUrlBoolFilter } from "@/lib/use-url-filter";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { ProductSKU, InventoryLevel, FreightShipment } from "@/types/database";
-import { useInventory, useBulkCycleCount, useFreightShipments, useFreightLineItems, useFactoryOrders, useForecastDemandMap, useSuppliers, useAllPrimarySkuSupplierCosts, type CycleCountField, type CycleCountReason } from "@/lib/hooks";
+import { useInventory, useBulkCycleCount, useFreightShipments, useFreightLineItems, useFactoryOrders, useForecastDemandMap, useDemandOverrides, useSuppliers, useAllPrimarySkuSupplierCosts, type CycleCountField, type CycleCountReason } from "@/lib/hooks";
 import { useAuth } from "@/lib/auth-context";
 import {
   AlertDialog,
@@ -359,6 +359,14 @@ export default function InventoryDashboard() {
   const { data: freightLineItems = [] } = useFreightLineItems();
   const { data: factoryOrders = [] } = useFactoryOrders();
   const forecastMap = useForecastDemandMap();
+  // Which SKUs carry a manual demand override — the map above already
+  // FOLDS the override values in (they win over forecast + baseline);
+  // this set only distinguishes the badge ("O" vs "F") in the table.
+  const { data: demandOverrides = [] } = useDemandOverrides();
+  const overrideIds = useMemo(
+    () => new Set(demandOverrides.map((o) => o.sku_id)),
+    [demandOverrides],
+  );
 
   // Shared per-SKU maps. Rebuilt whenever any of the three real sources
   // change. Replaces the legacy `inventory_levels.in_transit_* / nancy_* /
@@ -515,11 +523,13 @@ export default function InventoryDashboard() {
         // "forecast" gates the "F" badge: true when the live forecast (not
         // the trailing-30d baseline) is driving this SKU's demand.
         const forecast = forecastMap.has(product.id);
+        // Manual override outranks the forecast — badge as "O", not "F".
+        const overridden = overrideIds.has(product.id);
         const overallDOS = computeDOS(totals.totalUnits, demand);
         const warehouseDOS = computeDOS(totals.warehouseTotal, demand);
         const transitDOS = computeDOS(totals.transitTotal, demand);
         const onOrderDOS = computeDOS(totals.onOrderTotal, demand);
-        return { inv, product, totals, overallDOS, warehouseDOS, transitDOS, onOrderDOS, demand, forecast };
+        return { inv, product, totals, overallDOS, warehouseDOS, transitDOS, onOrderDOS, demand, forecast, overridden };
       })
       // Sort by display_category in the operational priority order
       // requested by Chase 2026-05-07. Within a category, lowest
@@ -919,7 +929,7 @@ export default function InventoryDashboard() {
                   )}
                 </thead>
                 <tbody>
-                  {sortedRows.map(({ inv, product, totals, overallDOS, warehouseDOS, transitDOS, onOrderDOS, demand, forecast }) => (
+                  {sortedRows.map(({ inv, product, totals, overallDOS, warehouseDOS, transitDOS, onOrderDOS, demand, forecast, overridden }) => (
                     <tr
                       key={inv.id}
                       className={`border-b border-border/50 hover:bg-muted/50 ${editMode ? "" : "cursor-pointer"}`}
@@ -974,7 +984,15 @@ export default function InventoryDashboard() {
                       ) : (
                         <>
                           <td className="px-3 py-2 text-right tabular-nums">
-                            {forecast ? (
+                            {overridden ? (
+                              <span className="group relative">
+                                <span className="font-medium">{demand}</span>
+                                <span className="ml-0.5 text-[10px] text-amber-400">O</span>
+                                <span className="absolute bottom-full right-0 mb-1 hidden group-hover:block z-20 whitespace-nowrap rounded bg-popover border border-border px-2 py-1 text-xs shadow-md">
+                                  <span className="block">Manual override: {demand}/mo · Recent (30d): {product.monthly_demand ?? 0}/mo</span>
+                                </span>
+                              </span>
+                            ) : forecast ? (
                               <span className="group relative">
                                 <span className="font-medium">{demand}</span>
                                 <span className="ml-0.5 text-[10px] text-blue-400">F</span>
