@@ -73,7 +73,10 @@ export function useSaleWithOffers(id: string | undefined) {
       const { data, error } = await supabase
         .from("mkt_sales")
         .select(
-          "*, offers:mkt_offers(*, offer_skus:mkt_offer_skus(sku_id), free_item:product_skus(id, sku, product_name))",
+          // free_item needs the explicit FK hint: mkt_offers reaches
+          // product_skus two ways (free_item_sku_id AND the m2m through
+          // mkt_offer_skus), and PostgREST refuses to guess between them.
+          "*, offers:mkt_offers(*, offer_skus:mkt_offer_skus(sku_id), free_item:product_skus!mkt_offers_free_item_sku_id_fkey(id, sku, product_name))",
         )
         .eq("id", id!)
         .maybeSingle();
