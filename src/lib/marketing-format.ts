@@ -77,6 +77,12 @@ export const PHASE_COLOR: Record<SalePhase, string> = {
   ended: "bg-muted/40 text-muted-foreground",
 };
 
+export const PHASE_LABEL: Record<SalePhase, string> = {
+  upcoming: "Upcoming",
+  live: "Live",
+  ended: "Ended",
+};
+
 /**
  * A launch's state is DERIVED, never stored:
  *   Upcoming — launch_date is in the future
@@ -116,6 +122,100 @@ export const EVENT_TYPE_COLOR = {
   launch: "hsl(270, 67%, 60%)",
   broadcast: "hsl(190, 80%, 55%)",
 } as const;
+
+// ---------------------------------------------------------------------------
+// Approval track (draft → proposed → confirmed) — orthogonal to the derived
+// temporal phase. Unconfirmed sales/launches render dashed + muted so the team
+// sees what's brewing without mistaking it for an ops-confirmed plan.
+// ---------------------------------------------------------------------------
+
+export type ApprovalStatus = "draft" | "proposed" | "confirmed";
+
+/** Coerce a raw DB string to a known approval status (unknown → "draft"). */
+export function normalizeApproval(status: string | null | undefined): ApprovalStatus {
+  return status === "proposed" || status === "confirmed" ? status : "draft";
+}
+
+/** Tooltip for an unconfirmed sale/launch; null when confirmed (no tooltip). */
+export function approvalTooltip(status: string | null | undefined): string | null {
+  const s = normalizeApproval(status);
+  if (s === "draft") return "draft — not ops-confirmed";
+  if (s === "proposed") return "proposed — awaiting ops confirmation";
+  return null;
+}
+
+export const APPROVAL_LABEL: Record<ApprovalStatus, string> = {
+  draft: "Draft",
+  proposed: "Proposed",
+  confirmed: "Confirmed",
+};
+
+export const APPROVAL_COLOR: Record<ApprovalStatus, string> = {
+  draft: "border border-dashed border-muted-foreground/40 bg-muted/40 text-muted-foreground",
+  proposed: "border border-dashed border-amber-400/40 bg-amber-500/10 text-amber-400",
+  confirmed: "bg-green-500/10 text-green-400",
+};
+
+// ---------------------------------------------------------------------------
+// Retail-holiday overlay — seeded, read-only planning context (NOT events:
+// never editable, never feed the forecast; baseline seasonality already
+// carries them). Pure UTC date math → YYYY-MM-DD day keys, so the computed
+// day can't drift with the viewer's timezone.
+// ---------------------------------------------------------------------------
+
+function utcKey(dt: Date): string {
+  const y = dt.getUTCFullYear();
+  const m = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(dt.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/** The nth (1-based) given weekday (0=Sun…6=Sat) of a month (0-based). */
+function nthWeekday(year: number, month0: number, weekday: number, n: number): Date {
+  const first = new Date(Date.UTC(year, month0, 1));
+  const offset = (weekday - first.getUTCDay() + 7) % 7;
+  return new Date(Date.UTC(year, month0, 1 + offset + (n - 1) * 7));
+}
+
+/** The last given weekday (0=Sun…6=Sat) of a month (0-based). */
+function lastWeekday(year: number, month0: number, weekday: number): Date {
+  const last = new Date(Date.UTC(year, month0 + 1, 0)); // day 0 = last of month0
+  const offset = (last.getUTCDay() - weekday + 7) % 7;
+  return new Date(Date.UTC(year, month0, last.getUTCDate() - offset));
+}
+
+/** Shift a UTC date by whole days (UTC has no DST, so day math is exact). */
+function addDaysUTC(dt: Date, days: number): Date {
+  return new Date(dt.getTime() + days * 86_400_000);
+}
+
+export interface RetailHoliday {
+  dayKey: string; // YYYY-MM-DD
+  label: string;
+}
+
+/**
+ * The retail holidays the marketing team plans around, for one calendar year,
+ * in chronological order. Fixed dates + the floating US retail anchors
+ * (Memorial/Labor Day, Father's Day, Thanksgiving → BFCM).
+ */
+export function retailHolidaysForYear(year: number): RetailHoliday[] {
+  const thanksgiving = nthWeekday(year, 10, 4, 4); // 4th Thursday of November
+  return [
+    { dayKey: `${year}-02-14`, label: "Valentine's Day" },
+    { dayKey: `${year}-04-20`, label: "4/20" },
+    { dayKey: utcKey(lastWeekday(year, 4, 1)), label: "Memorial Day" },
+    { dayKey: utcKey(nthWeekday(year, 5, 0, 3)), label: "Father's Day" },
+    { dayKey: `${year}-07-04`, label: "Independence Day" },
+    { dayKey: `${year}-07-11`, label: "Prime Day (approx.)" },
+    { dayKey: utcKey(nthWeekday(year, 8, 1, 1)), label: "Labor Day" },
+    { dayKey: `${year}-10-31`, label: "Halloween" },
+    { dayKey: utcKey(thanksgiving), label: "Thanksgiving" },
+    { dayKey: utcKey(addDaysUTC(thanksgiving, 1)), label: "Black Friday" },
+    { dayKey: utcKey(addDaysUTC(thanksgiving, 4)), label: "Cyber Monday" },
+    { dayKey: `${year}-12-25`, label: "Christmas" },
+  ];
+}
 
 // ---------------------------------------------------------------------------
 // Day-key helpers — treat marketing dates as calendar days, NOT instants.

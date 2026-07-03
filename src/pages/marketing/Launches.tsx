@@ -3,6 +3,7 @@ import { Plus, Rocket, Pencil, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useLaunches, useDeleteLaunch, useInventory, type MktLaunchWithMembers } from "@/lib/hooks";
+import { useSetLaunchApproval, type ApprovalStatus } from "@/lib/hooks/use-marketing-signals";
 import { useAuth } from "@/lib/auth-context";
 import { LaunchFormDialog } from "@/components/marketing/LaunchFormDialog";
 import { launchPhase, LAUNCH_PHASE_COLOR, LAUNCH_PHASE_LABEL, isPastKey, dayKeyOf } from "@/lib/marketing-format";
@@ -18,10 +19,42 @@ function fmt(d: string | null): string {
 export default function Launches() {
   const { data: launches = [], isLoading } = useLaunches();
   const { data: inventory = [] } = useInventory();
-  const { isAdmin, isManager } = useAuth();
+  const { isAdmin, isManager, profile } = useAuth();
   const canEdit = isAdmin || isManager;
   const del = useDeleteLaunch();
   const todayKey = format(new Date(), "yyyy-MM-dd");
+  const setApproval = useSetLaunchApproval();
+
+  // draft → proposed → confirmed (mirrors SalesList); confirmation stamps
+  // who/when and later gates the launch into the forecast overlay.
+  function ApprovalCell({ l }: { l: MktLaunchWithMembers }) {
+    const status = ((l as MktLaunchWithMembers & { approval_status?: ApprovalStatus }).approval_status ?? "draft") as ApprovalStatus;
+    const chip =
+      status === "confirmed" ? (
+        <span className="rounded border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-xs text-green-400">confirmed</span>
+      ) : status === "proposed" ? (
+        <span className="rounded border border-dashed border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-400">proposed</span>
+      ) : (
+        <span className="rounded border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground">draft</span>
+      );
+    const next: ApprovalStatus | null = status === "draft" ? "proposed" : status === "proposed" ? "confirmed" : null;
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        {chip}
+        {canEdit && next && profile?.id && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 px-2 text-[11px]"
+            disabled={setApproval.isPending}
+            onClick={() => setApproval.mutate({ id: l.id, status: next, actorId: profile.id })}
+          >
+            {next === "proposed" ? "Propose" : "Ops confirm"}
+          </Button>
+        )}
+      </span>
+    );
+  }
 
   // Total on-hand units per SKU — a launch reads "Sold out" once its linked
   // SKU has nothing left in the building.
@@ -99,6 +132,7 @@ export default function Launches() {
                   <th className="px-4 py-2.5 font-medium">Date</th>
                   <th className="px-4 py-2.5 font-medium">Ready by</th>
                   <th className="px-4 py-2.5 font-medium">Status</th>
+                  <th className="px-4 py-2.5 font-medium">Approval</th>
                   <th className="px-4 py-2.5" />
                 </tr>
               </thead>
@@ -135,6 +169,7 @@ export default function Launches() {
                         </div>
                       )}
                     </td>
+                    <td className="px-4 py-3"><ApprovalCell l={l} /></td>
                     <td className="px-4 py-3 text-right">
                       {canEdit && (
                         <div className="flex justify-end gap-1">

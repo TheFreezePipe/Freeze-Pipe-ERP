@@ -55,10 +55,17 @@ const skuCell = (sku: string, name?: string) =>
 interface SalesRow { sku: string; product_name: string; units: number; avg_daily: number; flag: string | null; }
 interface IncomingRow { shipment_number: string; carrier_name: string | null; freight_type: string; eta: string | null; days_out: number | null; items: { sku: string; name: string | null; qty: number }[]; }
 interface LowRow { sku: string; product_name: string; wh_units: number; monthly_demand: number; dos_days: number; in_transit: number; next_eta: string | null; }
+interface MktSale { name: string; starts_at: string; ends_at: string; approval: string; sku_count: number; }
+interface MktLaunch { name: string; kind: string; launch_date: string; approval: string; sku_count: number; }
+interface MktBroadcast { name: string; channel: string; scheduled_at: string; }
+interface MktAwaiting { type: string; name: string; date: string; }
+interface MarketingData { sales: MktSale[]; launches: MktLaunch[]; broadcasts: MktBroadcast[]; awaiting_confirmation: MktAwaiting[]; }
+
 interface ReportData {
   report_date: string; recipients: string[];
   sales: SalesRow[]; sales_totals: { units: number; sku_count: number };
   incoming: IncomingRow[]; low_stock: LowRow[];
+  marketing: MarketingData;
 }
 
 function sectionLabel(text: string): string {
@@ -167,6 +174,38 @@ function renderLowStock(d: ReportData): string {
     </table>`;
 }
 
+function renderMarketing(d: ReportData): string {
+  const m = d.marketing;
+  if (!m) return "";
+  const empty = !m.sales.length && !m.launches.length && !m.broadcasts.length && !m.awaiting_confirmation.length;
+  if (empty) {
+    return sectionLabel("Marketing · next 14 days") +
+      `<div style="font-family:${FONT};color:${TER};font-size:13px;">No sales, launches, or broadcasts scheduled.</div>`;
+  }
+  const approvalChip = (approval: string) =>
+    approval === "confirmed"
+      ? ""
+      : ` <span style="color:${AMBER};font-size:11px;">· ${esc(approval)} — not ops-confirmed</span>`;
+  const line = (body: string) =>
+    `<div style="font-family:${FONT};font-size:13px;color:${SEC};margin-top:5px;">${body}</div>`;
+  let out = sectionLabel("Marketing · next 14 days");
+  for (const s of m.sales) {
+    out += line(`<span style="color:${WHITE};font-weight:700;">SALE</span> ${esc(s.name)} <span style="color:${TER};">· ${fmtDate(s.starts_at, { month: "short", day: "numeric" })}–${fmtDate(s.ends_at, { month: "short", day: "numeric" })} · ${num(s.sku_count)} SKUs</span>${approvalChip(s.approval)}`);
+  }
+  for (const l of m.launches) {
+    out += line(`<span style="color:${BLUE};font-weight:700;">LAUNCH</span> ${esc(l.name)} <span style="color:${TER};">· ${fmtDate(l.launch_date, { month: "short", day: "numeric" })} · ${num(l.sku_count)} SKU${l.sku_count === 1 ? "" : "s"}</span>${approvalChip(l.approval)}`);
+  }
+  for (const b of m.broadcasts) {
+    out += line(`<span style="color:${GREEN};font-weight:700;">${esc(b.channel).toUpperCase()}</span> ${esc(b.name)} <span style="color:${TER};">· ${fmtDate(b.scheduled_at, { month: "short", day: "numeric" })}</span>`);
+  }
+  if (m.awaiting_confirmation.length) {
+    out += `<div style="margin-top:10px;padding:8px 12px;background:#2C2413;border-radius:6px;font-family:${FONT};font-size:12px;color:${AMBER};">
+      Awaiting ops confirmation: ${m.awaiting_confirmation.map((a) => `${esc(a.name)} (${esc(a.type)}, ${fmtDate(a.date, { month: "short", day: "numeric" })})`).join(" · ")}
+    </div>`;
+  }
+  return out;
+}
+
 function renderHtml(d: ReportData): string {
   const dateLong = fmtDate(d.report_date, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -183,6 +222,7 @@ function renderHtml(d: ReportData): string {
             <div style="font-family:${FONT};font-size:13px;color:${TER};margin-top:5px;">${dateLong}</div>
           </td></tr>
         </table>
+        ${renderMarketing(d)}
         ${renderSales(d)}
         ${renderIncoming(d)}
         ${renderLowStock(d)}

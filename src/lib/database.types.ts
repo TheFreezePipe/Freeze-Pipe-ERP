@@ -1164,6 +1164,7 @@ export type Database = {
           channel: string
           created_at: string
           created_by: string | null
+          external_ref: string | null
           id: string
           launch_id: string | null
           metrics: Json | null
@@ -1171,6 +1172,7 @@ export type Database = {
           sale_id: string | null
           scheduled_at: string | null
           sent_at: string | null
+          source: string | null
           updated_at: string
         }
         Insert: {
@@ -1179,6 +1181,7 @@ export type Database = {
           channel: string
           created_at?: string
           created_by?: string | null
+          external_ref?: string | null
           id?: string
           launch_id?: string | null
           metrics?: Json | null
@@ -1186,6 +1189,7 @@ export type Database = {
           sale_id?: string | null
           scheduled_at?: string | null
           sent_at?: string | null
+          source?: string | null
           updated_at?: string
         }
         Update: {
@@ -1194,6 +1198,7 @@ export type Database = {
           channel?: string
           created_at?: string
           created_by?: string | null
+          external_ref?: string | null
           id?: string
           launch_id?: string | null
           metrics?: Json | null
@@ -1201,6 +1206,7 @@ export type Database = {
           sale_id?: string | null
           scheduled_at?: string | null
           sent_at?: string | null
+          source?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -1217,6 +1223,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "mkt_launches"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_broadcasts_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: false
+            referencedRelation: "mkt_offer_sku_expansion"
+            referencedColumns: ["sale_id"]
           },
           {
             foreignKeyName: "mkt_broadcasts_sale_id_fkey"
@@ -1297,6 +1310,7 @@ export type Database = {
       }
       mkt_launches: {
         Row: {
+          approval_status: string
           created_at: string
           created_by: string | null
           id: string
@@ -1305,10 +1319,13 @@ export type Database = {
           launch_date: string | null
           name: string
           notes: string | null
+          ops_confirmed_at: string | null
+          ops_confirmed_by: string | null
           preorder: boolean
           updated_at: string
         }
         Insert: {
+          approval_status?: string
           created_at?: string
           created_by?: string | null
           id?: string
@@ -1317,10 +1334,13 @@ export type Database = {
           launch_date?: string | null
           name: string
           notes?: string | null
+          ops_confirmed_at?: string | null
+          ops_confirmed_by?: string | null
           preorder?: boolean
           updated_at?: string
         }
         Update: {
+          approval_status?: string
           created_at?: string
           created_by?: string | null
           id?: string
@@ -1329,6 +1349,8 @@ export type Database = {
           launch_date?: string | null
           name?: string
           notes?: string | null
+          ops_confirmed_at?: string | null
+          ops_confirmed_by?: string | null
           preorder?: boolean
           updated_at?: string
         }
@@ -1340,22 +1362,45 @@ export type Database = {
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "mkt_launches_ops_confirmed_by_fkey"
+            columns: ["ops_confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
         ]
       }
       mkt_offer_skus: {
         Row: {
+          dollar_off: number | null
           offer_id: string
+          percent_off: number | null
+          planner_uplift_pct: number | null
           sku_id: string
         }
         Insert: {
+          dollar_off?: number | null
           offer_id: string
+          percent_off?: number | null
+          planner_uplift_pct?: number | null
           sku_id: string
         }
         Update: {
+          dollar_off?: number | null
           offer_id?: string
+          percent_off?: number | null
+          planner_uplift_pct?: number | null
           sku_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "mkt_offer_skus_offer_id_fkey"
+            columns: ["offer_id"]
+            isOneToOne: false
+            referencedRelation: "mkt_offer_sku_expansion"
+            referencedColumns: ["offer_id"]
+          },
           {
             foreignKeyName: "mkt_offer_skus_offer_id_fkey"
             columns: ["offer_id"]
@@ -1393,6 +1438,9 @@ export type Database = {
           code: string | null
           created_at: string
           dollar_off: number | null
+          effective_discount_pct: number | null
+          expected_uplift_pct: number | null
+          external_ref: string | null
           free_item_sku_id: string | null
           get_qty: number | null
           id: string
@@ -1401,6 +1449,7 @@ export type Database = {
           percent_off: number | null
           sale_id: string
           scope: string
+          source: string | null
           updated_at: string
         }
         Insert: {
@@ -1409,6 +1458,9 @@ export type Database = {
           code?: string | null
           created_at?: string
           dollar_off?: number | null
+          effective_discount_pct?: number | null
+          expected_uplift_pct?: number | null
+          external_ref?: string | null
           free_item_sku_id?: string | null
           get_qty?: number | null
           id?: string
@@ -1417,6 +1469,7 @@ export type Database = {
           percent_off?: number | null
           sale_id: string
           scope?: string
+          source?: string | null
           updated_at?: string
         }
         Update: {
@@ -1425,6 +1478,9 @@ export type Database = {
           code?: string | null
           created_at?: string
           dollar_off?: number | null
+          effective_discount_pct?: number | null
+          expected_uplift_pct?: number | null
+          external_ref?: string | null
           free_item_sku_id?: string | null
           get_qty?: number | null
           id?: string
@@ -1433,6 +1489,7 @@ export type Database = {
           percent_off?: number | null
           sale_id?: string
           scope?: string
+          source?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -1461,6 +1518,13 @@ export type Database = {
             foreignKeyName: "mkt_offers_sale_id_fkey"
             columns: ["sale_id"]
             isOneToOne: false
+            referencedRelation: "mkt_offer_sku_expansion"
+            referencedColumns: ["sale_id"]
+          },
+          {
+            foreignKeyName: "mkt_offers_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: false
             referencedRelation: "mkt_sales"
             referencedColumns: ["id"]
           },
@@ -1468,32 +1532,50 @@ export type Database = {
       }
       mkt_sales: {
         Row: {
+          annual_recurring: boolean
+          approval_status: string
           created_at: string
           created_by: string | null
           ends_at: string | null
+          external_ref: string | null
           id: string
           name: string
           notes: string | null
+          ops_confirmed_at: string | null
+          ops_confirmed_by: string | null
+          source: string | null
           starts_at: string | null
           updated_at: string
         }
         Insert: {
+          annual_recurring?: boolean
+          approval_status?: string
           created_at?: string
           created_by?: string | null
           ends_at?: string | null
+          external_ref?: string | null
           id?: string
           name: string
           notes?: string | null
+          ops_confirmed_at?: string | null
+          ops_confirmed_by?: string | null
+          source?: string | null
           starts_at?: string | null
           updated_at?: string
         }
         Update: {
+          annual_recurring?: boolean
+          approval_status?: string
           created_at?: string
           created_by?: string | null
           ends_at?: string | null
+          external_ref?: string | null
           id?: string
           name?: string
           notes?: string | null
+          ops_confirmed_at?: string | null
+          ops_confirmed_by?: string | null
+          source?: string | null
           starts_at?: string | null
           updated_at?: string
         }
@@ -1501,6 +1583,13 @@ export type Database = {
           {
             foreignKeyName: "mkt_sales_created_by_fkey"
             columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_sales_ops_confirmed_by_fkey"
+            columns: ["ops_confirmed_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -2755,6 +2844,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      mkt_offer_sku_expansion: {
+        Row: {
+          annual_recurring: boolean | null
+          approval_status: string | null
+          dollar_off: number | null
+          effective_discount_pct: number | null
+          ends_at: string | null
+          offer_id: string | null
+          percent_off: number | null
+          sale_id: string | null
+          sale_name: string | null
+          scope: string | null
+          sku_id: string | null
+          starts_at: string | null
+          uplift_pct: number | null
+        }
+        Relationships: []
       }
       product_boms_active: {
         Row: {

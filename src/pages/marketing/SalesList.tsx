@@ -4,6 +4,7 @@ import { Plus, Tag, Pencil } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useSales, type MktSale } from "@/lib/hooks";
+import { useSetSaleApproval, type ApprovalStatus } from "@/lib/hooks/use-marketing-signals";
 import { useAuth } from "@/lib/auth-context";
 import { SaleFormDialog } from "@/components/marketing/SaleFormDialog";
 import { salePhase, PHASE_COLOR, isPastKey, dayKeyOf } from "@/lib/marketing-format";
@@ -25,11 +26,43 @@ function range(s: string | null, e: string | null): string {
 export default function SalesList() {
   const navigate = useNavigate();
   const { data: sales = [], isLoading } = useSales();
-  const { isAdmin, isManager } = useAuth();
+  const { isAdmin, isManager, profile } = useAuth();
   const canEdit = isAdmin || isManager;
   const todayKey = format(new Date(), "yyyy-MM-dd");
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<MktSale | null>(null);
+  const setApproval = useSetSaleApproval();
+
+  // draft → proposed → confirmed; confirmation stamps who/when and later
+  // gates the sale's uplift into the forecast overlay (Phase C).
+  function ApprovalCell({ s }: { s: MktSale }) {
+    const status = ((s as MktSale & { approval_status?: ApprovalStatus }).approval_status ?? "draft") as ApprovalStatus;
+    const chip =
+      status === "confirmed" ? (
+        <span className="rounded border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-xs text-green-400">confirmed</span>
+      ) : status === "proposed" ? (
+        <span className="rounded border border-dashed border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-400">proposed</span>
+      ) : (
+        <span className="rounded border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground">draft</span>
+      );
+    const next: ApprovalStatus | null = status === "draft" ? "proposed" : status === "proposed" ? "confirmed" : null;
+    return (
+      <span className="inline-flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+        {chip}
+        {canEdit && next && profile?.id && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 px-2 text-[11px]"
+            disabled={setApproval.isPending}
+            onClick={() => setApproval.mutate({ id: s.id, status: next, actorId: profile.id })}
+          >
+            {next === "proposed" ? "Propose" : "Ops confirm"}
+          </Button>
+        )}
+      </span>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -76,6 +109,7 @@ export default function SalesList() {
                   <th className="px-4 py-2.5 font-medium">Sale</th>
                   <th className="px-4 py-2.5 font-medium">Dates</th>
                   <th className="px-4 py-2.5 font-medium">Status</th>
+                  <th className="px-4 py-2.5 font-medium">Approval</th>
                   <th className="px-4 py-2.5" />
                 </tr>
               </thead>
@@ -98,6 +132,7 @@ export default function SalesList() {
                         );
                       })()}
                     </td>
+                    <td className="px-4 py-3"><ApprovalCell s={s} /></td>
                     <td className="px-4 py-3 text-right">
                       {canEdit && (
                         <Button

@@ -1,5 +1,5 @@
 import { StatCard } from "@/components/shared/StatCard";
-import { Warehouse, Ship, Factory, Pencil, X, Save, Search, Plane, DollarSign, ShoppingCart, Trash2, ArrowRight } from "lucide-react";
+import { Warehouse, Ship, Factory, Pencil, X, Save, Search, Plane, DollarSign, ShoppingCart, Trash2, ArrowRight, Megaphone } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format, parseISO, differenceInDays } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,6 +43,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { buildOrderPreview, type OrderPreviewLine } from "@/lib/order-preview";
+import { useUpcomingMarketingBySku, describeSkuSignals } from "@/lib/hooks/use-marketing-signals";
 import { NewFactoryOrderDialog } from "@/components/manufacturing/NewFactoryOrderDialog";
 import type { FreightLineItemWithProduct, FactoryOrderWithItems } from "@/lib/hooks";
 
@@ -368,6 +369,9 @@ export default function InventoryDashboard() {
     () => new Set(demandOverrides.filter((o) => o.mode === "manual").map((o) => o.sku_id)),
     [demandOverrides],
   );
+  // Upcoming sales/launches per SKU (60d) — the marketing→ops alignment
+  // badge. Sitewide/category sales fan out via mkt_offer_sku_expansion.
+  const mktSignals = useUpcomingMarketingBySku();
 
   // Shared per-SKU maps. Rebuilt whenever any of the three real sources
   // change. Replaces the legacy `inventory_levels.in_transit_* / nancy_* /
@@ -946,6 +950,14 @@ export default function InventoryDashboard() {
                               <Badge variant="outline" className="text-[9px] border-amber-500/60 text-amber-400">
                                 Archived
                               </Badge>
+                            )}
+                            {mktSignals.has(product.id) && (
+                              <span
+                                className="inline-flex shrink-0"
+                                title={describeSkuSignals(mktSignals.get(product.id)!)}
+                              >
+                                <Megaphone className="h-3 w-3 text-pink-400" />
+                              </span>
                             )}
                           </div>
                           <p className="text-xs text-muted-foreground truncate max-w-[140px]">{product.product_name}</p>

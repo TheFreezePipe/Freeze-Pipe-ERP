@@ -7,6 +7,9 @@ import {
   isPastKey,
   salePhase,
   launchPhase,
+  retailHolidaysForYear,
+  normalizeApproval,
+  approvalTooltip,
   type OfferLike,
 } from "./marketing-format";
 
@@ -113,6 +116,71 @@ describe("salePhase (derived from dates)", () => {
   });
   it("returns null when no start date is set", () => {
     expect(salePhase(null, null, today)).toBeNull();
+  });
+});
+
+describe("retailHolidaysForYear (pure UTC date math)", () => {
+  function holiday(year: number, label: string): string | undefined {
+    return retailHolidaysForYear(year).find((h) => h.label === label)?.dayKey;
+  }
+
+  it("computes the floating 2026 anchors", () => {
+    expect(holiday(2026, "Memorial Day")).toBe("2026-05-25"); // last Mon of May
+    expect(holiday(2026, "Father's Day")).toBe("2026-06-21"); // 3rd Sun of Jun
+    expect(holiday(2026, "Labor Day")).toBe("2026-09-07"); // 1st Mon of Sep
+    expect(holiday(2026, "Thanksgiving")).toBe("2026-11-26"); // 4th Thu of Nov
+    expect(holiday(2026, "Black Friday")).toBe("2026-11-27");
+    expect(holiday(2026, "Cyber Monday")).toBe("2026-11-30");
+  });
+
+  it("computes the floating 2027 anchors (rules, not lookups)", () => {
+    expect(holiday(2027, "Memorial Day")).toBe("2027-05-31");
+    expect(holiday(2027, "Father's Day")).toBe("2027-06-20");
+    expect(holiday(2027, "Labor Day")).toBe("2027-09-06");
+    expect(holiday(2027, "Thanksgiving")).toBe("2027-11-25");
+    expect(holiday(2027, "Black Friday")).toBe("2027-11-26");
+    expect(holiday(2027, "Cyber Monday")).toBe("2027-11-29");
+  });
+
+  it("handles a late Thanksgiving pushing Cyber Monday into December", () => {
+    // 2019: Thanksgiving Nov 28 (latest possible) → Cyber Monday Dec 2.
+    expect(holiday(2019, "Thanksgiving")).toBe("2019-11-28");
+    expect(holiday(2019, "Black Friday")).toBe("2019-11-29");
+    expect(holiday(2019, "Cyber Monday")).toBe("2019-12-02");
+  });
+
+  it("includes the fixed dates with the expected labels", () => {
+    const keys = new Map(retailHolidaysForYear(2026).map((h) => [h.label, h.dayKey]));
+    expect(keys.get("Valentine's Day")).toBe("2026-02-14");
+    expect(keys.get("4/20")).toBe("2026-04-20");
+    expect(keys.get("Independence Day")).toBe("2026-07-04");
+    expect(keys.get("Prime Day (approx.)")).toBe("2026-07-11");
+    expect(keys.get("Halloween")).toBe("2026-10-31");
+    expect(keys.get("Christmas")).toBe("2026-12-25");
+  });
+
+  it("returns 12 holidays in chronological order", () => {
+    const hs = retailHolidaysForYear(2026);
+    expect(hs).toHaveLength(12);
+    const sorted = [...hs.map((h) => h.dayKey)].sort();
+    expect(hs.map((h) => h.dayKey)).toEqual(sorted);
+  });
+});
+
+describe("approval helpers", () => {
+  it("normalizes unknown/null statuses to draft", () => {
+    expect(normalizeApproval("confirmed")).toBe("confirmed");
+    expect(normalizeApproval("proposed")).toBe("proposed");
+    expect(normalizeApproval("draft")).toBe("draft");
+    expect(normalizeApproval("whatever")).toBe("draft");
+    expect(normalizeApproval(null)).toBe("draft");
+    expect(normalizeApproval(undefined)).toBe("draft");
+  });
+
+  it("tooltips only for unconfirmed statuses", () => {
+    expect(approvalTooltip("draft")).toBe("draft — not ops-confirmed");
+    expect(approvalTooltip("proposed")).toBe("proposed — awaiting ops confirmation");
+    expect(approvalTooltip("confirmed")).toBeNull();
   });
 });
 

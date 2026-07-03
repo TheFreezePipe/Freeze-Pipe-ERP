@@ -17,7 +17,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, Sparkles, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Sparkles, AlertTriangle, Megaphone } from "lucide-react";
+import { useUpcomingMarketingBySku, describeSkuSignals } from "@/lib/hooks/use-marketing-signals";
 import {
   buildInTransitMap,
   buildOnOrderMap,
@@ -100,6 +101,9 @@ export function NewFactoryOrderDialog({
   const { data: primaryCostBySkuId } = useAllPrimarySkuSupplierCosts();
   const forecastMap = useForecastDemandMap();
   const createFactoryOrder = useCreateFactoryOrder();
+  // Marketing→ops alignment: flag lines whose SKU has an upcoming sale or
+  // launch (60d) so order sizing accounts for it.
+  const mktSignals = useUpcomingMarketingBySku();
 
   // Per-SKU aggregates derived from live sources (freight_shipments +
   // factory_orders). The legacy inventory_levels.in_transit_*/nancy_*/yx_*
@@ -517,7 +521,14 @@ export function NewFactoryOrderDialog({
                       return (
                         <tr key={item.id} className="border-b border-border/50 last:border-0">
                           <td className="px-3 py-2">
-                            <div className="font-medium">{p.sku}</div>
+                            <div className="font-medium flex items-center gap-1.5">
+                              {p.sku}
+                              {mktSignals.has(item.sku_id) && (
+                                <span className="inline-flex shrink-0" title={describeSkuSignals(mktSignals.get(item.sku_id)!)}>
+                                  <Megaphone className="h-3 w-3 text-pink-400" />
+                                </span>
+                              )}
+                            </div>
                             <div className="text-[11px] text-muted-foreground truncate max-w-[220px]">
                               {p.product_name}
                             </div>
