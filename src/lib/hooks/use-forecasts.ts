@@ -60,16 +60,38 @@ export function useSkuForecastMap() {
  */
 export const FORECAST_HIGH_VOLUME_MONTHLY = 60;
 
-/** Pure builder so the layering is unit-testable without React Query. */
+/** Pure builder so the layering is unit-testable without React Query.
+ *
+ * Pin semantics (demand_overrides.mode):
+ *   'manual'   — the operator's number goes in the map (wins everywhere).
+ *   'trailing' — REMOVE the SKU from the map so getEffectiveDemand falls
+ *                through to the trailing-30d baseline, even when a
+ *                qualifying forecast exists.
+ *   'forecast' — the engine number goes in the map even below the trust
+ *                gate; if the SKU has no forecast row at all, fall back to
+ *                the baseline (removed from map).
+ */
 export function buildEffectiveDemandMap(
   forecasts: readonly Pick<SkuForecast, "sku_id" | "forecast_30d">[] | undefined,
-  overrides: readonly Pick<DemandOverride, "sku_id" | "monthly_demand">[] | undefined,
+  overrides: readonly Pick<DemandOverride, "sku_id" | "monthly_demand" | "mode">[] | undefined,
 ): Map<string, number> {
   const m = new Map<string, number>();
+  const forecastBySku = new Map<string, number>();
   for (const f of forecasts ?? []) {
+    forecastBySku.set(f.sku_id, f.forecast_30d);
     if ((f.forecast_30d ?? 0) >= FORECAST_HIGH_VOLUME_MONTHLY) m.set(f.sku_id, f.forecast_30d);
   }
-  for (const o of overrides ?? []) m.set(o.sku_id, o.monthly_demand);
+  for (const o of overrides ?? []) {
+    if (o.mode === "manual") {
+      if (o.monthly_demand != null) m.set(o.sku_id, o.monthly_demand);
+    } else if (o.mode === "trailing") {
+      m.delete(o.sku_id);
+    } else if (o.mode === "forecast") {
+      const fv = forecastBySku.get(o.sku_id);
+      if (fv != null) m.set(o.sku_id, fv);
+      else m.delete(o.sku_id);
+    }
+  }
   return m;
 }
 

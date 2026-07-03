@@ -7,8 +7,11 @@ import { getEffectiveDemand } from "@/lib/demand";
 // pin the 2026-07-03 audit fix — before it, overrides were display-only in
 // the SKU modal and ignored by every planning surface.
 
+import type { DemandSourceMode } from "./use-demand-overrides";
+
 const f = (sku_id: string, forecast_30d: number) => ({ sku_id, forecast_30d });
-const o = (sku_id: string, monthly_demand: number) => ({ sku_id, monthly_demand });
+const o = (sku_id: string, monthly_demand: number | null, mode: DemandSourceMode = "manual") =>
+  ({ sku_id, monthly_demand, mode });
 
 describe("buildEffectiveDemandMap", () => {
   it("includes forecasts at/above the trust gate, drops the lumpy tail", () => {
@@ -49,5 +52,22 @@ describe("buildEffectiveDemandMap", () => {
   it("handles undefined inputs (loading states) without throwing", () => {
     const m = buildEffectiveDemandMap(undefined, undefined);
     expect(m.size).toBe(0);
+  });
+
+  it("trailing pin suppresses a qualifying forecast so the baseline wins", () => {
+    const m = buildEffectiveDemandMap([f("a", 500)], [o("a", null, "trailing")]);
+    expect(m.has("a")).toBe(false); // absent → getEffectiveDemand falls to monthly_demand
+    expect(getEffectiveDemand("a", 42, m)).toBe(42);
+  });
+
+  it("forecast pin includes a below-gate forecast", () => {
+    const m = buildEffectiveDemandMap([f("a", 12)], [o("a", null, "forecast")]);
+    expect(m.get("a")).toBe(12);
+  });
+
+  it("forecast pin with no forecast row falls back to the baseline", () => {
+    const m = buildEffectiveDemandMap([], [o("a", null, "forecast")]);
+    expect(m.has("a")).toBe(false);
+    expect(getEffectiveDemand("a", 7, m)).toBe(7);
   });
 });

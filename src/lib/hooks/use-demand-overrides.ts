@@ -2,15 +2,24 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 
 /**
- * Demand overrides live in the `demand_overrides` table (migration 012).
- * Keeps the baseline `product_skus.monthly_demand` (from ShipStation) intact
- * while allowing admins/managers to set a manual override that flows into
- * DOS calculations.
+ * Demand overrides live in the `demand_overrides` table (migration 012;
+ * `mode` column added 2026-07-03). Keeps the baseline
+ * `product_skus.monthly_demand` (from ShipStation) intact while letting
+ * admins/managers PIN which number drives a SKU's demand:
+ *   (no row)   auto     — forecast when trusted (>=60/mo), else trailing-30d
+ *   'trailing' pin the ShipStation trailing-30d baseline
+ *   'forecast' pin the engine forecast, even below the trust gate
+ *   'manual'   pin an operator-entered number (monthly_demand)
+ * The pin flows through buildEffectiveDemandMap into every demand consumer.
  */
+export type DemandSourceMode = "manual" | "trailing" | "forecast";
+
 export interface DemandOverride {
   id: string;
   sku_id: string;
-  monthly_demand: number;
+  /** Only meaningful when mode === 'manual'; null otherwise. */
+  monthly_demand: number | null;
+  mode: DemandSourceMode;
   reason: string | null;
   overridden_by: string | null;
   created_at: string;
@@ -48,30 +57,36 @@ export function useDemandOverride(skuId: string) {
 }
 
 /**
- * Upsert a demand override. Pass `monthlyDemand = null` to clear the override
- * (deletes the row). Writes an audit entry so the Change Log reflects who
- * changed what.
+ * Set the demand source pin for a SKU. `mode: "auto"` deletes the row
+ * (back to the automatic chain); 'manual' requires `monthlyDemand`;
+ * 'trailing' / 'forecast' pin those sources (monthly_demand stored null).
+ * Writes an audit entry so the Change Log reflects who changed what.
  */
 export function useSetDemandOverride() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (params: {
       skuId: string;
-      monthlyDemand: number | null;
+      mode: DemandSourceMode | "auto";
+      monthlyDemand?: number | null;
       reason?: string | null;
       actorId: string;
     }) => {
-      const { skuId, monthlyDemand, reason, actorId } = params;
+      const { skuId, mode, monthlyDemand, reason, actorId } = params;
+      if (mode === "manual" && (monthlyDemand == null || monthlyDemand < 0)) {
+        throw new Error("A non-negative number is required for a manual demand pin");
+      }
 
-      // Look up previous value so the audit entry is useful.
+      // Look up previous state so the audit entry is useful.
       const { data: previous } = await supabase
         .from("demand_overrides")
-        .select("monthly_demand")
+        .select("monthly_demand, mode")
         .eq("sku_id", skuId)
         .maybeSingle();
-      const previousValue = (previous as { monthly_demand: number } | null)?.monthly_demand ?? null;
+      const prev = previous as { monthly_demand: number | null; mode: DemandSourceMode } | null;
+      const previousValue = prev?.monthly_demand ?? null;
 
-      if (monthlyDemand === null) {
+      if (mode === "auto") {
         // Clear: delete the row
         const { error } = await supabase
           .from("demand_overrides")
@@ -79,12 +94,12 @@ export function useSetDemandOverride() {
           .eq("sku_id", skuId);
         if (error) throw error;
       } else {
-        // Upsert
         const { error } = await supabase
           .from("demand_overrides")
           .upsert({
             sku_id: skuId,
-            monthly_demand: monthlyDemand,
+            mode,
+            monthly_demand: mode === "manual" ? monthlyDemand : null,
             reason: reason ?? null,
             overridden_by: actorId,
           }, { onConflict: "sku_id" });
@@ -92,8 +107,12 @@ export function useSetDemandOverride() {
       }
 
       // Audit entry — metadata kind; no inventory impact
-      const prevStr = previousValue !== null ? `${previousValue}/mo` : "unset";
-      const nextStr = monthlyDemand !== null ? `${monthlyDemand}/mo` : "cleared";
+      const describe = (m: DemandSourceMode | "auto" | undefined, v: number | null) =>
+        m === undefined || m === "auto" ? "auto"
+        : m === "manual" ? `manual ${v ?? "?"}/mo`
+        : m;
+      const prevStr = describe(prev?.mode, previousValue);
+      const nextStr = describe(mode, monthlyDemand ?? null);
       const { error: auditErr } = await supabase
         .from("inventory_transactions")
         .insert({
@@ -109,7 +128,7 @@ export function useSetDemandOverride() {
         });
       if (auditErr) throw auditErr;
 
-      return { ok: true, previousValue, newValue: monthlyDemand };
+      return { ok: true, previousValue, newValue: monthlyDemand ?? null };
     },
     onSuccess: (_data, { skuId }) => {
       qc.invalidateQueries({ queryKey: ["demand-overrides"] });

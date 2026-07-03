@@ -7,7 +7,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { InventoryProjectionChart } from "./InventoryProjectionChart";
 import { Button } from "@/components/ui/button";
@@ -32,7 +31,9 @@ import {
   useSkuForecastMap,
   useForecastDemandMap,
 } from "@/lib/hooks";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { FORECAST_HIGH_VOLUME_MONTHLY } from "@/lib/hooks/use-forecasts";
+import type { DemandSourceMode } from "@/lib/hooks/use-demand-overrides";
 import { Warehouse, Ship, Factory, Boxes, Check, Archive, ArchiveRestore, AlertTriangle } from "lucide-react";
 import {
   AlertDialog,
@@ -75,14 +76,26 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
     return inventoryTotalsReal(inventory, inTransitMap, onOrderMap);
   }, [inventory, shipments, freightLines, factoryOrders]);
   const forecastData = forecastRowMap.get(product.id);
-  // Order of precedence: demand override > forecast > monthly_demand baseline.
-  const effectiveDemand =
-    currentOverride?.monthly_demand
-    ?? getEffectiveDemand(product.id, product.monthly_demand, forecastMap);
-  const [forecastOverride, setForecastOverride] = useState<string>(
-    currentOverride?.monthly_demand != null ? String(currentOverride.monthly_demand) : "",
+  // The shared map already resolves pins (manual/trailing/forecast) and the
+  // auto chain — this is the value every other surface sees for this SKU.
+  const effectiveDemand = getEffectiveDemand(product.id, product.monthly_demand, forecastMap);
+  // Demand-source picker state: selectedMode mirrors the saved pin;
+  // manualInput previews unsaved typing before commit.
+  const savedMode: DemandSourceMode | "auto" = currentOverride?.mode ?? "auto";
+  const [selectedMode, setSelectedMode] = useState<DemandSourceMode | "auto">(savedMode);
+  const [manualInput, setManualInput] = useState<string>(
+    currentOverride?.mode === "manual" && currentOverride.monthly_demand != null
+      ? String(currentOverride.monthly_demand)
+      : "",
   );
-  const savedOverride = currentOverride?.monthly_demand;
+  useEffect(() => {
+    setSelectedMode(currentOverride?.mode ?? "auto");
+    setManualInput(
+      currentOverride?.mode === "manual" && currentOverride.monthly_demand != null
+        ? String(currentOverride.monthly_demand)
+        : "",
+    );
+  }, [currentOverride]);
   // Source-of-truth for "archived" is product_skus.archived_at IS NOT NULL —
   // matches the dashboard's filter and the archive_sku() RPC's contract.
   // Falls back to !is_active for any rare row that pre-dates migration 008.
@@ -93,17 +106,27 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
   const [archiveForceOpen, setArchiveForceOpen] = useState(false);
   const [archiveOnHand, setArchiveOnHand] = useState<number | null>(null);
 
-  const parsedOverride = forecastOverride.trim() === "" ? null : (parseInt(forecastOverride, 10) || null);
-  const overrideDirty = parsedOverride !== (savedOverride ?? null);
+  const parsedManual = manualInput.trim() === "" ? null : parseInt(manualInput, 10);
+  const manualValid = parsedManual != null && Number.isInteger(parsedManual) && parsedManual >= 0;
+  const manualDirty =
+    selectedMode === "manual" &&
+    (savedMode !== "manual" || parsedManual !== (currentOverride?.monthly_demand ?? null));
 
-  async function handleSaveOverride() {
-    if (!profile?.id) return;
-    if (parsedOverride !== null && (parsedOverride < 0 || !Number.isInteger(parsedOverride))) return;
-    // Writes to the demand_overrides table (separate from the baseline
-    // monthly_demand on product_skus). Clears the row when set to null.
+  // Picking Auto / Trailing / Forecast saves immediately; Manual arms the
+  // input and commits via the check button once a valid number is entered.
+  async function handlePickSource(mode: DemandSourceMode | "auto") {
+    if (!isAdmin || !profile?.id) return;
+    setSelectedMode(mode);
+    if (mode === "manual") return; // committed via handleSaveManual
+    if (mode === savedMode) return;
+    await setDemandOverrideMut.mutateAsync({ skuId: product.id, mode, actorId: profile.id });
+  }
+  async function handleSaveManual() {
+    if (!profile?.id || !manualValid) return;
     await setDemandOverrideMut.mutateAsync({
       skuId: product.id,
-      monthlyDemand: parsedOverride,
+      mode: "manual",
+      monthlyDemand: parsedManual,
       actorId: profile.id,
     });
   }
@@ -152,14 +175,25 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
     setArchived(false);
   }
 
-  // Honor a literal `0` override — operators use it for discontinued SKUs
-  // they expect zero demand on, and the DOS calc beneath should then read
-  // ∞ (no consumption), not the baseline. Previous `parseInt(x) || baseline`
-  // pattern silently swallowed 0 because it's falsy.
+  // Demand preview for the DOS tiles + projection chart below: reflects the
+  // SELECTED (possibly unsaved) source so the operator sees the effect
+  // before committing. A literal 0 is honored (discontinued SKUs → DOS ∞).
+  const trailingValue = product.monthly_demand ?? 0;
+  const autoValue =
+    forecastData && (forecastData.forecast_30d ?? 0) >= FORECAST_HIGH_VOLUME_MONTHLY
+      ? forecastData.forecast_30d
+      : trailingValue;
   const forecastValue = (() => {
-    if (!forecastOverride.trim()) return effectiveDemand;
-    const parsed = parseInt(forecastOverride, 10);
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : effectiveDemand;
+    switch (selectedMode) {
+      case "trailing":
+        return trailingValue;
+      case "forecast":
+        return forecastData?.forecast_30d ?? trailingValue;
+      case "manual":
+        return manualValid ? parsedManual : (currentOverride?.monthly_demand ?? effectiveDemand);
+      default:
+        return autoValue;
+    }
   })();
 
   function dosColor(dos: number) {
@@ -230,40 +264,125 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
           </Card>
         </div>
 
-        {/* Demand section */}
+        {/* Demand source picker — pins which number drives this SKU's demand
+            EVERYWHERE (DOS, order builder, auto-allocator, alerts, pipeline
+            priority, daily report), not just this modal. */}
         <div className="space-y-2">
-          <h3 className="text-sm font-medium">Monthly Demand</h3>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <Label className="text-xs text-muted-foreground">ShipStation (30-day trailing)</Label>
-              <p className="text-lg font-bold tabular-nums">{product.monthly_demand ?? "—"}/mo</p>
-            </div>
-            <div>
-              <Label className="text-xs text-muted-foreground">
-                Forecast
-                {forecastData && <span className="ml-1 text-blue-400">(auto)</span>}
-              </Label>
+          <div className="flex items-baseline justify-between gap-3 flex-wrap">
+            <h3 className="text-sm font-medium">Monthly Demand — source</h3>
+            <span className="text-[11px] text-muted-foreground">
+              {isAdmin ? "Click a card to pin the source for this SKU" : "Source is set by admins"}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+            {/* Auto */}
+            <button
+              type="button"
+              onClick={() => handlePickSource("auto")}
+              disabled={!isAdmin}
+              className={`rounded-lg border p-3 text-left transition-colors ${
+                selectedMode === "auto"
+                  ? "border-primary bg-primary/5 ring-1 ring-primary"
+                  : "border-border hover:bg-muted/40"
+              } ${!isAdmin ? "cursor-default" : ""}`}
+            >
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-xs font-medium">Auto</span>
+                {savedMode === "auto" && (
+                  <Badge variant="outline" className="text-[9px] py-0 border-green-500/40 text-green-400">active</Badge>
+                )}
+              </div>
+              <p className="text-lg font-bold tabular-nums">{autoValue}/mo</p>
+              <p className="text-[10px] text-muted-foreground leading-snug">
+                Forecast when trusted (≥{FORECAST_HIGH_VOLUME_MONTHLY}/mo), else trailing
+              </p>
+            </button>
+
+            {/* Trailing 30d */}
+            <button
+              type="button"
+              onClick={() => handlePickSource("trailing")}
+              disabled={!isAdmin}
+              className={`rounded-lg border p-3 text-left transition-colors ${
+                selectedMode === "trailing"
+                  ? "border-primary bg-primary/5 ring-1 ring-primary"
+                  : "border-border hover:bg-muted/40"
+              } ${!isAdmin ? "cursor-default" : ""}`}
+            >
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-xs font-medium">Trailing 30d</span>
+                {savedMode === "trailing" && (
+                  <Badge variant="outline" className="text-[9px] py-0 border-green-500/40 text-green-400">active</Badge>
+                )}
+              </div>
+              <p className="text-lg font-bold tabular-nums">{trailingValue}/mo</p>
+              <p className="text-[10px] text-muted-foreground leading-snug">
+                ShipStation actuals · updates nightly
+              </p>
+            </button>
+
+            {/* Forecast */}
+            <button
+              type="button"
+              onClick={() => handlePickSource("forecast")}
+              disabled={!isAdmin || !forecastData}
+              className={`rounded-lg border p-3 text-left transition-colors ${
+                selectedMode === "forecast"
+                  ? "border-primary bg-primary/5 ring-1 ring-primary"
+                  : "border-border hover:bg-muted/40"
+              } ${!isAdmin || !forecastData ? "cursor-default opacity-70" : ""}`}
+            >
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-xs font-medium">Forecast</span>
+                {savedMode === "forecast" && (
+                  <Badge variant="outline" className="text-[9px] py-0 border-green-500/40 text-green-400">active</Badge>
+                )}
+              </div>
               <p className="text-lg font-bold tabular-nums">
                 {forecastData ? (
-                  <span>
+                  <>
                     {forecastData.forecast_30d}/mo
-                    <span className="text-xs text-muted-foreground ml-1">
+                    <span className="text-xs text-muted-foreground ml-1 font-normal">
                       ({forecastData.lower_bound}-{forecastData.upper_bound})
                     </span>
-                  </span>
+                  </>
                 ) : (
-                  <span className="text-muted-foreground">-</span>
+                  <span className="text-muted-foreground">—</span>
                 )}
               </p>
-            </div>
-            <div>
-              <Label className="text-xs text-muted-foreground">Override</Label>
+              <p className="text-[10px] text-muted-foreground leading-snug">
+                {forecastData
+                  ? (forecastData.forecast_30d ?? 0) >= FORECAST_HIGH_VOLUME_MONTHLY
+                    ? "Engine · updates weekly"
+                    : "Engine · below trust gate — pin to use anyway"
+                  : "No forecast for this SKU yet"}
+              </p>
+            </button>
+
+            {/* Manual */}
+            <div
+              role="button"
+              tabIndex={isAdmin ? 0 : -1}
+              onClick={() => handlePickSource("manual")}
+              className={`rounded-lg border p-3 text-left transition-colors ${
+                selectedMode === "manual"
+                  ? "border-primary bg-primary/5 ring-1 ring-primary"
+                  : "border-border hover:bg-muted/40"
+              } ${!isAdmin ? "cursor-default" : "cursor-pointer"}`}
+            >
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-xs font-medium">Manual</span>
+                {savedMode === "manual" && (
+                  <Badge variant="outline" className="text-[9px] py-0 border-green-500/40 text-green-400">active</Badge>
+                )}
+              </div>
               {isAdmin ? (
-                <div className="flex items-center gap-1.5 mt-1">
+                <div className="flex items-center gap-1.5 mt-1" onClick={(e) => e.stopPropagation()}>
                   <Input
                     type="number"
-                    value={forecastOverride}
-                    onChange={e => setForecastOverride(e.target.value)}
+                    min={0}
+                    value={manualInput}
+                    onChange={(e) => { setManualInput(e.target.value); setSelectedMode("manual"); }}
                     placeholder={String(effectiveDemand ?? 0)}
                     className="h-8"
                   />
@@ -272,18 +391,23 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
                     size="icon"
                     variant="outline"
                     className="h-8 w-8 shrink-0"
-                    disabled={!overrideDirty}
-                    onClick={handleSaveOverride}
-                    title="Save override"
+                    disabled={!manualValid || !manualDirty || setDemandOverrideMut.isPending}
+                    onClick={handleSaveManual}
+                    title="Save manual demand"
                   >
                     <Check className="h-3.5 w-3.5" />
                   </Button>
                 </div>
               ) : (
                 <p className="text-lg font-bold tabular-nums">
-                  {savedOverride ? `${savedOverride}/mo` : <span className="text-muted-foreground">-</span>}
+                  {currentOverride?.mode === "manual" && currentOverride.monthly_demand != null
+                    ? `${currentOverride.monthly_demand}/mo`
+                    : <span className="text-muted-foreground">—</span>}
                 </p>
               )}
+              <p className="text-[10px] text-muted-foreground leading-snug mt-1">
+                Your number until you change it
+              </p>
             </div>
           </div>
         </div>
@@ -294,7 +418,7 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
         <div className="space-y-2">
           <h3 className="text-sm font-medium">90-Day Inventory Projection</h3>
           <p className="text-xs text-muted-foreground">
-            Total warehouse units (raw + prefilled-raw + WIP + finished + other): 30 days history + 60 days projected (based on {forecastValue}/mo{forecastData ? " forecast" : ""} demand)
+            Total warehouse units (raw + prefilled-raw + WIP + finished + other): 30 days history + 60 days projected (based on {forecastValue}/mo demand from the selected source)
           </p>
           <InventoryProjectionChart
             product={product}

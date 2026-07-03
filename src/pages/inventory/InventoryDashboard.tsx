@@ -359,12 +359,13 @@ export default function InventoryDashboard() {
   const { data: freightLineItems = [] } = useFreightLineItems();
   const { data: factoryOrders = [] } = useFactoryOrders();
   const forecastMap = useForecastDemandMap();
-  // Which SKUs carry a manual demand override — the map above already
-  // FOLDS the override values in (they win over forecast + baseline);
-  // this set only distinguishes the badge ("O" vs "F") in the table.
+  // Which SKUs carry a MANUAL demand pin — the map above already resolves
+  // all pin modes (manual/trailing/forecast); this set only distinguishes
+  // the amber "O" badge. Trailing pins read as plain baseline numbers and
+  // forecast pins keep the blue "F", which is what they actually are.
   const { data: demandOverrides = [] } = useDemandOverrides();
   const overrideIds = useMemo(
-    () => new Set(demandOverrides.map((o) => o.sku_id)),
+    () => new Set(demandOverrides.filter((o) => o.mode === "manual").map((o) => o.sku_id)),
     [demandOverrides],
   );
 

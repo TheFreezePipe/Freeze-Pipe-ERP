@@ -222,7 +222,8 @@ export type Database = {
         Row: {
           created_at: string
           id: string
-          monthly_demand: number
+          mode: string
+          monthly_demand: number | null
           overridden_by: string | null
           reason: string | null
           sku_id: string
@@ -231,7 +232,8 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
-          monthly_demand: number
+          mode?: string
+          monthly_demand?: number | null
           overridden_by?: string | null
           reason?: string | null
           sku_id: string
@@ -240,7 +242,8 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
-          monthly_demand?: number
+          mode?: string
+          monthly_demand?: number | null
           overridden_by?: string | null
           reason?: string | null
           sku_id?: string
