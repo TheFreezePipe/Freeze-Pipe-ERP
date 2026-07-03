@@ -76,22 +76,36 @@ mechanics research contributed:**
     "Complete/Ordered" → links the factory order with work-back milestone
     dates (Productboard/Anvyl). Post-launch 60–90d review task closes the loop.
 
-**Reconciliations with prior decisions (old decision wins unless noted):**
-- *Holiday overlay* (research) vs *"don't seed holidays"* (§8): keep NOT
-  seeding events. If ever added, it's a read-only visual overlay layer,
-  default OFF — owner's call later.
-- *Approval lifecycle Draft→Ops-Confirmed* (Planable) vs *derived-only
-  statuses* (§2.1): rejected. Alignment pressure comes from the DERIVED
-  stock-risk chip + daily digest, not manual workflow states.
+**Reconciliations with prior decisions — owner reversed both on 2026-07-03;
+research-guided approach adopted:**
+- *Holiday overlay* (Klaviyo pattern) SUPERSEDES §8 "don't seed holidays":
+  ship a seeded, read-only **retail-holiday overlay layer** (BFCM, Cyber
+  Monday, Christmas/holiday season, Valentine's, 4/20, Father's Day, Prime
+  Day, Memorial/Labor Day) rendered as a subtle band/label on the calendar,
+  toggleable, ON by default. These are NOT events: not editable, never feed
+  the forecast (baseline seasonality already carries them) — pure planning
+  context for placing sales/broadcasts.
+- *Approval lifecycle* (Planable tiered-approval pattern) SUPERSEDES the
+  "delete unconfirmed, derive everything" stance: sales and launches gain an
+  **approval track** — `draft → proposed → ops_confirmed` (who + when
+  stamped) — orthogonal to the still-derived temporal phase
+  (Upcoming/Live/Ended). Unconfirmed events now DO render on the calendar,
+  visually distinct (dashed/muted), so the team sees what's brewing;
+  ops-confirmation is required for sales + launches before their uplift
+  feeds the forecast overlay, optional for broadcasts. The daily digest
+  lists "awaiting ops confirmation."
 - *ICS calendar feed* (Airtable pattern): nice-to-have, phase-later.
 
 **Revised phasing (supersedes §7 ordering; Q4 clock: the promo-aware forecast
 must land by early August for the Aug–Sep ordering window):**
 - **Phase A — Make it real:** scope-expansion view · ops badges + digest
   section · calendar upgrades (agenda view for the weekly sync, +N-more day
-  popover, filters) · read access for all roles · additive schema (uplift
-  fields, source/external_ref, effective_discount_pct, annual_recurring) ·
-  manual backfill of 2022–2025 major events with the owner.
+  popover, filters, **retail-holiday overlay layer**) · **approval track on
+  sales + launches** (draft/proposed/ops_confirmed + confirm action +
+  dashed rendering for unconfirmed) · read access for all roles · additive
+  schema (uplift fields, source/external_ref, effective_discount_pct,
+  annual_recurring, approval columns) · manual backfill of 2022–2025 major
+  events with the owner.
 - **Phase B — Close the loop:** post-event lift reports · broadcast results
   surfacing + nudges · sold_out_at persistence · launch↔factory-order link,
   order-by chips, stock-risk calendar chips.
