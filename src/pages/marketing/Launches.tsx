@@ -2,14 +2,17 @@ import { useMemo, useState } from "react";
 import { Plus, Rocket, Pencil, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useLaunches, useDeleteLaunch, useInventory, type MktLaunchWithMembers } from "@/lib/hooks";
+import { useLaunches, useDeleteLaunch, useInventory, useFactoryOrders, useFreightShipments, useFreightLineItems, type MktLaunchWithMembers } from "@/lib/hooks";
 import { useSetLaunchApproval, type ApprovalStatus } from "@/lib/hooks/use-marketing-signals";
 import { useAuth } from "@/lib/auth-context";
 import { LaunchFormDialog } from "@/components/marketing/LaunchFormDialog";
 import { launchPhase, LAUNCH_PHASE_COLOR, LAUNCH_PHASE_LABEL, isPastKey, dayKeyOf } from "@/lib/marketing-format";
 import { toast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
-import { format, parseISO } from "date-fns";
+import { format, parseISO, addDays } from "date-fns";
+
+/** Factory lead time used to back-compute the last safe order date. */
+const LEAD_DAYS = 75;
 
 function fmt(d: string | null): string {
   if (!d) return "—";
@@ -74,6 +77,31 @@ export default function Launches() {
   }, [inventory]);
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<MktLaunchWithMembers | null>(null);
+
+  // Earliest incoming date per SKU — open factory-order expected completion
+  // or in-transit freight ETA. Drives the derived stock-readiness chips
+  // (no manual linking; consistent with the derived-signals philosophy).
+  const { data: factoryOrders = [] } = useFactoryOrders();
+  const { data: freightShipments = [] } = useFreightShipments();
+  const { data: freightLines = [] } = useFreightLineItems();
+  const incomingBySku = useMemo(() => {
+    const m = new Map<string, string>();
+    const consider = (sku: string | null, date: string | null | undefined) => {
+      if (!sku || !date) return;
+      const cur = m.get(sku);
+      if (!cur || date < cur) m.set(sku, date);
+    };
+    for (const fo of factoryOrders) {
+      if (fo.status === "shipped" || fo.status === "canceled") continue;
+      for (const it of fo.items ?? []) consider(it.sku_id, fo.expected_completion);
+    }
+    const live = new Set(freightShipments.filter((s) => s.status !== "delivered").map((s) => s.id));
+    for (const li of freightLines) {
+      if (!li.sku_id || !live.has(li.freight_shipment_id)) continue;
+      consider(li.sku_id, freightShipments.find((s) => s.id === li.freight_shipment_id)?.eta);
+    }
+    return m;
+  }, [factoryOrders, freightShipments, freightLines]);
 
   async function handleDelete(l: MktLaunchWithMembers) {
     if (!window.confirm(`Delete "${l.name}"?`)) return;
@@ -165,6 +193,57 @@ export default function Launches() {
                           <span className={`w-fit rounded px-2 py-0.5 text-xs ${LAUNCH_PHASE_COLOR[phase]}`}>{LAUNCH_PHASE_LABEL[phase]}</span>
                           {phase === "launched" && soldCount > 0 && (
                             <span className="text-[10px] text-amber-400/80">{soldCount} of {total} sold out</span>
+                          )}
+                          {/* Derived stock-readiness for upcoming launches */}
+                          {phase === "upcoming" && realMembers.length > 0 && (() => {
+                            const launchDay = l.launch_date;
+                            if (!launchDay) return null;
+                            const dry = realMembers.filter((m) => (onHandBySku.get(m.sku_id!) ?? 0) <= 0);
+                            if (dry.length === 0) {
+                              return <span className="w-fit rounded border border-green-500/30 bg-green-500/10 px-1.5 py-0.5 text-[10px] text-green-400">stock on hand</span>;
+                            }
+                            const uncovered = dry.filter((m) => {
+                              const eta = incomingBySku.get(m.sku_id!);
+                              return !eta || eta > launchDay;
+                            });
+                            if (uncovered.length === 0) {
+                              const latest = dry.map((m) => incomingBySku.get(m.sku_id!)!).sort().pop()!;
+                              return <span className="w-fit rounded border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] text-cyan-300">incoming by {fmt(latest)}</span>;
+                            }
+                            return (
+                              <span className="w-fit rounded border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-400"
+                                title={uncovered.map((m) => m.product?.sku ?? m.planned_name ?? "?").join(", ")}>
+                                ⚠ {uncovered.length} SKU{uncovered.length > 1 ? "s" : ""} not covered by launch
+                              </span>
+                            );
+                          })()}
+                          {/* Order window derived from ready-by − lead time */}
+                          {phase === "upcoming" && l.inventory_ready_by && (() => {
+                            const orderBy = format(addDays(parseISO(l.inventory_ready_by), -LEAD_DAYS), "yyyy-MM-dd");
+                            const passed = todayKey > orderBy;
+                            const anyDry = realMembers.some((m) => (onHandBySku.get(m.sku_id!) ?? 0) <= 0 && !incomingBySku.has(m.sku_id!));
+                            if (passed && anyDry) {
+                              return <span className="w-fit rounded border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-400">order window passed ({fmt(orderBy)})</span>;
+                            }
+                            if (!passed) {
+                              const soon = format(addDays(new Date(), 14), "yyyy-MM-dd") >= orderBy;
+                              return <span className={`w-fit rounded border px-1.5 py-0.5 text-[10px] ${soon ? "border-amber-500/40 bg-amber-500/10 text-amber-400" : "border-border text-muted-foreground"}`}>order by {fmt(orderBy)}</span>;
+                            }
+                            return null;
+                          })()}
+                          {/* Outcomes once the 30d window has elapsed */}
+                          {phase !== "upcoming" && realMembers.some((m) => m.actual_first_30d_units != null || m.sold_out_at) && (
+                            <div className="text-[10px] text-muted-foreground space-y-0">
+                              {realMembers.filter((m) => m.actual_first_30d_units != null || m.sold_out_at).map((m) => (
+                                <p key={m.id}>
+                                  <span className="font-mono">{m.product?.sku ?? "?"}</span>
+                                  {m.actual_first_30d_units != null && (
+                                    <> · 30d: <span className="text-foreground">{m.actual_first_30d_units}</span>{m.expected_first_30d_units != null && <> vs {m.expected_first_30d_units} expected</>}</>
+                                  )}
+                                  {m.sold_out_at && <> · <span className="text-amber-400">sold out {fmt(m.sold_out_at)}</span></>}
+                                </p>
+                              ))}
+                            </div>
                           )}
                         </div>
                       )}

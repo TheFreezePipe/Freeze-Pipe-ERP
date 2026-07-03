@@ -1162,6 +1162,7 @@ export type Database = {
           audience_segment: string | null
           audience_size: number | null
           channel: string
+          clicks: number | null
           created_at: string
           created_by: string | null
           external_ref: string | null
@@ -1169,6 +1170,9 @@ export type Database = {
           launch_id: string | null
           metrics: Json | null
           name: string
+          opens: number | null
+          recipients: number | null
+          revenue: number | null
           sale_id: string | null
           scheduled_at: string | null
           sent_at: string | null
@@ -1179,6 +1183,7 @@ export type Database = {
           audience_segment?: string | null
           audience_size?: number | null
           channel: string
+          clicks?: number | null
           created_at?: string
           created_by?: string | null
           external_ref?: string | null
@@ -1186,6 +1191,9 @@ export type Database = {
           launch_id?: string | null
           metrics?: Json | null
           name: string
+          opens?: number | null
+          recipients?: number | null
+          revenue?: number | null
           sale_id?: string | null
           scheduled_at?: string | null
           sent_at?: string | null
@@ -1196,6 +1204,7 @@ export type Database = {
           audience_segment?: string | null
           audience_size?: number | null
           channel?: string
+          clicks?: number | null
           created_at?: string
           created_by?: string | null
           external_ref?: string | null
@@ -1203,6 +1212,9 @@ export type Database = {
           launch_id?: string | null
           metrics?: Json | null
           name?: string
+          opens?: number | null
+          recipients?: number | null
+          revenue?: number | null
           sale_id?: string | null
           scheduled_at?: string | null
           sent_at?: string | null
@@ -1242,42 +1254,65 @@ export type Database = {
       }
       mkt_launch_skus: {
         Row: {
+          actual_first_30d_units: number | null
           created_at: string
           expected_first_30d_units: number | null
+          factory_order_id: string | null
           id: string
           launch_id: string
           limited_qty: number | null
           planned_name: string | null
           planner_confidence: number | null
           sku_id: string | null
+          sold_out_at: string | null
           sort_order: number
           updated_at: string
         }
         Insert: {
+          actual_first_30d_units?: number | null
           created_at?: string
           expected_first_30d_units?: number | null
+          factory_order_id?: string | null
           id?: string
           launch_id: string
           limited_qty?: number | null
           planned_name?: string | null
           planner_confidence?: number | null
           sku_id?: string | null
+          sold_out_at?: string | null
           sort_order?: number
           updated_at?: string
         }
         Update: {
+          actual_first_30d_units?: number | null
           created_at?: string
           expected_first_30d_units?: number | null
+          factory_order_id?: string | null
           id?: string
           launch_id?: string
           limited_qty?: number | null
           planned_name?: string | null
           planner_confidence?: number | null
           sku_id?: string | null
+          sold_out_at?: string | null
           sort_order?: number
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "mkt_launch_skus_factory_order_id_fkey"
+            columns: ["factory_order_id"]
+            isOneToOne: false
+            referencedRelation: "factory_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_launch_skus_factory_order_id_fkey"
+            columns: ["factory_order_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_factory_orders"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "mkt_launch_skus_launch_id_fkey"
             columns: ["launch_id"]
@@ -1526,6 +1561,72 @@ export type Database = {
             columns: ["sale_id"]
             isOneToOne: false
             referencedRelation: "mkt_sales"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mkt_sale_sku_lift: {
+        Row: {
+          baseline_daily: number
+          computed_at: string
+          days: number
+          lift_pct: number | null
+          sale_id: string
+          sku_id: string
+          units_during: number
+        }
+        Insert: {
+          baseline_daily?: number
+          computed_at?: string
+          days: number
+          lift_pct?: number | null
+          sale_id: string
+          sku_id: string
+          units_during?: number
+        }
+        Update: {
+          baseline_daily?: number
+          computed_at?: string
+          days?: number
+          lift_pct?: number | null
+          sale_id?: string
+          sku_id?: string
+          units_during?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mkt_sale_sku_lift_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: false
+            referencedRelation: "mkt_offer_sku_expansion"
+            referencedColumns: ["sale_id"]
+          },
+          {
+            foreignKeyName: "mkt_sale_sku_lift_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: false
+            referencedRelation: "mkt_sales"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_sale_sku_lift_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_sale_sku_lift_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus_active"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_sale_sku_lift_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_skus"
             referencedColumns: ["id"]
           },
         ]
@@ -3729,6 +3830,7 @@ export type Database = {
         }
         Returns: Json
       }
+      rpc_compute_marketing_outcomes: { Args: never; Returns: Json }
       rpc_consolidator_confirm_factory_order_receive: {
         Args: { p_payload: Json }
         Returns: Json

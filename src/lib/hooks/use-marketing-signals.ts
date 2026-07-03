@@ -129,6 +129,45 @@ export function describeSkuSignals(sig: SkuMarketingSignals): string {
   return parts.join("  ·  ");
 }
 
+/** Post-sale lift rows (computed nightly by rpc_compute_marketing_outcomes). */
+export interface SaleLiftRow {
+  sku_id: string;
+  sku: string;
+  product_name: string;
+  days: number;
+  units_during: number;
+  baseline_daily: number;
+  lift_pct: number | null;
+}
+
+export function useSaleLift(saleId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["mkt-sale-lift", saleId],
+    enabled: !!saleId,
+    queryFn: async (): Promise<SaleLiftRow[]> => {
+      const { data, error } = await supabase
+        .from("mkt_sale_sku_lift")
+        .select("sku_id, days, units_during, baseline_daily, lift_pct, product:product_skus(sku, product_name)")
+        .eq("sale_id", saleId!)
+        .order("units_during", { ascending: false });
+      if (error) throw error;
+      return (data ?? []).map((r) => {
+        const p = r.product as unknown as { sku: string; product_name: string } | null;
+        return {
+          sku_id: r.sku_id,
+          sku: p?.sku ?? r.sku_id.slice(0, 8),
+          product_name: p?.product_name ?? "",
+          days: r.days,
+          units_during: r.units_during,
+          baseline_daily: Number(r.baseline_daily) || 0,
+          lift_pct: r.lift_pct == null ? null : Number(r.lift_pct),
+        };
+      });
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
 function useSetApproval(table: "mkt_sales" | "mkt_launches", listKey: string) {
   const qc = useQueryClient();
   return useMutation({

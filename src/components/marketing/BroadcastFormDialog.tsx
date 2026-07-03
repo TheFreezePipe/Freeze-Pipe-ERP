@@ -24,6 +24,7 @@ import {
   useUpdateBroadcast,
   useSales,
   useLaunches,
+  broadcastResults,
   type MktBroadcastWithLinks,
 } from "@/lib/hooks";
 
@@ -76,11 +77,12 @@ export function BroadcastFormDialog({ open, onOpenChange, broadcast, defaultDate
     setAudienceSize(broadcast?.audience_size != null ? String(broadcast.audience_size) : "");
     setSaleId(broadcast?.sale_id ?? NONE);
     setLaunchId(broadcast?.launch_id ?? NONE);
-    const m = (broadcast?.metrics ?? null) as Record<string, number> | null;
-    setRecipients(m?.recipients != null ? String(m.recipients) : "");
-    setOpens(m?.opens != null ? String(m.opens) : "");
-    setClicks(m?.clicks != null ? String(m.clicks) : "");
-    setRevenue(m?.revenue != null ? String(m.revenue) : "");
+    // Typed results columns (legacy `metrics` jsonb read as fallback only).
+    const res = broadcast ? broadcastResults(broadcast) : null;
+    setRecipients(res?.recipients != null ? String(res.recipients) : "");
+    setOpens(res?.opens != null ? String(res.opens) : "");
+    setClicks(res?.clicks != null ? String(res.clicks) : "");
+    setRevenue(res?.revenue != null ? String(res.revenue) : "");
   }, [open, broadcast, defaultDate]);
 
   const pending = create.isPending || update.isPending;
@@ -91,12 +93,6 @@ export function BroadcastFormDialog({ open, onOpenChange, broadcast, defaultDate
       toast({ title: "Name required", description: "Give the broadcast a name/subject.", variant: "destructive" });
       return;
     }
-    const metricsObj: Record<string, number> = {};
-    const r = numOrNull(recipients); if (r != null) metricsObj.recipients = r;
-    if (channel === "email") { const o = numOrNull(opens); if (o != null) metricsObj.opens = o; }
-    const c = numOrNull(clicks); if (c != null) metricsObj.clicks = c;
-    const rev = numOrNull(revenue); if (rev != null) metricsObj.revenue = rev;
-
     const payload = {
       channel,
       name: name.trim(),
@@ -106,7 +102,12 @@ export function BroadcastFormDialog({ open, onOpenChange, broadcast, defaultDate
       audience_size: numOrNull(audienceSize),
       sale_id: saleId === NONE ? null : saleId,
       launch_id: launchId === NONE ? null : launchId,
-      metrics: Object.keys(metricsObj).length > 0 ? metricsObj : null,
+      // Typed results columns. The legacy `metrics` jsonb is read-only now —
+      // deliberately never written.
+      recipients: numOrNull(recipients),
+      opens: channel === "email" ? numOrNull(opens) : null,
+      clicks: numOrNull(clicks),
+      revenue: numOrNull(revenue),
     };
     try {
       if (editing && broadcast) {
@@ -128,7 +129,7 @@ export function BroadcastFormDialog({ open, onOpenChange, broadcast, defaultDate
         <DialogHeader>
           <DialogTitle>{editing ? "Edit broadcast" : "New broadcast"}</DialogTitle>
           <DialogDescription>
-            An email or SMS blast. Link it to the sale/launch it's promoting. Metrics are entered by hand for now.
+            An email or SMS blast. Link it to the sale/launch it's promoting. Results are entered by hand for now.
           </DialogDescription>
         </DialogHeader>
 
@@ -198,8 +199,8 @@ export function BroadcastFormDialog({ open, onOpenChange, broadcast, defaultDate
             </div>
           </div>
 
-          <div>
-            <p className="mb-2 text-sm font-medium">Results <span className="text-xs text-muted-foreground font-normal">manual — fill in after the send</span></p>
+          <div className="rounded-md border border-border/50 bg-muted/20 p-3">
+            <p className="mb-2 text-xs font-medium text-muted-foreground">Results <span className="font-normal">— manual, fill in after the send</span></p>
             <div className="grid grid-cols-4 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs">Recipients</Label>

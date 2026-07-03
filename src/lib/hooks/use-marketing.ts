@@ -8,7 +8,7 @@
  */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import type { Database } from "@/lib/database.types";
+import type { Database, Json } from "@/lib/database.types";
 
 type Tables = Database["public"]["Tables"];
 export type MktSale = Tables["mkt_sales"]["Row"];
@@ -46,6 +46,35 @@ export type MktBroadcastWithLinks = MktBroadcast & {
   sale: { id: string; name: string } | null;
   launch: { id: string; name: string } | null;
 };
+
+/**
+ * Broadcast results, resolved to one shape. The typed columns
+ * (recipients/opens/clicks/revenue) are the source of truth; the old
+ * `metrics` jsonb blob is READ-ONLY legacy — still consulted for rows that
+ * predate the typed columns, but never written anymore.
+ */
+export interface BroadcastResults {
+  recipients: number | null;
+  opens: number | null;
+  clicks: number | null;
+  revenue: number | null;
+}
+
+function legacyMetricNum(metrics: Json | null, key: string): number | null {
+  if (!metrics || typeof metrics !== "object" || Array.isArray(metrics)) return null;
+  const v = (metrics as Record<string, Json | undefined>)[key];
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+/** Typed columns first, legacy `metrics` jsonb as a read-only fallback. */
+export function broadcastResults(b: MktBroadcast): BroadcastResults {
+  return {
+    recipients: b.recipients ?? legacyMetricNum(b.metrics, "recipients"),
+    opens: b.opens ?? legacyMetricNum(b.metrics, "opens"),
+    clicks: b.clicks ?? legacyMetricNum(b.metrics, "clicks"),
+    revenue: b.revenue ?? legacyMetricNum(b.metrics, "revenue"),
+  };
+}
 
 const STALE = 2 * 60 * 1000;
 

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Pencil, Trash2, Plus } from "lucide-react";
+import { ArrowLeft, Pencil, Trash2, Plus, TrendingUp } from "lucide-react";
+import { useSaleLift } from "@/lib/hooks/use-marketing-signals";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +21,81 @@ import { format, parseISO } from "date-fns";
 function fmt(d: string | null): string {
   if (!d) return "—";
   try { return format(parseISO(d), "MMM d, yyyy"); } catch { return d; }
+}
+
+/** Post-sale outcomes: units during the window vs the trailing-28d
+ *  pre-sale baseline, per affected SKU. Computed nightly by
+ *  rpc_compute_marketing_outcomes into mkt_sale_sku_lift. */
+function SalePerformance({ saleId }: { saleId: string }) {
+  const { data: rows = [], isLoading } = useSaleLift(saleId);
+  if (isLoading) return null;
+  if (rows.length === 0) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <TrendingUp className="h-4 w-4" /> Performance
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Outcomes compute overnight once the sale has ended (and need the
+            sale's offers to cover at least one SKU).
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  const totalUnits = rows.reduce((s, r) => s + r.units_during, 0);
+  const expectedUnits = rows.reduce((s, r) => s + r.baseline_daily * r.days, 0);
+  const overallLift = expectedUnits > 0 ? Math.round((totalUnits / expectedUnits - 1) * 100) : null;
+  const liftColor = (v: number | null) =>
+    v == null ? "text-muted-foreground" : v >= 0 ? "text-green-400" : "text-red-400";
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <TrendingUp className="h-4 w-4" /> Performance
+          <span className="text-sm font-normal text-muted-foreground">
+            {totalUnits.toLocaleString()} units during the sale
+            {overallLift != null && (
+              <> · <span className={liftColor(overallLift)}>{overallLift >= 0 ? "+" : ""}{overallLift}% vs baseline</span></>
+            )}
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        <table className="w-full text-sm">
+          <thead className="border-b border-border/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="px-4 py-2">SKU</th>
+              <th className="px-3 py-2 text-right">Units during</th>
+              <th className="px-3 py-2 text-right">Baseline/day</th>
+              <th className="px-3 py-2 text-right">Lift</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.slice(0, 10).map((r) => (
+              <tr key={r.sku_id} className="border-b border-border/40 last:border-0">
+                <td className="px-4 py-2">
+                  <span className="font-mono">{r.sku}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">{r.product_name}</span>
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums font-medium">{r.units_during.toLocaleString()}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{r.baseline_daily.toFixed(1)}</td>
+                <td className={`px-3 py-2 text-right tabular-nums ${liftColor(r.lift_pct)}`}>
+                  {r.lift_pct == null ? "—" : `${r.lift_pct >= 0 ? "+" : ""}${r.lift_pct}%`}
+                </td>
+              </tr>
+            ))}
+            {rows.length > 10 && (
+              <tr><td colSpan={4} className="px-4 py-2 text-xs text-muted-foreground">+{rows.length - 10} more SKUs</td></tr>
+            )}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function SalesDetail() {
@@ -185,6 +261,10 @@ export default function SalesDetail() {
           )}
         </CardContent>
       </Card>
+
+      {salePhase(sale.starts_at, sale.ends_at, todayKey) === "ended" && (
+        <SalePerformance saleId={sale.id} />
+      )}
     </div>
   );
 }
