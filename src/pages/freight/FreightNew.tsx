@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { addDays, format, parseISO } from "date-fns";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -147,6 +148,20 @@ export default function FreightNew() {
   const [trackingNumber, setTrackingNumber] = useState("");
   const [shipDate, setShipDate] = useState("");
   const [eta, setEta] = useState("");
+  // Once the operator edits the ETA themselves we stop auto-suggesting.
+  const [etaTouched, setEtaTouched] = useState(false);
+
+  // Sea freight reliably lands ~30 days after the ship date (owner rule,
+  // 2026-07-07 — shipments 443/449 both needed this fixed by hand). Suggest
+  // ETA = ship date + 30d for sea shipments until the field is manually
+  // edited; mirrors the shipment-number auto-suggest pattern.
+  useEffect(() => {
+    if (etaTouched || freightType !== "sea") return;
+    if (!shipDate) { setEta(""); return; }
+    const d = parseISO(shipDate);
+    if (Number.isNaN(d.getTime())) return;
+    setEta(format(addDays(d, 30), "yyyy-MM-dd"));
+  }, [shipDate, freightType, etaTouched]);
   const [freightCost, setFreightCost] = useState("");
   const [notes, setNotes] = useState("");
   // Non-catalog (sample/prototype) items — free-text lines with no SKU.
@@ -687,8 +702,13 @@ export default function FreightNew() {
                   id="eta"
                   type="date"
                   value={eta}
-                  onChange={e => setEta(e.target.value)}
+                  onChange={e => { setEtaTouched(true); setEta(e.target.value); }}
                 />
+                {!etaTouched && freightType === "sea" && eta && (
+                  <p className="text-[10px] text-muted-foreground">
+                    Suggested: ship date + 30 days (sea transit). Edit to override.
+                  </p>
+                )}
               </div>
             </div>
           </CardContent>
