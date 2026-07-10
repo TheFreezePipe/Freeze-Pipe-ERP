@@ -6,10 +6,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { getEffectiveDemand } from "@/lib/demand";
-import { computeListD2C } from "@/lib/inventory-math";
+import { computeListD2C, applyDiscountToListD2C } from "@/lib/inventory-math";
 import { DISPLAY_CATEGORIES, displayCategoryRank } from "@/lib/constants";
 import { useNavigate } from "react-router-dom";
-import { ExternalLink, Plus, Search, X } from "lucide-react";
+import { ExternalLink, Percent, Plus, Search, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   useProducts,
@@ -99,6 +99,25 @@ export default function SKUList() {
     });
   }, [products, searchQuery, categoryFilter, abcFilter, showArchived]);
 
+  // Discount Lens: what-if promo pricing across the visible grid. Client-
+  // side only — nothing is saved. Active as soon as either input holds a
+  // positive number; the existing Product Line / ABC filters double as the
+  // scope selector ("test 25% off on Bubblers" = filter + type 25).
+  const [lensPct, setLensPct] = useState("");
+  const [lensDollar, setLensDollar] = useState("");
+  const lens = useMemo(() => {
+    const pct = parseFloat(lensPct);
+    const dollar = parseFloat(lensDollar);
+    const p = Number.isFinite(pct) && pct > 0 ? Math.min(pct, 100) : 0;
+    const d = Number.isFinite(dollar) && dollar > 0 ? dollar : 0;
+    return p > 0 || d > 0 ? { pct: p, dollar: d } : null;
+  }, [lensPct, lensDollar]);
+  const lensLabel = lens
+    ? [lens.pct > 0 ? `${lens.pct}% off` : null, lens.dollar > 0 ? `$${lens.dollar} off` : null]
+        .filter(Boolean)
+        .join(" + ")
+    : null;
+
   // Per-row derived economics, computed once so the sortable columns
   // (costs, margins, monthly $) have concrete values to sort on instead
   // of being computed inline during render.
@@ -114,9 +133,16 @@ export default function SKUList() {
         marginPerUnit !== null && demand > 0 ? marginPerUnit * demand : null;
       const archivedAt = (product as ProductSKU & { archived_at?: string | null }).archived_at;
       const isArchived = !!archivedAt || !product.is_active;
-      return { product, econ, d2c, demand, marginPerUnit, monthlyContribution, isArchived };
+      // Discount Lens simulation — exact economics at the promo price
+      // (the credit-card fee rescales with the charged price inside the
+      // helper; all other cost buckets are price-independent).
+      const sim =
+        lens && econ && d2c && (product.retail_price ?? 0) > 0
+          ? applyDiscountToListD2C(d2c, econ, product.retail_price ?? 0, lens.pct, lens.dollar)
+          : null;
+      return { product, econ, d2c, demand, marginPerUnit, monthlyContribution, isArchived, sim };
     });
-  }, [filteredProducts, economicsById, primaryCostBySkuId, forecastMap]);
+  }, [filteredProducts, economicsById, primaryCostBySkuId, forecastMap, lens]);
 
   const { sort, toggleSort } = useTableSort();
   type Row = (typeof tableRows)[number];
@@ -126,16 +152,23 @@ export default function SKUList() {
         sku: (r) => r.product.sku,
         line: (r) => r.product.display_category,
         abc: (r) => r.product.abc_classification,
-        retail: (r) => ((r.product.retail_price ?? 0) > 0 ? r.product.retail_price : null),
+        // When the Discount Lens is active, price/margin columns sort by
+        // the SIMULATED values so "worst margin first" scans work mid-test.
+        retail: (r) =>
+          r.sim ? r.sim.discountedPrice : (r.product.retail_price ?? 0) > 0 ? r.product.retail_price : null,
         demand: (r) => (r.demand > 0 ? r.demand : null),
         raw: (r) => r.d2c?.rawCost ?? null,
         imp: (r) => r.d2c?.importCost ?? null,
         mfg: (r) => r.d2c?.mfgCost ?? null,
         ps: (r) => r.d2c?.packShipCost ?? null,
-        total: (r) => r.d2c?.totalD2C ?? null,
-        marginD: (r) => r.marginPerUnit,
+        total: (r) => (r.sim ? r.sim.totalD2C : (r.d2c?.totalD2C ?? null)),
+        marginD: (r) => (r.sim ? r.sim.marginPerUnit : r.marginPerUnit),
         marginPct: (r) =>
-          r.d2c && (r.product.retail_price ?? 0) > 0 ? r.d2c.contributionMargin : null,
+          r.sim
+            ? r.sim.contributionMargin
+            : r.d2c && (r.product.retail_price ?? 0) > 0
+              ? r.d2c.contributionMargin
+              : null,
         monthly: (r) => r.monthlyContribution,
       }),
     [tableRows, sort],
@@ -279,6 +312,44 @@ export default function SKUList() {
             <X className="mr-1 h-3 w-3" /> Clear
           </Button>
         )}
+        {/* Discount Lens — simulate a promo across every visible row.
+            The Product Line / ABC filters above double as its scope. */}
+        <div className="space-y-1 border-l border-border/60 pl-3">
+          <Label htmlFor="lens-pct" className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Percent className="h-3 w-3" /> Test a discount
+          </Label>
+          <div className="flex items-center gap-2">
+            <Input
+              id="lens-pct"
+              type="number"
+              min={0}
+              max={100}
+              placeholder="% off"
+              value={lensPct}
+              onChange={(e) => setLensPct(e.target.value)}
+              className={`h-9 w-[84px] text-sm ${lens?.pct ? "border-amber-500/60" : ""}`}
+            />
+            <Input
+              type="number"
+              min={0}
+              placeholder="$ off"
+              aria-label="Dollars off"
+              value={lensDollar}
+              onChange={(e) => setLensDollar(e.target.value)}
+              className={`h-9 w-[84px] text-sm ${lens?.dollar ? "border-amber-500/60" : ""}`}
+            />
+            {lens && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-9 px-2 text-xs text-amber-400"
+                onClick={() => { setLensPct(""); setLensDollar(""); }}
+              >
+                <X className="mr-1 h-3 w-3" /> Reset
+              </Button>
+            )}
+          </div>
+        </div>
         <div className="ml-auto text-xs text-muted-foreground pb-1.5 tabular-nums">
           {filteredProducts.length} of {products.length} {products.length === 1 ? "SKU" : "SKUs"}
         </div>
@@ -298,8 +369,13 @@ export default function SKUList() {
                 <th colSpan={5} className="px-2 pt-3 pb-1 text-center border-l border-border bg-muted/20">
                   Cost Breakdown ($/unit)
                 </th>
-                <th colSpan={3} className="px-2 pt-3 pb-1 text-center border-l border-border bg-muted/20">
-                  Profitability
+                <th
+                  colSpan={3}
+                  className={`px-2 pt-3 pb-1 text-center border-l border-border ${
+                    lens ? "bg-amber-500/15 text-amber-400" : "bg-muted/20"
+                  }`}
+                >
+                  {lens ? `Profitability @ ${lensLabel} — simulated` : "Profitability"}
                 </th>
               </tr>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
@@ -319,13 +395,13 @@ export default function SKUList() {
               </tr>
             </thead>
             <tbody>
-              {sortedRows.map(({ product, econ, d2c, demand, marginPerUnit, monthlyContribution, isArchived }) => {
+              {sortedRows.map(({ product, econ, d2c, demand, marginPerUnit, monthlyContribution, isArchived, sim }) => {
                 return (
                   <tr
                     key={product.id}
                     className={`border-b border-border/50 hover:bg-muted/50 cursor-pointer ${
                       isArchived ? "opacity-60" : ""
-                    }`}
+                    }${sim && sim.marginPerUnit < 0 ? " bg-red-500/5" : ""}`}
                     onClick={() => navigate(`/economics/${product.id}`)}
                   >
                     <td className="px-4 py-3">
@@ -362,7 +438,16 @@ export default function SKUList() {
                       </Badge>
                     </td>
                     <td className="px-3 py-3 text-right tabular-nums">
-                      {(product.retail_price ?? 0) > 0 ? (
+                      {sim ? (
+                        <div>
+                          <div className="text-[10px] text-muted-foreground line-through">
+                            ${(product.retail_price ?? 0).toFixed(2)}
+                          </div>
+                          <div className="font-medium text-amber-300">
+                            ${sim.discountedPrice.toFixed(2)}
+                          </div>
+                        </div>
+                      ) : (product.retail_price ?? 0) > 0 ? (
                         `$${(product.retail_price ?? 0).toFixed(2)}`
                       ) : (
                         <span className="text-muted-foreground">-</span>
@@ -426,7 +511,14 @@ export default function SKUList() {
                     <td className="px-2 py-3 text-right tabular-nums text-xs">
                       {d2c ? `$${d2c.packShipCost.toFixed(2)}` : <Dash />}
                     </td>
-                    <td className="px-2 py-3 text-right tabular-nums font-semibold">
+                    <td
+                      className="px-2 py-3 text-right tabular-nums font-semibold"
+                      title={
+                        sim
+                          ? `At ${lensLabel}: $${sim.totalD2C.toFixed(2)} — the credit-card fee scales with the charged price; margins at right use this simulated cost`
+                          : undefined
+                      }
+                    >
                       {d2c ? (
                         `$${d2c.totalD2C.toFixed(2)}`
                       ) : (
@@ -441,7 +533,21 @@ export default function SKUList() {
                         emphasized as the headline business number and
                         colored by sign (green positive, red negative). */}
                     <td className="px-2 py-3 text-right tabular-nums border-l border-border">
-                      {marginPerUnit !== null ? (
+                      {sim && marginPerUnit !== null ? (
+                        (() => {
+                          const delta = sim.marginPerUnit - marginPerUnit;
+                          return (
+                            <div>
+                              <span className={`font-medium ${sim.marginPerUnit < 0 ? "text-red-400" : ""}`}>
+                                {sim.marginPerUnit < 0 ? "−" : ""}${Math.abs(sim.marginPerUnit).toFixed(2)}
+                              </span>
+                              <div className={`text-[10px] ${delta <= 0 ? "text-red-400/80" : "text-green-400/80"}`}>
+                                {delta <= 0 ? "−" : "+"}${Math.abs(delta).toFixed(2)}
+                              </div>
+                            </div>
+                          );
+                        })()
+                      ) : marginPerUnit !== null ? (
                         <span className={marginPerUnit < 0 ? "text-red-400" : ""}>
                           ${marginPerUnit.toFixed(2)}
                         </span>
@@ -450,7 +556,27 @@ export default function SKUList() {
                       )}
                     </td>
                     <td className="px-2 py-3 text-right tabular-nums">
-                      {d2c && (product.retail_price ?? 0) > 0 ? (
+                      {sim && d2c ? (
+                        sim.contributionMargin !== null ? (
+                          (() => {
+                            const pts = (sim.contributionMargin - d2c.contributionMargin) * 100;
+                            return (
+                              <div>
+                                <span className={marginColor(sim.contributionMargin)}>
+                                  {(sim.contributionMargin * 100).toFixed(1)}%
+                                </span>
+                                <div className="text-[10px] text-muted-foreground">
+                                  {pts <= 0 ? "−" : "+"}{Math.abs(pts).toFixed(1)} pts
+                                </div>
+                              </div>
+                            );
+                          })()
+                        ) : (
+                          <span className="text-red-400" title="This discount drives the price to $0">
+                            —
+                          </span>
+                        )
+                      ) : d2c && (product.retail_price ?? 0) > 0 ? (
                         <span className={marginColor(d2c.contributionMargin)}>
                           {(d2c.contributionMargin * 100).toFixed(1)}%
                         </span>
@@ -458,13 +584,24 @@ export default function SKUList() {
                         <Dash />
                       )}
                     </td>
-                    <td className="px-3 py-3 text-right tabular-nums font-semibold">
+                    {/* Monthly $ stays BASELINE and dims while the lens is
+                        active: recomputing it would require guessing promo
+                        demand uplift, which this tool deliberately doesn't
+                        do (the marketing module measures real lift). */}
+                    <td
+                      className={`px-3 py-3 text-right tabular-nums font-semibold ${lens ? "opacity-40" : ""}`}
+                      title={
+                        lens
+                          ? "Baseline — not simulated. Promo demand uplift is unknown; measured lift from past sales will feed this later."
+                          : undefined
+                      }
+                    >
                       {monthlyContribution !== null ? (
                         <span
                           className={
                             monthlyContribution < 0 ? "text-red-400" : "text-green-400"
                           }
-                          title={`${demand.toLocaleString()} units × $${(marginPerUnit ?? 0).toFixed(2)} margin`}
+                          title={lens ? undefined : `${demand.toLocaleString()} units × $${(marginPerUnit ?? 0).toFixed(2)} margin`}
                         >
                           {monthlyContribution < 0 ? "−" : ""}$
                           {Math.abs(monthlyContribution).toLocaleString(undefined, {

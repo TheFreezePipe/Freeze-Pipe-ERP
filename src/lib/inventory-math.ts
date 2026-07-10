@@ -218,6 +218,52 @@ export function computeListD2C(
   return { rawCost, importCost, mfgCost, packShipCost, totalD2C, contributionMargin };
 }
 
+// ---------------------------------------------------------------------------
+// Discount Lens (SKU Economics page): what-if economics at a promo price.
+//
+// Percent applies first, then dollars-off, clamped at $0 — matching how a
+// stacked storefront discount composes. Only the credit-card fee bucket of
+// D2C scales with the charged price; every other bucket is cost-side and
+// unchanged. The fee rate mirrors computeListD2C's logic: a stored per-SKU
+// fee implies its own rate (fee ÷ retail), else the default rate applies.
+// Demand-side effects (promo uplift) are deliberately NOT modeled here —
+// that's the marketing module's measured-lift loop's job.
+export interface DiscountedEconomics {
+  discountedPrice: number;
+  totalD2C: number;
+  marginPerUnit: number;
+  /** Fraction of the discounted price (same units as contributionMargin);
+   *  null when the discount drives the price to $0. */
+  contributionMargin: number | null;
+}
+
+export function applyDiscountToListD2C(
+  d2c: ListD2CResult,
+  econ: SKUEconomics,
+  retailPrice: number,
+  pctOff: number,
+  dollarOff: number,
+): DiscountedEconomics {
+  const pct = Math.min(Math.max(pctOff, 0), 100);
+  const off = Math.max(dollarOff, 0);
+  const discountedPrice = Math.max(0, retailPrice * (1 - pct / 100) - off);
+
+  const storedFee = econ.credit_card_fees;
+  const hasStoredFee = storedFee != null && storedFee > 0;
+  const feeRate =
+    hasStoredFee && retailPrice > 0 ? storedFee / retailPrice : DEFAULT_CC_FEE_RATE;
+  const feeAtFullPrice = hasStoredFee ? storedFee : retailPrice * DEFAULT_CC_FEE_RATE;
+
+  const totalD2C = d2c.totalD2C - feeAtFullPrice + discountedPrice * feeRate;
+  const marginPerUnit = discountedPrice - totalD2C;
+  return {
+    discountedPrice,
+    totalD2C,
+    marginPerUnit,
+    contributionMargin: discountedPrice > 0 ? marginPerUnit / discountedPrice : null,
+  };
+}
+
 export function computeSKUCosts(e: SKUEconomics, retailPrice = 0) {
   // Every numeric column on sku_economics is nullable in the schema,
   // so coalesce each to 0 before the math. Legacy callers (none today
