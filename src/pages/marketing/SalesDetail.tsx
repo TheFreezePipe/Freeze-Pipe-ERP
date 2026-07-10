@@ -47,8 +47,14 @@ function SalePerformance({ saleId }: { saleId: string }) {
     );
   }
   const totalUnits = rows.reduce((s, r) => s + r.units_during, 0);
-  const expectedUnits = rows.reduce((s, r) => s + r.baseline_daily * r.days, 0);
-  const overallLift = expectedUnits > 0 ? Math.round((totalUnits / expectedUnits - 1) * 100) : null;
+  // Overall lift only aggregates SKUs that HAD a pre-sale baseline. Including
+  // zero-baseline SKUs (new products) would add their units to the numerator
+  // with nothing in the denominator, inflating the headline lift.
+  const baselined = rows.filter((r) => r.baseline_daily > 0);
+  const liftUnits = baselined.reduce((s, r) => s + r.units_during, 0);
+  const expectedUnits = baselined.reduce((s, r) => s + r.baseline_daily * r.days, 0);
+  const overallLift = expectedUnits > 0 ? Math.round((liftUnits / expectedUnits - 1) * 100) : null;
+  const noBaselineCount = rows.length - baselined.length;
   const liftColor = (v: number | null) =>
     v == null ? "text-muted-foreground" : v >= 0 ? "text-green-400" : "text-red-400";
   return (
@@ -60,6 +66,9 @@ function SalePerformance({ saleId }: { saleId: string }) {
             {totalUnits.toLocaleString()} units during the sale
             {overallLift != null && (
               <> · <span className={liftColor(overallLift)}>{overallLift >= 0 ? "+" : ""}{overallLift}% vs baseline</span></>
+            )}
+            {noBaselineCount > 0 && (
+              <> · <span title="Excluded from the lift figure — no pre-sale sales history to compare against">{noBaselineCount} new SKU{noBaselineCount > 1 ? "s" : ""} w/o baseline</span></>
             )}
           </span>
         </CardTitle>

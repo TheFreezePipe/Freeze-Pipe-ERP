@@ -242,22 +242,23 @@ export function useLaunches() {
   });
 }
 
-function memberRows(launchId: string, members: LaunchMemberInput[]) {
-  return members.map((m, i) => ({ ...m, launch_id: launchId, sort_order: i }));
-}
-
+// Launch writes go through rpc_save_launch: one transaction (no stranded
+// child rows on failure) that RECONCILES members instead of delete+reinsert,
+// so the Phase B outcome columns (sold_out_at, actual_first_30d_units,
+// factory_order_id) survive an edit. The RPC is SECURITY INVOKER, so the
+// admin/manager RLS write gate still applies.
 export function useCreateLaunch() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ launch, members }: { launch: MktLaunchInsert; members: LaunchMemberInput[] }): Promise<MktLaunch> => {
-      const { data, error } = await supabase.from("mkt_launches").insert(launch).select().single();
+      const { data, error } = await supabase.rpc("rpc_save_launch", {
+        p_id: null as unknown as string, // NULL → insert; typed non-null by codegen
+        p_launch: launch as unknown as Json,
+        p_members: members as unknown as Json,
+      });
       if (error) throw error;
-      const created = data as MktLaunch;
-      if (members.length > 0) {
-        const { error: mErr } = await supabase.from("mkt_launch_skus").insert(memberRows(created.id, members));
-        if (mErr) throw mErr;
-      }
-      return created;
+      // RPC returns the new launch id; callers only read .id.
+      return { ...(launch as MktLaunch), id: data as string };
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["mkt-launches"] }),
   });
@@ -266,18 +267,15 @@ export function useCreateLaunch() {
 export function useUpdateLaunch() {
   const qc = useQueryClient();
   return useMutation({
-    // members omitted (e.g. a calendar drag that only shifts dates) → members untouched.
+    // members omitted (e.g. a calendar drag that only shifts dates) → members
+    // untouched (RPC leaves them alone when p_members is null).
     mutationFn: async ({ id, updates, members }: { id: string; updates: Partial<MktLaunchInsert>; members?: LaunchMemberInput[] }) => {
-      const { error } = await supabase.from("mkt_launches").update(updates).eq("id", id);
+      const { error } = await supabase.rpc("rpc_save_launch", {
+        p_id: id,
+        p_launch: updates as unknown as Json,
+        p_members: (members ?? null) as unknown as Json,
+      });
       if (error) throw error;
-      if (members) {
-        const { error: delErr } = await supabase.from("mkt_launch_skus").delete().eq("launch_id", id);
-        if (delErr) throw delErr;
-        if (members.length > 0) {
-          const { error: insErr } = await supabase.from("mkt_launch_skus").insert(memberRows(id, members));
-          if (insErr) throw insErr;
-        }
-      }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["mkt-launches"] }),
   });

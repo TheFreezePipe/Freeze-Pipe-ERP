@@ -38,6 +38,7 @@ export function SaleFormDialog({ open, onOpenChange, sale, defaultDate, datesLoc
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
   const [notes, setNotes] = useState("");
+  const [annualRecurring, setAnnualRecurring] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -45,6 +46,7 @@ export function SaleFormDialog({ open, onOpenChange, sale, defaultDate, datesLoc
       setStartsAt(dateInput(sale?.starts_at ?? null) || (defaultDate ?? ""));
       setEndsAt(dateInput(sale?.ends_at ?? null) || (defaultDate ?? ""));
       setNotes(sale?.notes ?? "");
+      setAnnualRecurring(sale?.annual_recurring ?? false);
     }
   }, [open, sale, defaultDate]);
 
@@ -55,15 +57,22 @@ export function SaleFormDialog({ open, onOpenChange, sale, defaultDate, datesLoc
       toast({ title: "Name required", description: "Give the sale a name.", variant: "destructive" });
       return;
     }
-    if (startsAt && endsAt && endsAt < startsAt) {
+    // Both dates are required: a sale with a missing date can't resolve a
+    // window (and previously crashed the nightly outcomes job).
+    if (!startsAt || !endsAt) {
+      toast({ title: "Dates required", description: "Set both a start and end date.", variant: "destructive" });
+      return;
+    }
+    if (endsAt < startsAt) {
       toast({ title: "Invalid dates", description: "End date is before start date.", variant: "destructive" });
       return;
     }
     const payload = {
       name: name.trim(),
-      starts_at: startsAt || null,
-      ends_at: endsAt || null,
+      starts_at: startsAt,
+      ends_at: endsAt,
       notes: notes.trim() || null,
+      annual_recurring: annualRecurring,
     };
     try {
       if (editing && sale) {
@@ -107,6 +116,21 @@ export function SaleFormDialog({ open, onOpenChange, sale, defaultDate, datesLoc
           {datesLocked && (
             <p className="-mt-2 text-[11px] text-amber-400/80">🔒 This sale has already started — its dates are locked.</p>
           )}
+          <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border/60 p-2.5 select-none">
+            <input
+              type="checkbox"
+              checked={annualRecurring}
+              onChange={(e) => setAnnualRecurring(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-border bg-muted accent-primary"
+            />
+            <span>
+              <span className="text-sm">Recurring annual event</span>
+              <span className="block text-[11px] text-muted-foreground">
+                For BFCM, 4/20, etc. Shown on the calendar and used to label history, but its lift is
+                <em> not</em> added to the forecast — the year-over-year baseline already contains it.
+              </span>
+            </span>
+          </label>
           <div className="space-y-1.5">
             <Label>Notes <span className="text-xs text-muted-foreground font-normal">optional</span></Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />

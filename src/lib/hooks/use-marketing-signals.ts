@@ -44,13 +44,17 @@ export function useUpcomingMarketingBySku(horizonDays = 60) {
   const { data: saleRows } = useQuery({
     queryKey: ["mkt-expansion-upcoming", horizonDays],
     queryFn: async () => {
-      const nowIso = new Date().toISOString();
-      const horizonIso = new Date(Date.now() + horizonDays * DAY_MS).toISOString();
+      // ends_at is stored as midnight-UTC of the (inclusive) end day, so
+      // compare against the START of today's UTC date — a sale ending today
+      // stays visible through its whole last day instead of dropping at
+      // ~7-8pm ET the evening before (when `now` crosses 00:00 UTC).
+      const todayStart = new Date().toISOString().slice(0, 10);
+      const horizonDate = new Date(Date.now() + horizonDays * DAY_MS).toISOString().slice(0, 10);
       const { data, error } = await supabase
         .from("mkt_offer_sku_expansion")
         .select("sku_id, sale_id, sale_name, starts_at, ends_at, approval_status, effective_discount_pct, uplift_pct")
-        .gte("ends_at", nowIso)
-        .lte("starts_at", horizonIso);
+        .gte("ends_at", todayStart)
+        .lte("starts_at", `${horizonDate}T23:59:59Z`);
       if (error) throw error;
       return data ?? [];
     },
@@ -114,8 +118,11 @@ export function useUpcomingMarketingBySku(horizonDays = 60) {
 
 /** Compact human line for badge tooltips: "SALE July 4th Jun 29–Jul 3 (20% off) · LAUNCH X on Aug 1". */
 export function describeSkuSignals(sig: SkuMarketingSignals): string {
+  // Force UTC: sale dates are midnight-UTC day keys and launch dates are
+  // pinned to noon UTC below, so rendering in the local zone (ET) would
+  // show them a day early. UTC formatting prints the intended calendar day.
   const d = (iso: string) =>
-    new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
   const parts: string[] = [];
   for (const s of sig.sales) {
     const depth = s.effective_discount_pct != null ? ` (${s.effective_discount_pct}% off)` : "";

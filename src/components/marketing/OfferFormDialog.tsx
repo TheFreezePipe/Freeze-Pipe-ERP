@@ -62,6 +62,8 @@ export function OfferFormDialog({ open, onOpenChange, saleId, offer }: Props) {
   const [minOrder, setMinOrder] = useState("");
   const [buyQty, setBuyQty] = useState("");
   const [getQty, setGetQty] = useState("");
+  const [expectedUplift, setExpectedUplift] = useState("");
+  const [effectiveDiscount, setEffectiveDiscount] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -76,6 +78,8 @@ export function OfferFormDialog({ open, onOpenChange, saleId, offer }: Props) {
     setMinOrder(offer?.min_order_amount != null ? String(offer.min_order_amount) : "");
     setBuyQty(offer?.buy_qty != null ? String(offer.buy_qty) : "");
     setGetQty(offer?.get_qty != null ? String(offer.get_qty) : "");
+    setExpectedUplift(offer?.expected_uplift_pct != null ? String(offer.expected_uplift_pct) : "");
+    setEffectiveDiscount(offer?.effective_discount_pct != null ? String(offer.effective_discount_pct) : "");
   }, [open, offer]);
 
   const productById = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
@@ -106,6 +110,12 @@ export function OfferFormDialog({ open, onOpenChange, saleId, offer }: Props) {
       min_order_amount: numOrNull(minOrder),
       buy_qty: numOrNull(buyQty),
       get_qty: numOrNull(getQty),
+      // Planning inputs that feed the forecast overlay (Phase C). The
+      // expansion view resolves per-SKU uplift → this offer-level value, so
+      // setting it here gives every affected SKU an uplift prior; effective
+      // discount depth defaults to % off when left blank.
+      expected_uplift_pct: numOrNull(expectedUplift),
+      effective_discount_pct: numOrNull(effectiveDiscount) ?? numOrNull(percentOff),
     };
     try {
       let offerId = offer?.id;
@@ -246,6 +256,44 @@ export function OfferFormDialog({ open, onOpenChange, saleId, offer }: Props) {
             <div className="space-y-1.5">
               <Label>Get qty</Label>
               <Input type="number" min={1} value={getQty} onChange={(e) => setGetQty(e.target.value)} placeholder="BOGO" />
+            </div>
+          </div>
+
+          {/* Planning inputs — feed the promo-aware forecast. Kept visually
+              secondary to the offer mechanics above. */}
+          <div className="rounded-md border border-amber-500/20 bg-amber-500/[0.03] p-3">
+            <p className="mb-2 text-xs font-medium text-amber-400/90">Forecast planning</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Expected sales lift %</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={expectedUplift}
+                  onChange={(e) => setExpectedUplift(e.target.value)}
+                  placeholder="e.g. 30"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  How much this offer should raise unit sales over baseline. Feeds the forecast.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">
+                  Effective discount depth %{" "}
+                  <span className="font-normal text-muted-foreground">optional</span>
+                </Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={effectiveDiscount}
+                  onChange={(e) => setEffectiveDiscount(e.target.value)}
+                  placeholder={percentOff.trim() ? `defaults to ${percentOff}` : "e.g. 18"}
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Real depth for elasticity — set for $-off / bundle offers. Defaults to % off.
+                </p>
+              </div>
             </div>
           </div>
         </div>

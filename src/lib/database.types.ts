@@ -3960,6 +3960,10 @@ export type Database = {
           units_yesterday: number
         }[]
       }
+      rpc_save_launch: {
+        Args: { p_id: string; p_launch: Json; p_members: Json }
+        Returns: string
+      }
       rpc_set_profile_active: {
         Args: { p_is_active: boolean; p_target_user_id: string }
         Returns: Json
