@@ -219,13 +219,15 @@ export default function SKUList() {
 
       {/* Filter bar */}
       <div className="flex flex-wrap items-end gap-3">
-        <div className="relative flex-1 min-w-[260px]">
+        {/* Shared search look — kept identical to the Stock Levels page so
+            the two spreadsheets feel like the same tool. */}
+        <div className="relative w-full sm:w-[240px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search by SKU or product name…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9"
+            className="h-9 w-full pl-9 text-sm"
           />
         </div>
         <div className="space-y-1">
@@ -279,12 +281,17 @@ export default function SKUList() {
         <CardHeader>
           <CardTitle className="text-base">All SKUs</CardTitle>
         </CardHeader>
-        <CardContent className="p-0 overflow-x-auto">
+        <CardContent className="p-0">
+          {/* Bounded scroll region so the header can freeze. The wrapper is
+              the scroll container for BOTH axes (the app's <main> no longer
+              sees this table's overflow), which is what lets the sticky
+              <thead> pin to the top as the grid scrolls. */}
+          <div className="overflow-auto max-h-[calc(100vh-13rem)]">
           <table className="w-full text-sm min-w-[1200px]">
             {/* Three-section header — colored top labels group the cost-
                 breakdown columns and the profitability columns visually
                 so the wide table reads in three blocks. */}
-            <thead>
+            <thead className="sticky top-0 z-20 bg-card">
               <tr className="text-[9px] uppercase tracking-wider text-muted-foreground/70 border-b border-border/40">
                 <th colSpan={5} className="px-4 pt-3 pb-1"></th>
                 <th colSpan={5} className="px-2 pt-3 pb-1 text-center border-l border-border bg-muted/20">
@@ -479,6 +486,7 @@ export default function SKUList() {
               )}
             </tbody>
           </table>
+          </div>
         </CardContent>
       </Card>
 

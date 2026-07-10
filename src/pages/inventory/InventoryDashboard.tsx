@@ -19,7 +19,6 @@ import {
 import { SKUDetailModal } from "@/components/inventory/SKUDetailModal";
 import { useMemo, useState, useEffect } from "react";
 import { useUrlFilter, useUrlBoolFilter } from "@/lib/use-url-filter";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import type { ProductSKU, InventoryLevel, FreightShipment } from "@/types/database";
 import { useInventory, useBulkCycleCount, useFreightShipments, useFreightLineItems, useFactoryOrders, useForecastDemandMap, useDemandOverrides, useSuppliers, useAllPrimarySkuSupplierCosts, type CycleCountField, type CycleCountReason } from "@/lib/hooks";
 import { useAuth } from "@/lib/auth-context";
@@ -810,17 +809,19 @@ export default function InventoryDashboard() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="text-base">Inventory by SKU</CardTitle>
             <div className="flex flex-wrap items-center gap-2">
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              {/* Shared search look — kept identical to the SKU Costs page
+                  so the two spreadsheets feel like the same tool. */}
+              <div className="relative w-full sm:w-[240px]">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="Search SKU or name..."
+                  placeholder="Search by SKU or product name…"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="h-8 w-[180px] pl-8 text-xs"
+                  className="h-9 w-full pl-9 text-sm"
                 />
               </div>
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger className="h-8 w-[150px] text-xs">
+                <SelectTrigger className="h-9 w-[150px] text-xs">
                   <SelectValue placeholder="Category" />
                 </SelectTrigger>
                 <SelectContent>
@@ -831,7 +832,7 @@ export default function InventoryDashboard() {
                 </SelectContent>
               </Select>
               <Select value={abcFilter} onValueChange={setAbcFilter}>
-                <SelectTrigger className="h-8 w-[110px] text-xs">
+                <SelectTrigger className="h-9 w-[110px] text-xs">
                   <SelectValue placeholder="ABC" />
                 </SelectTrigger>
                 <SelectContent>
@@ -846,7 +847,7 @@ export default function InventoryDashboard() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-8 px-2 text-xs text-muted-foreground"
+                  className="h-9 px-2 text-xs text-muted-foreground"
                   onClick={() => { setSearchQuery(""); setCategoryFilter("all"); setAbcFilter("all"); setShowArchived(false); }}
                 >
                   <X className="mr-1 h-3 w-3" />
@@ -886,10 +887,13 @@ export default function InventoryDashboard() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <ScrollArea className="w-full">
-            <div className="min-w-[900px]">
-              <table className="w-full text-sm">
-                <thead>
+          {/* Bounded scroll region so the header can freeze. This wrapper is
+              the scroll container for BOTH axes, which is what lets the
+              sticky <thead> pin to the top as the grid scrolls. The existing
+              sticky left-0 SKU column keeps the first column frozen too. */}
+          <div className="overflow-auto max-h-[calc(100vh-13rem)]">
+            <table className="w-full text-sm min-w-[900px]">
+              <thead className="sticky top-0 z-20 bg-card">
                   {editMode ? (
                     <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
                       <th className="sticky left-0 bg-card px-4 py-3 z-10">SKU</th>
@@ -1156,8 +1160,7 @@ export default function InventoryDashboard() {
                   ))}
                 </tbody>
               </table>
-            </div>
-          </ScrollArea>
+          </div>
           {orderMode && (
             <div className="sticky bottom-0 z-20 flex flex-wrap items-center justify-between gap-4 border-t border-border bg-card/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-card/80">
               <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
