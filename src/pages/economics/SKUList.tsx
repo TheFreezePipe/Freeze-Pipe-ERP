@@ -258,7 +258,7 @@ export default function SKUList() {
               the controls stay attached to the frozen grid. No card title:
               the page heading already says what this grid is, and vertical
               space is precious in the full-height layout. */}
-          <div className="flex flex-wrap items-end gap-3">
+          <div className="flex flex-wrap items-center gap-2">
         {/* Shared search look — kept identical to the Stock Levels page so
             the two spreadsheets feel like the same tool. */}
         <div className="relative w-full sm:w-[240px]">
@@ -270,52 +270,54 @@ export default function SKUList() {
             className="h-9 w-full pl-9 text-sm"
           />
         </div>
-        <div className="space-y-1">
-          <Label htmlFor="cat-filter" className="text-xs text-muted-foreground">Product Line</Label>
-          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-            <SelectTrigger id="cat-filter" className="h-9 w-[180px] text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All categories</SelectItem>
-              {DISPLAY_CATEGORIES.map((cat) => (
-                <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="abc-filter" className="text-xs text-muted-foreground">ABC</Label>
-          <Select value={abcFilter} onValueChange={setAbcFilter}>
-            <SelectTrigger id="abc-filter" className="h-9 w-[120px] text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="A">A</SelectItem>
-              <SelectItem value="B">B</SelectItem>
-              <SelectItem value="C">C</SelectItem>
-              <SelectItem value="none">Unclassified</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <Button
-          variant={showArchived ? "default" : "outline"}
-          size="sm"
-          className="h-9"
-          onClick={() => setShowArchived((v) => !v)}
-        >
-          {showArchived ? "Hide archived" : "Show archived"}
-        </Button>
+        {/* Bare selects, no labels above — the selected value is the label
+            ("All Categories" / "All ABC"), exactly like Stock Levels. */}
+        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+          <SelectTrigger className="h-9 w-[150px] text-xs" aria-label="Product line filter">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Categories</SelectItem>
+            {DISPLAY_CATEGORIES.map((cat) => (
+              <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={abcFilter} onValueChange={setAbcFilter}>
+          <SelectTrigger className="h-9 w-[110px] text-xs" aria-label="ABC filter">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All ABC</SelectItem>
+            <SelectItem value="A">A</SelectItem>
+            <SelectItem value="B">B</SelectItem>
+            <SelectItem value="C">C</SelectItem>
+            <SelectItem value="none">Unclassified</SelectItem>
+          </SelectContent>
+        </Select>
         {hasFilters && (
           <Button variant="ghost" size="sm" className="h-9 text-xs text-muted-foreground" onClick={resetFilters}>
             <X className="mr-1 h-3 w-3" /> Clear
           </Button>
         )}
+        {/* Same checkbox style + position as Stock Levels */}
+        <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground select-none">
+          <input
+            type="checkbox"
+            checked={showArchived}
+            onChange={(e) => setShowArchived(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-border bg-muted accent-primary"
+          />
+          Show archived
+        </label>
         {/* Discount Lens — simulate a promo across every visible row.
-            The Product Line / ABC filters above double as its scope. */}
-        <div className="space-y-1 border-l border-border/60 pl-3">
-          <Label htmlFor="lens-pct" className="flex items-center gap-1 text-xs text-muted-foreground">
+            The Product Line / ABC filters double as its scope. Inline
+            label keeps the whole control row on a single line. */}
+        <div className="flex items-center gap-2 border-l border-border/60 pl-3">
+          <Label
+            htmlFor="lens-pct"
+            className="flex items-center gap-1 whitespace-nowrap text-xs text-muted-foreground"
+          >
             <Percent className="h-3 w-3" /> Test a discount
           </Label>
           <div className="flex items-center gap-2">
@@ -350,7 +352,7 @@ export default function SKUList() {
             )}
           </div>
         </div>
-        <div className="ml-auto text-xs text-muted-foreground pb-1.5 tabular-nums">
+        <div className="ml-auto text-xs text-muted-foreground tabular-nums">
           {filteredProducts.length} of {products.length} {products.length === 1 ? "SKU" : "SKUs"}
         </div>
           </div>

@@ -2,7 +2,7 @@ import { StatCard } from "@/components/shared/StatCard";
 import { Warehouse, Ship, Factory, Pencil, X, Save, Search, Plane, DollarSign, ShoppingCart, Trash2, ArrowRight, Megaphone } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format, parseISO, differenceInDays } from "date-fns";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -808,9 +808,9 @@ export default function InventoryDashboard() {
 
       <Card className="flex min-h-[420px] flex-1 flex-col overflow-hidden">
         <CardHeader className="shrink-0 pb-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <CardTitle className="text-base">Inventory by SKU</CardTitle>
-            <div className="flex flex-wrap items-center gap-2">
+          {/* Single left-aligned control row — no card title (the page
+              heading already says Inventory), matching SKU Costs. */}
+          <div className="flex flex-wrap items-center gap-2">
               {/* Shared search look — kept identical to the SKU Costs page
                   so the two spreadsheets feel like the same tool. */}
               <div className="relative w-full sm:w-[240px]">
@@ -885,7 +885,6 @@ export default function InventoryDashboard() {
                 />
                 <span className="text-xs font-medium tabular-nums w-9 text-right">{dosTarget}d</span>
               </div>
-            </div>
           </div>
         </CardHeader>
         <CardContent className="flex min-h-0 flex-1 flex-col p-0">
