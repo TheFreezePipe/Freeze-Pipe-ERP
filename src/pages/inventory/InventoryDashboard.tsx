@@ -743,7 +743,9 @@ export default function InventoryDashboard() {
   }
 
   return (
-    <div className="space-y-6">
+    // Full-height layout: the grid card fills the remaining viewport and
+    // owns the page's single scrollbar (no page scroll + inner scroll).
+    <div className="flex h-full min-h-0 flex-col gap-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Inventory</h1>
@@ -804,8 +806,8 @@ export default function InventoryDashboard() {
         <StatCard title="Est. Sales/Day" value={`$${Math.round(aggregated.estDailySales).toLocaleString()}`} subtitle="per-SKU demand (forecast / 30-day) × MSRP ÷ 30" icon={DollarSign} iconColor="text-emerald-400" />
       </div>
 
-      <Card>
-        <CardHeader className="pb-3">
+      <Card className="flex min-h-[420px] flex-1 flex-col overflow-hidden">
+        <CardHeader className="shrink-0 pb-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="text-base">Inventory by SKU</CardTitle>
             <div className="flex flex-wrap items-center gap-2">
@@ -886,12 +888,11 @@ export default function InventoryDashboard() {
             </div>
           </div>
         </CardHeader>
-        <CardContent className="p-0">
-          {/* Bounded scroll region so the header can freeze. This wrapper is
-              the scroll container for BOTH axes, which is what lets the
-              sticky <thead> pin to the top as the grid scrolls. The existing
-              sticky left-0 SKU column keeps the first column frozen too. */}
-          <div className="overflow-auto max-h-[calc(100vh-13rem)]">
+        <CardContent className="flex min-h-0 flex-1 flex-col p-0">
+          {/* The card's body is the ONE scroll region (both axes); the
+              sticky <thead> pins to its top as the grid scrolls, and the
+              sticky left-0 SKU column keeps the first column frozen. */}
+          <div className="min-h-0 flex-1 overflow-auto">
             <table className="w-full text-sm min-w-[900px]">
               <thead className="sticky top-0 z-20 bg-card">
                   {editMode ? (

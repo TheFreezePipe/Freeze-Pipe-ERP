@@ -205,7 +205,9 @@ export default function SKUList() {
   }
 
   return (
-    <div className="space-y-6">
+    // Full-height layout: the grid card fills the remaining viewport and
+    // owns the page's single scrollbar (no page scroll + inner scroll).
+    <div className="flex h-full min-h-0 flex-col gap-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">SKU Economics</h1>
@@ -217,8 +219,12 @@ export default function SKUList() {
         </Button>
       </div>
 
-      {/* Filter bar */}
-      <div className="flex flex-wrap items-end gap-3">
+      <Card className="flex min-h-[420px] flex-1 flex-col overflow-hidden">
+        <CardHeader className="shrink-0 pb-3">
+          <CardTitle className="text-base">All SKUs</CardTitle>
+          {/* Filter bar — inside the card header (matching Stock Levels) so
+              the controls stay attached to the frozen grid. */}
+          <div className="flex flex-wrap items-end gap-3 pt-1">
         {/* Shared search look — kept identical to the Stock Levels page so
             the two spreadsheets feel like the same tool. */}
         <div className="relative w-full sm:w-[240px]">
@@ -275,18 +281,12 @@ export default function SKUList() {
         <div className="ml-auto text-xs text-muted-foreground pb-1.5 tabular-nums">
           {filteredProducts.length} of {products.length} {products.length === 1 ? "SKU" : "SKUs"}
         </div>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">All SKUs</CardTitle>
+          </div>
         </CardHeader>
-        <CardContent className="p-0">
-          {/* Bounded scroll region so the header can freeze. The wrapper is
-              the scroll container for BOTH axes (the app's <main> no longer
-              sees this table's overflow), which is what lets the sticky
-              <thead> pin to the top as the grid scrolls. */}
-          <div className="overflow-auto max-h-[calc(100vh-13rem)]">
+        <CardContent className="flex min-h-0 flex-1 flex-col p-0">
+          {/* The card's body is the ONE scroll region (both axes); the
+              sticky <thead> pins to its top as the grid scrolls. */}
+          <div className="min-h-0 flex-1 overflow-auto">
           <table className="w-full text-sm min-w-[1200px]">
             {/* Three-section header — colored top labels group the cost-
                 breakdown columns and the profitability columns visually
