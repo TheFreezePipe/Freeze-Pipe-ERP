@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -221,10 +221,11 @@ export default function SKUList() {
 
       <Card className="flex min-h-[420px] flex-1 flex-col overflow-hidden">
         <CardHeader className="shrink-0 pb-3">
-          <CardTitle className="text-base">All SKUs</CardTitle>
           {/* Filter bar — inside the card header (matching Stock Levels) so
-              the controls stay attached to the frozen grid. */}
-          <div className="flex flex-wrap items-end gap-3 pt-1">
+              the controls stay attached to the frozen grid. No card title:
+              the page heading already says what this grid is, and vertical
+              space is precious in the full-height layout. */}
+          <div className="flex flex-wrap items-end gap-3">
         {/* Shared search look — kept identical to the Stock Levels page so
             the two spreadsheets feel like the same tool. */}
         <div className="relative w-full sm:w-[240px]">
