@@ -742,6 +742,11 @@ export default function InventoryDashboard() {
     );
   }
 
+  // KPI cards slide "shut" while the grid is scrolled (and reopen at the
+  // top) to hand their vertical space to the spreadsheet. Driven by the
+  // grid's own scroll position since it owns the page's only scrollbar.
+  const [kpisHidden, setKpisHidden] = useState(false);
+
   return (
     // Full-height layout: the grid card fills the remaining viewport and
     // owns the page's single scrollbar (no page scroll + inner scroll).
@@ -799,11 +804,23 @@ export default function InventoryDashboard() {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard title="In Warehouse" value={aggregated.warehouse.toLocaleString()} subtitle="Total units" icon={Warehouse} iconColor="text-green-400" />
-        <StatCard title="In Transit" value={aggregated.transit.toLocaleString()} subtitle="Air + Sea" icon={Ship} iconColor="text-blue-400" />
-        <StatCard title="On Order" value={aggregated.onOrder.toLocaleString()} subtitle="Nancy + YX" icon={Factory} iconColor="text-orange-400" />
-        <StatCard title="Est. Sales/Day" value={`$${Math.round(aggregated.estDailySales).toLocaleString()}`} subtitle="per-SKU demand (forecast / 30-day) × MSRP ÷ 30" icon={DollarSign} iconColor="text-emerald-400" />
+      {/* Collapsible KPI band. The 0fr/1fr grid-rows trick animates to
+          zero height without magic max-height numbers; -my-3 cancels the
+          leftover flex gap while shut so the grid truly gains the space. */}
+      <div
+        className={`grid transition-[grid-template-rows,opacity,margin] duration-300 ease-in-out motion-reduce:transition-none ${
+          kpisHidden ? "grid-rows-[0fr] opacity-0 -my-3" : "grid-rows-[1fr] opacity-100"
+        }`}
+        aria-hidden={kpisHidden}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard title="In Warehouse" value={aggregated.warehouse.toLocaleString()} subtitle="Total units" icon={Warehouse} iconColor="text-green-400" />
+            <StatCard title="In Transit" value={aggregated.transit.toLocaleString()} subtitle="Air + Sea" icon={Ship} iconColor="text-blue-400" />
+            <StatCard title="On Order" value={aggregated.onOrder.toLocaleString()} subtitle="Nancy + YX" icon={Factory} iconColor="text-orange-400" />
+            <StatCard title="Est. Sales/Day" value={`$${Math.round(aggregated.estDailySales).toLocaleString()}`} subtitle="per-SKU demand (forecast / 30-day) × MSRP ÷ 30" icon={DollarSign} iconColor="text-emerald-400" />
+          </div>
+        </div>
       </div>
 
       <Card className="flex min-h-[420px] flex-1 flex-col overflow-hidden">
@@ -891,7 +908,15 @@ export default function InventoryDashboard() {
           {/* The card's body is the ONE scroll region (both axes); the
               sticky <thead> pins to its top as the grid scrolls, and the
               sticky left-0 SKU column keeps the first column frozen. */}
-          <div className="min-h-0 flex-1 overflow-auto">
+          <div
+            className="min-h-0 flex-1 overflow-auto"
+            onScroll={(e) => {
+              const top = e.currentTarget.scrollTop;
+              // Hysteresis: shut after real scrolling (>64px), reopen only
+              // near the very top (<8px), so the boundary never flaps.
+              setKpisHidden((h) => (h ? top > 8 : top > 64));
+            }}
+          >
             <table className="w-full text-sm min-w-[900px]">
               <thead className="sticky top-0 z-20 bg-card">
                   {editMode ? (
