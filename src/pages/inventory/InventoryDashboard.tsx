@@ -734,6 +734,13 @@ export default function InventoryDashboard() {
     }));
   }
 
+  // KPI cards slide "shut" while the grid is scrolled (and reopen at the
+  // top) to hand their vertical space to the spreadsheet. Driven by the
+  // grid's own scroll position since it owns the page's only scrollbar.
+  // MUST be declared above the loading early-return — a hook below a
+  // conditional return changes the hook count between renders (React #310).
+  const [kpisHidden, setKpisHidden] = useState(false);
+
   if (inventoryLoading) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
@@ -741,11 +748,6 @@ export default function InventoryDashboard() {
       </div>
     );
   }
-
-  // KPI cards slide "shut" while the grid is scrolled (and reopen at the
-  // top) to hand their vertical space to the spreadsheet. Driven by the
-  // grid's own scroll position since it owns the page's only scrollbar.
-  const [kpisHidden, setKpisHidden] = useState(false);
 
   return (
     // Full-height layout: the grid card fills the remaining viewport and
