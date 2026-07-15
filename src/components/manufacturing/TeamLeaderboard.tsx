@@ -17,9 +17,11 @@ const TASK_TYPE_ORDER: TaskType[] = ["emptying", "filling_capping", "rtsing", "p
 interface Props {
   summaries: EmployeeSummary[];
   rangeLabel: string;
+  /** Signed-in user's profile id — their row gets a "(you)" highlight. */
+  currentEmployeeId?: string;
 }
 
-export function TeamLeaderboard({ summaries, rangeLabel }: Props) {
+export function TeamLeaderboard({ summaries, rangeLabel, currentEmployeeId }: Props) {
   const [selected, setSelected] = useState<EmployeeSummary | null>(null);
 
   return (
@@ -61,12 +63,20 @@ export function TeamLeaderboard({ summaries, rangeLabel }: Props) {
               {summaries.map((s, i) => (
                 <tr
                   key={s.employeeId}
-                  className="border-b border-border/50 hover:bg-muted/50 cursor-pointer"
+                  className={cn(
+                    "border-b border-border/50 hover:bg-muted/50 cursor-pointer",
+                    s.employeeId === currentEmployeeId && "bg-primary/5",
+                  )}
                   onClick={() => setSelected(s)}
                 >
                   <td className="px-4 py-3 text-muted-foreground tabular-nums">#{i + 1}</td>
                   <td className="px-3 py-3">
-                    <p className="font-medium">{s.employeeName}</p>
+                    <p className="font-medium">
+                      {s.employeeName}
+                      {s.employeeId === currentEmployeeId && (
+                        <span className="ml-1.5 text-xs font-normal text-primary">(you)</span>
+                      )}
+                    </p>
                     {/* Labor hours subtitle hidden until Homebase API is
                         wired up — task-time fallback isn't accurate
                         enough to display. */}

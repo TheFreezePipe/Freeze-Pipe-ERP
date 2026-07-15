@@ -9,6 +9,7 @@ import { Check, Minus, Plus, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { taskCompletionSchema, safeValidate } from "@/lib/schemas";
 import { useProducts, useLogTask } from "@/lib/hooks";
+import { MyOutputStrip } from "@/components/manufacturing/MyOutputStrip";
 
 export default function Workspace() {
   const { profile } = useAuth();
@@ -109,6 +110,10 @@ export default function Workspace() {
         <h1 className="text-2xl font-bold">Workspace</h1>
         <p className="text-muted-foreground">Log manufacturing tasks</p>
       </div>
+
+      {/* Personal scoreboard — today / this week, links to Performance
+          (which defaults staff to the "Just me" scope). */}
+      <MyOutputStrip />
 
       {/* Success animation overlay */}
       {submitted && (

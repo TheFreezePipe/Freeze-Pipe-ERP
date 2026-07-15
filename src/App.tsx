@@ -117,8 +117,11 @@ export default function App() {
                   <Workspace />
                 </RequireRole>
               } />
+              {/* Staff get the same page scoped to "Just me" by default;
+                  the team leaderboard stays visible to everyone (owner
+                  decision 2026-07-15). */}
               <Route path="/manufacturing/performance" element={
-                <RequireRole allowed={["admin", "manager"]}>
+                <RequireRole allowed={["admin", "manager", "user"]}>
                   <Performance />
                 </RequireRole>
               } />

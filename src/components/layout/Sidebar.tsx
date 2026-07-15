@@ -52,7 +52,7 @@ const navGroups: NavGroup[] = [
     items: [
       { to: "/manufacturing", label: "Overview", icon: Factory, roles: ["admin", "manager", "user"] },
       { to: "/manufacturing/workspace", label: "Workspace", icon: ScanLine, roles: ["admin", "manager", "user"] },
-      { to: "/manufacturing/performance", label: "Performance", icon: BarChart3, roles: ["admin", "manager"] },
+      { to: "/manufacturing/performance", label: "Performance", icon: BarChart3, roles: ["admin", "manager", "user"] },
     ],
   },
   {
