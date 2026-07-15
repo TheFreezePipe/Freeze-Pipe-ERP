@@ -76,10 +76,10 @@ const navGroups: NavGroup[] = [
   {
     label: "Marketing",
     items: [
-      { to: "/marketing", label: "Calendar", icon: Calendar, roles: ["admin", "manager", "user"] },
-      { to: "/marketing/sales", label: "Sales", icon: Tag, roles: ["admin", "manager", "user"] },
-      { to: "/marketing/launches", label: "Launches", icon: Rocket, roles: ["admin", "manager", "user"] },
-      { to: "/marketing/broadcasts", label: "Broadcasts", icon: Megaphone, roles: ["admin", "manager", "user"] },
+      { to: "/marketing", label: "Calendar", icon: Calendar, roles: ["admin", "manager"] },
+      { to: "/marketing/sales", label: "Sales", icon: Tag, roles: ["admin", "manager"] },
+      { to: "/marketing/launches", label: "Launches", icon: Rocket, roles: ["admin", "manager"] },
+      { to: "/marketing/broadcasts", label: "Broadcasts", icon: Megaphone, roles: ["admin", "manager"] },
     ],
   },
   {

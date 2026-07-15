@@ -31,7 +31,9 @@ const EMPLOYEE_PALETTE = [
 ];
 
 export function TeamPerformanceChart({ data, rangeLabel }: Props) {
-  const [metric, setMetric] = useState<ChartMetric>("units_completed");
+  // Default to Items Processed — the number the whole crew recognizes
+  // (owner request 2026-07-15); Units Completed is one click away.
+  const [metric, setMetric] = useState<ChartMetric>("items_processed");
   const [stackByEmployee, setStackByEmployee] = useState(false);
   const active = METRICS.find(m => m.key === metric)!;
 

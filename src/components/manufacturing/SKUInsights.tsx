@@ -124,8 +124,10 @@ function SkuDetailDialog({ summary, onClose, rangeLabel }: DialogProps) {
                 <th className="py-2">Employee</th>
                 <th className="py-2">Task</th>
                 <th className="py-2 text-right">Qty</th>
-                <th className="py-2 text-right">Duration</th>
-                <th className="py-2">Notes</th>
+                {/* Secondary columns hidden on phones — staff view this
+                    dialog on mobile; Time/Employee/Task/Qty is the story. */}
+                <th className="hidden py-2 text-right sm:table-cell">Duration</th>
+                <th className="hidden py-2 sm:table-cell">Notes</th>
               </tr>
             </thead>
             <tbody>
@@ -146,10 +148,10 @@ function SkuDetailDialog({ summary, onClose, rangeLabel }: DialogProps) {
                       </Badge>
                     </td>
                     <td className="py-2 text-right tabular-nums font-medium">{t.quantity_processed}</td>
-                    <td className="py-2 text-right tabular-nums text-xs text-muted-foreground">
+                    <td className="hidden py-2 text-right tabular-nums text-xs text-muted-foreground sm:table-cell">
                       {durationMin !== null ? `${durationMin}m` : "-"}
                     </td>
-                    <td className="py-2 text-xs text-muted-foreground max-w-[180px] truncate" title={t.notes ?? undefined}>
+                    <td className="hidden py-2 text-xs text-muted-foreground max-w-[180px] truncate sm:table-cell" title={t.notes ?? undefined}>
                       {t.notes ?? "-"}
                     </td>
                   </tr>

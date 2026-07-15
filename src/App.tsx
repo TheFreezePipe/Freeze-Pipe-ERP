@@ -202,27 +202,27 @@ export default function App() {
 
               {/* Marketing - readable by all internal roles (alignment); writes stay admin/manager via page-level canEdit */}
               <Route path="/marketing" element={
-                <RequireRole allowed={["admin", "manager", "user"]}>
+                <RequireRole allowed={["admin", "manager"]}>
                   <MarketingCalendar />
                 </RequireRole>
               } />
               <Route path="/marketing/sales" element={
-                <RequireRole allowed={["admin", "manager", "user"]}>
+                <RequireRole allowed={["admin", "manager"]}>
                   <SalesList />
                 </RequireRole>
               } />
               <Route path="/marketing/sales/:id" element={
-                <RequireRole allowed={["admin", "manager", "user"]}>
+                <RequireRole allowed={["admin", "manager"]}>
                   <SalesDetail />
                 </RequireRole>
               } />
               <Route path="/marketing/launches" element={
-                <RequireRole allowed={["admin", "manager", "user"]}>
+                <RequireRole allowed={["admin", "manager"]}>
                   <Launches />
                 </RequireRole>
               } />
               <Route path="/marketing/broadcasts" element={
-                <RequireRole allowed={["admin", "manager", "user"]}>
+                <RequireRole allowed={["admin", "manager"]}>
                   <Broadcasts />
                 </RequireRole>
               } />

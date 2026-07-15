@@ -50,13 +50,15 @@ export function TeamLeaderboard({ summaries, rangeLabel, currentEmployeeId }: Pr
                 <th className="px-3 py-2">Team Member</th>
                 <th className="px-3 py-2 text-right">Items Processed</th>
                 <th className="px-3 py-2 text-right">Tasks</th>
+                {/* Secondary columns hidden on phones — staff check ranks
+                    from mobile; rank/name/items/tasks is the story there. */}
                 <th
-                  className="px-3 py-2 text-right text-muted-foreground/40"
+                  className="hidden px-3 py-2 text-right text-muted-foreground/40 md:table-cell"
                   title="Awaiting Homebase API integration"
                 >
                   Tasks/Hr
                 </th>
-                <th className="px-4 py-2">Task Types</th>
+                <th className="hidden px-4 py-2 md:table-cell">Task Types</th>
               </tr>
             </thead>
             <tbody>
@@ -84,12 +86,12 @@ export function TeamLeaderboard({ summaries, rangeLabel, currentEmployeeId }: Pr
                   <td className="px-3 py-3 text-right tabular-nums font-semibold">{s.itemsProcessed.toLocaleString()}</td>
                   <td className="px-3 py-3 text-right tabular-nums">{s.totalTasks}</td>
                   <td
-                    className="px-3 py-3 text-right tabular-nums text-muted-foreground/40 italic"
+                    className="hidden px-3 py-3 text-right tabular-nums text-muted-foreground/40 italic md:table-cell"
                     title="Awaiting Homebase API integration"
                   >
                     —
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="hidden px-4 py-3 md:table-cell">
                     <div className="flex flex-wrap gap-1">
                       {TASK_TYPE_ORDER.map(t => {
                         const qty = s.byTaskType[t];
