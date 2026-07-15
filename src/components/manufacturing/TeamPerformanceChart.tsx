@@ -8,6 +8,8 @@ import type { ChartMetric, TimeBucket } from "@/lib/performance/aggregate";
 interface Props {
   data: TimeBucket[];
   rangeLabel: string;
+  /** Card heading override — e.g. "My Performance Over Time" in personal scope. */
+  title?: string;
 }
 
 const METRICS: { key: ChartMetric; label: string; color: string }[] = [
@@ -30,7 +32,7 @@ const EMPLOYEE_PALETTE = [
   "hsl(0,75%,60%)",   // red
 ];
 
-export function TeamPerformanceChart({ data, rangeLabel }: Props) {
+export function TeamPerformanceChart({ data, rangeLabel, title }: Props) {
   // Default to Items Processed — the number the whole crew recognizes
   // (owner request 2026-07-15); Units Completed is one click away.
   const [metric, setMetric] = useState<ChartMetric>("items_processed");
@@ -72,7 +74,7 @@ export function TeamPerformanceChart({ data, rangeLabel }: Props) {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div>
-            <CardTitle className="text-base">Team Performance Over Time</CardTitle>
+            <CardTitle className="text-base">{title ?? "Team Performance Over Time"}</CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">{rangeLabel}</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">

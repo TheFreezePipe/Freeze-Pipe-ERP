@@ -40,12 +40,13 @@ import { SKUInsights } from "@/components/manufacturing/SKUInsights";
 export default function Performance() {
   const [searchParams, setSearchParams] = useSearchParams();
   const range: DateRange = useMemo(() => rangeFromSearchParams(searchParams), [searchParams]);
-  // Scope: staff land on their own numbers, leadership on the team view;
-  // either can flip via the toggle. The leaderboard below intentionally
-  // stays team-wide for everyone (owner decision 2026-07-15).
+  // Staff see ONLY their own numbers — no leaderboard, no team scope
+  // (owner decision 2026-07-15, superseding the earlier leaderboard-for-
+  // everyone call). Leadership keeps the Team/Just-me toggle + leaderboard.
   const { profile, isAdmin, isManager } = useAuth();
+  const isLeadership = isAdmin || isManager;
   const [scopeOverride, setScopeOverride] = useState<"team" | "me" | null>(null);
-  const scope = scopeOverride ?? (isAdmin || isManager ? "team" : "me");
+  const scope = isLeadership ? (scopeOverride ?? "team") : "me";
   // Use the hook's default limit (5000) so the entire post-import
   // history is fetched, not a recent slice. The page filters down by
   // DateRange in-memory below; the hook just needs to deliver enough
@@ -81,10 +82,11 @@ export default function Performance() {
     return {
       kpis: computeKpis(scoped, scopedLabor),
       buckets: bucketByTime(scoped, range),
-      leaderboard: summarizeByEmployee(teamFiltered, teamLabor),
+      // Leadership-only: staff never see teammates' numbers.
+      leaderboard: isLeadership ? summarizeByEmployee(teamFiltered, teamLabor) : [],
       skus: summarizeBySku(scoped),
     };
-  }, [taskLogs, range, scope, profile?.id]);
+  }, [taskLogs, range, scope, profile?.id, isLeadership]);
 
   const label = rangeLabel(range);
 
@@ -98,24 +100,26 @@ export default function Performance() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex overflow-hidden rounded-md border border-border">
-            <Button
-              variant={scope === "team" ? "secondary" : "ghost"}
-              size="sm"
-              className="h-9 rounded-none px-3"
-              onClick={() => setScopeOverride("team")}
-            >
-              <Users className="mr-1.5 h-3.5 w-3.5" /> Team
-            </Button>
-            <Button
-              variant={scope === "me" ? "secondary" : "ghost"}
-              size="sm"
-              className="h-9 rounded-none px-3"
-              onClick={() => setScopeOverride("me")}
-            >
-              <UserRound className="mr-1.5 h-3.5 w-3.5" /> Just me
-            </Button>
-          </div>
+          {isLeadership && (
+            <div className="flex overflow-hidden rounded-md border border-border">
+              <Button
+                variant={scope === "team" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-9 rounded-none px-3"
+                onClick={() => setScopeOverride("team")}
+              >
+                <Users className="mr-1.5 h-3.5 w-3.5" /> Team
+              </Button>
+              <Button
+                variant={scope === "me" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-9 rounded-none px-3"
+                onClick={() => setScopeOverride("me")}
+              >
+                <UserRound className="mr-1.5 h-3.5 w-3.5" /> Just me
+              </Button>
+            </div>
+          )}
           <DateRangeSelector value={range} onChange={setRange} />
         </div>
       </div>
@@ -159,8 +163,14 @@ export default function Performance() {
       </div>
 
       {/* Charts & breakdowns, stacked */}
-      <TeamPerformanceChart data={buckets} rangeLabel={scope === "me" ? `${label} — just you` : label} />
-      <TeamLeaderboard summaries={leaderboard} rangeLabel={label} currentEmployeeId={profile?.id} />
+      <TeamPerformanceChart
+        data={buckets}
+        rangeLabel={scope === "me" ? `${label} — just you` : label}
+        title={scope === "me" ? "My Performance Over Time" : undefined}
+      />
+      {isLeadership && (
+        <TeamLeaderboard summaries={leaderboard} rangeLabel={label} currentEmployeeId={profile?.id} />
+      )}
       <SKUInsights summaries={skus} rangeLabel={scope === "me" ? `${label} — just you` : label} />
     </div>
   );
