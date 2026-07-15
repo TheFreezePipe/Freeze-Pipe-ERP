@@ -10,6 +10,8 @@ interface Props {
   rangeLabel: string;
   /** Card heading override — e.g. "My Performance Over Time" in personal scope. */
   title?: string;
+  /** Personal scope: hide the stack-by-employee control (meaningless for one person). */
+  hideStackToggle?: boolean;
 }
 
 const METRICS: { key: ChartMetric; label: string; color: string }[] = [
@@ -32,11 +34,14 @@ const EMPLOYEE_PALETTE = [
   "hsl(0,75%,60%)",   // red
 ];
 
-export function TeamPerformanceChart({ data, rangeLabel, title }: Props) {
+export function TeamPerformanceChart({ data, rangeLabel, title, hideStackToggle }: Props) {
   // Default to Items Processed — the number the whole crew recognizes
   // (owner request 2026-07-15); Units Completed is one click away.
   const [metric, setMetric] = useState<ChartMetric>("items_processed");
   const [stackByEmployee, setStackByEmployee] = useState(false);
+  // Effective stacking: a leader can toggle stack on in Team view then flip
+  // to a personal scope — the hidden control must also neutralize the state.
+  const stacking = stackByEmployee && !hideStackToggle;
   const active = METRICS.find(m => m.key === metric)!;
 
   const hasData = data.some(b => b[metric] > 0);
@@ -57,7 +62,7 @@ export function TeamPerformanceChart({ data, rangeLabel, title }: Props) {
   /** When stacked: flatten per-employee values into top-level keys on each row
    *  so recharts can use them as dataKey on individual <Bar> components. */
   const chartData = useMemo(() => {
-    if (!stackByEmployee) return data;
+    if (!stacking) return data;
     return data.map(b => {
       const row: Record<string, number | string> = { key: b.key, label: b.label };
       for (const emp of employees) {
@@ -65,7 +70,7 @@ export function TeamPerformanceChart({ data, rangeLabel, title }: Props) {
       }
       return row;
     });
-  }, [data, stackByEmployee, employees, metric]);
+  }, [data, stacking, employees, metric]);
 
   const stackDisabled = employees.length < 2;
 
@@ -97,7 +102,8 @@ export function TeamPerformanceChart({ data, rangeLabel, title }: Props) {
               ))}
             </div>
 
-            {/* Stack-by-employee toggle */}
+            {/* Stack-by-employee toggle — hidden entirely in personal scope */}
+            {!hideStackToggle && (
             <button
               type="button"
               disabled={stackDisabled}
@@ -114,12 +120,13 @@ export function TeamPerformanceChart({ data, rangeLabel, title }: Props) {
               <Layers className="h-3 w-3" />
               Stack by employee
             </button>
+            )}
           </div>
         </div>
       </CardHeader>
       <CardContent>
         {hasData ? (
-          <ResponsiveContainer width="100%" height={stackByEmployee ? 320 : 280}>
+          <ResponsiveContainer width="100%" height={stacking ? 320 : 280}>
             <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="hsl(0,0%,16%)" strokeDasharray="3 3" vertical={false} />
               <XAxis
@@ -142,7 +149,7 @@ export function TeamPerformanceChart({ data, rangeLabel, title }: Props) {
                 }}
                 labelFormatter={(l) => l}
                 // In stacked mode, recharts already shows each series; in aggregate mode, label the single bar.
-                formatter={stackByEmployee
+                formatter={stacking
                   ? (value: number, key: string) => {
                       const emp = employees.find(e => e.id === key);
                       return [value.toLocaleString(), emp?.name ?? key];
@@ -150,7 +157,7 @@ export function TeamPerformanceChart({ data, rangeLabel, title }: Props) {
                   : (value: number) => [value.toLocaleString(), active.label]
                 }
               />
-              {stackByEmployee && (
+              {stacking && (
                 <Legend
                   wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
                   iconSize={10}
@@ -160,7 +167,7 @@ export function TeamPerformanceChart({ data, rangeLabel, title }: Props) {
                   }}
                 />
               )}
-              {stackByEmployee
+              {stacking
                 ? employees.map((emp, i) => (
                     <Bar
                       key={emp.id}

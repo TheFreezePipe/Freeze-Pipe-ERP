@@ -167,6 +167,7 @@ export default function Performance() {
         data={buckets}
         rangeLabel={scope === "me" ? `${label} — just you` : label}
         title={scope === "me" ? "My Performance Over Time" : undefined}
+        hideStackToggle={scope === "me"}
       />
       {isLeadership && (
         <TeamLeaderboard summaries={leaderboard} rangeLabel={label} currentEmployeeId={profile?.id} />
