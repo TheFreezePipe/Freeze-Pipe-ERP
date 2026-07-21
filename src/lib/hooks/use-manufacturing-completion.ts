@@ -27,14 +27,17 @@ export function useManufacturingCompletionHistory(days: number) {
       if (error) throw error;
       // deno-lint-ignore no-explicit-any
       return ((data ?? []) as any[]).map((r) => {
-        const complete = r.complete_units ?? 0;
-        const unfilled = r.unfilled_units ?? 0;
+        // The RPC clamps reconstructed buckets at 0 (late-recorded receipts
+        // used to dip them negative → >100% days); clamp here too so a
+        // stale-cached RPC can never render an impossible percentage.
+        const complete = Math.max(r.complete_units ?? 0, 0);
+        const unfilled = Math.max(r.unfilled_units ?? 0, 0);
         const total = complete + unfilled;
         return {
           day: r.day as string,
           complete_units: complete,
           unfilled_units: unfilled,
-          pct: total > 0 ? (complete / total) * 100 : 0,
+          pct: total > 0 ? Math.min((complete / total) * 100, 100) : 0,
         };
       });
     },
