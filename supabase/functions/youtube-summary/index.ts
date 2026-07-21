@@ -36,9 +36,10 @@
 //
 // Retry budget: transcript-unavailable gives up after 24 attempts (captions
 // are never coming); everything else after 40. Backoff: hourly for the
-// first 6 attempts, then every 6h, then daily — keeps a stuck video from
-// burning Supadata credits every hour for weeks. Attempts are counted at
-// claim time, so even a run that crashes mid-flight consumes budget.
+// first 6 attempts, then every 6h, then every 12h — the 12h ceiling is
+// deliberately half of Resend's 24h idempotency window so retried sends
+// always dedupe. Attempts are counted at claim time, so even a run that
+// crashes mid-flight consumes budget.
 //
 // Body params (all optional):
 //   { }                          -> normal hourly run
@@ -361,9 +362,10 @@ Deno.serve(async (req) => {
       const subject = `Charley T: ${v.title}`;
       if (opts.dry_run) return json({ ok: true, mode: "test-dry-run", subject, summary, html });
       const to = Array.isArray(opts.test_to) ? opts.test_to! : [opts.test_to!];
-      // Key includes the recipient so a test send never collides with (or
-      // suppresses) the real send of the same video.
-      const resendId = await sendEmail(to, subject, html, `yt-summary-test/${v.videoId}/${to.join(",")}`);
+      // Unique key per test invocation: tests never collide with the real
+      // send's key, and re-running a test actually re-sends (the payload is
+      // regenerated each time, so a stable key would 409 on the second run).
+      const resendId = await sendEmail(to, subject, html, `yt-summary-test/${v.videoId}/${Date.now()}`);
       return json({ ok: true, mode: "test-send", sent_to: to, resend_id: resendId, subject });
     } catch (e) {
       return json({ ok: false, mode: "test", error: String(e).slice(0, 400) }, 500);
@@ -437,7 +439,10 @@ Deno.serve(async (req) => {
 
   const backoffReady = (attempts: number, lastAttempt: string | null): boolean => {
     if (!lastAttempt) return true;
-    const hours = attempts < 6 ? 1 : attempts < 12 ? 6 : 24;
+    // Max tier is 12h, deliberately HALF of Resend's 24h idempotency-key
+    // TTL: a retried send always lands inside the dedupe window, so a
+    // delivered-but-unrecorded email can never be sent twice.
+    const hours = attempts < 6 ? 1 : attempts < 12 ? 6 : 12;
     // 5-minute slack so hourly cron jitter doesn't skip a whole cycle.
     return Date.now() - Date.parse(lastAttempt) >= hours * 3_600_000 - 300_000;
   };
