@@ -162,6 +162,17 @@ export default function FreightNew() {
     if (Number.isNaN(d.getTime())) return;
     setEta(format(addDays(d, 30), "yyyy-MM-dd"));
   }, [shipDate, freightType, etaTouched]);
+
+  // A tracking number means the shipment has already sailed (the form sets
+  // status on_the_water from it) — so Ship Date shouldn't sit empty.
+  // Default it to today; the sea-ETA effect above then cascades +30d.
+  // Root cause of shipments 443/449/455 being created dateless and fixed
+  // by hand later. Stops the moment the operator edits the date.
+  const [shipDateTouched, setShipDateTouched] = useState(false);
+  useEffect(() => {
+    if (shipDateTouched || shipDate || !trackingNumber.trim()) return;
+    setShipDate(format(new Date(), "yyyy-MM-dd"));
+  }, [trackingNumber, shipDate, shipDateTouched]);
   const [freightCost, setFreightCost] = useState("");
   const [notes, setNotes] = useState("");
   // Non-catalog (sample/prototype) items — free-text lines with no SKU.
@@ -693,8 +704,13 @@ export default function FreightNew() {
                   id="ship-date"
                   type="date"
                   value={shipDate}
-                  onChange={e => setShipDate(e.target.value)}
+                  onChange={e => { setShipDateTouched(true); setShipDate(e.target.value); }}
                 />
+                {!shipDateTouched && shipDate && trackingNumber.trim() && (
+                  <p className="text-[10px] text-muted-foreground">
+                    Defaulted to today (tracking number present). Adjust if it sailed earlier.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="eta">Estimated Arrival (ETA)</Label>
