@@ -506,6 +506,27 @@ export type Database = {
             referencedRelation: "freight_carton_groups"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "freight_carton_group_skus_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "freight_carton_group_skus_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus_active"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "freight_carton_group_skus_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_skus"
+            referencedColumns: ["id"]
+          },
         ]
       }
       freight_carton_groups: {
@@ -545,6 +566,13 @@ export type Database = {
             columns: ["freight_shipment_id"]
             isOneToOne: false
             referencedRelation: "freight_shipments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "freight_carton_groups_freight_shipment_id_fkey"
+            columns: ["freight_shipment_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_freight_shipments"
             referencedColumns: ["id"]
           },
         ]
@@ -686,6 +714,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "freight_receipts_carton_group_id_fkey"
+            columns: ["carton_group_id"]
+            isOneToOne: false
+            referencedRelation: "freight_carton_groups"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "freight_receipts_freight_shipment_id_fkey"
             columns: ["freight_shipment_id"]
             isOneToOne: false
@@ -693,10 +728,38 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "freight_receipts_carton_group_id_fkey"
-            columns: ["carton_group_id"]
+            foreignKeyName: "freight_receipts_freight_shipment_id_fkey"
+            columns: ["freight_shipment_id"]
             isOneToOne: false
-            referencedRelation: "freight_carton_groups"
+            referencedRelation: "supplier_portal_freight_shipments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "freight_receipts_received_by_fkey"
+            columns: ["received_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "freight_receipts_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "freight_receipts_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus_active"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "freight_receipts_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_skus"
             referencedColumns: ["id"]
           },
         ]
@@ -3002,6 +3065,60 @@ export type Database = {
           },
         ]
       }
+      youtube_video_summaries: {
+        Row: {
+          attempts: number
+          channel_name: string
+          created_at: string
+          email_to: string[] | null
+          error: string | null
+          last_attempt_at: string | null
+          processed_at: string | null
+          published_at: string | null
+          resend_id: string | null
+          status: string
+          summary: Json | null
+          title: string
+          transcript_chars: number | null
+          video_id: string
+          video_url: string
+        }
+        Insert: {
+          attempts?: number
+          channel_name?: string
+          created_at?: string
+          email_to?: string[] | null
+          error?: string | null
+          last_attempt_at?: string | null
+          processed_at?: string | null
+          published_at?: string | null
+          resend_id?: string | null
+          status: string
+          summary?: Json | null
+          title: string
+          transcript_chars?: number | null
+          video_id: string
+          video_url: string
+        }
+        Update: {
+          attempts?: number
+          channel_name?: string
+          created_at?: string
+          email_to?: string[] | null
+          error?: string | null
+          last_attempt_at?: string | null
+          processed_at?: string | null
+          published_at?: string | null
+          resend_id?: string | null
+          status?: string
+          summary?: Json | null
+          title?: string
+          transcript_chars?: number | null
+          video_id?: string
+          video_url?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       inventory_levels_default: {
@@ -3854,6 +3971,17 @@ export type Database = {
         Args: { p_order_id: string }
         Returns: boolean
       }
+      _freight_credit_units: {
+        Args: {
+          p_actor_id: string
+          p_pre_filled: boolean
+          p_shipment_id: string
+          p_shipment_number: string
+          p_sku_id: string
+          p_units: number
+        }
+        Returns: undefined
+      }
       _recompute_consumption_for_parent: {
         Args: { p_parent_order_id: string }
         Returns: undefined
@@ -3878,6 +4006,7 @@ export type Database = {
         Returns: undefined
       }
       fire_daily_report: { Args: never; Returns: undefined }
+      fire_youtube_summary: { Args: never; Returns: undefined }
       jwt_is_internal: { Args: never; Returns: boolean }
       jwt_supplier_id: { Args: never; Returns: string }
       jwt_supplier_scope: { Args: never; Returns: string[] }
@@ -3922,14 +4051,6 @@ export type Database = {
         Args: { p_actor_id: string; p_shipment_id: string }
         Returns: Json
       }
-      rpc_close_freight_short: {
-        Args: { p_actor_id: string; p_reason: string; p_shipment_id: string }
-        Returns: Json
-      }
-      rpc_record_freight_receipt: {
-        Args: { p_actor_id: string; p_entries: Json; p_shipment_id: string }
-        Returns: Json
-      }
       rpc_apply_freight_status_override: {
         Args: {
           p_actor_id: string
@@ -3972,6 +4093,10 @@ export type Database = {
           p_expected_version: number
           p_shipment_id: string
         }
+        Returns: Json
+      }
+      rpc_close_freight_short: {
+        Args: { p_actor_id: string; p_reason: string; p_shipment_id: string }
         Returns: Json
       }
       rpc_compute_marketing_outcomes: { Args: never; Returns: Json }
@@ -4071,6 +4196,10 @@ export type Database = {
           old_demand: number
           sku: string
         }[]
+      }
+      rpc_record_freight_receipt: {
+        Args: { p_actor_id: string; p_entries: Json; p_shipment_id: string }
+        Returns: Json
       }
       rpc_refresh_sales_daily: { Args: { p_days?: number }; Returns: number }
       rpc_resolve_breakage_report: {
