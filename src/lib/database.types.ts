@@ -473,6 +473,82 @@ export type Database = {
           },
         ]
       }
+      freight_carton_group_skus: {
+        Row: {
+          carton_group_id: string
+          created_at: string
+          id: string
+          pre_filled: boolean
+          sku_id: string
+          units_total: number
+        }
+        Insert: {
+          carton_group_id: string
+          created_at?: string
+          id?: string
+          pre_filled?: boolean
+          sku_id: string
+          units_total: number
+        }
+        Update: {
+          carton_group_id?: string
+          created_at?: string
+          id?: string
+          pre_filled?: boolean
+          sku_id?: string
+          units_total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "freight_carton_group_skus_carton_group_id_fkey"
+            columns: ["carton_group_id"]
+            isOneToOne: false
+            referencedRelation: "freight_carton_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      freight_carton_groups: {
+        Row: {
+          carton_qty: number
+          created_at: string
+          freight_shipment_id: string
+          id: string
+          notes: string | null
+          received_cartons: number
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          carton_qty: number
+          created_at?: string
+          freight_shipment_id: string
+          id?: string
+          notes?: string | null
+          received_cartons?: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          carton_qty?: number
+          created_at?: string
+          freight_shipment_id?: string
+          id?: string
+          notes?: string | null
+          received_cartons?: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "freight_carton_groups_freight_shipment_id_fkey"
+            columns: ["freight_shipment_id"]
+            isOneToOne: false
+            referencedRelation: "freight_shipments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       freight_line_items: {
         Row: {
           created_at: string
@@ -481,6 +557,7 @@ export type Database = {
           id: string
           quantity: number
           quantity_prefilled: number | null
+          quantity_received: number
           retail_value: number | null
           row_version: number
           sku_id: string | null
@@ -496,6 +573,7 @@ export type Database = {
           id?: string
           quantity: number
           quantity_prefilled?: number | null
+          quantity_received?: number
           retail_value?: number | null
           row_version?: number
           sku_id?: string | null
@@ -511,6 +589,7 @@ export type Database = {
           id?: string
           quantity?: number
           quantity_prefilled?: number | null
+          quantity_received?: number
           retail_value?: number | null
           row_version?: number
           sku_id?: string | null
@@ -571,12 +650,65 @@ export type Database = {
           },
         ]
       }
+      freight_receipts: {
+        Row: {
+          carton_group_id: string | null
+          cartons: number | null
+          freight_shipment_id: string
+          id: string
+          note: string | null
+          received_at: string
+          received_by: string | null
+          sku_id: string | null
+          units: number
+        }
+        Insert: {
+          carton_group_id?: string | null
+          cartons?: number | null
+          freight_shipment_id: string
+          id?: string
+          note?: string | null
+          received_at?: string
+          received_by?: string | null
+          sku_id?: string | null
+          units: number
+        }
+        Update: {
+          carton_group_id?: string | null
+          cartons?: number | null
+          freight_shipment_id?: string
+          id?: string
+          note?: string | null
+          received_at?: string
+          received_by?: string | null
+          sku_id?: string | null
+          units?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "freight_receipts_freight_shipment_id_fkey"
+            columns: ["freight_shipment_id"]
+            isOneToOne: false
+            referencedRelation: "freight_shipments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "freight_receipts_carton_group_id_fkey"
+            columns: ["carton_group_id"]
+            isOneToOne: false
+            referencedRelation: "freight_carton_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       freight_shipments: {
         Row: {
           actual_arrival_date: string | null
           broker_name: string | null
           carrier_name: string | null
           china_customs_delay: boolean
+          closed_short_at: string | null
+          closed_short_reason: string | null
           created_at: string
           created_by_supplier_user_id: string | null
           duties_cost: number | null
@@ -609,6 +741,8 @@ export type Database = {
           broker_name?: string | null
           carrier_name?: string | null
           china_customs_delay?: boolean
+          closed_short_at?: string | null
+          closed_short_reason?: string | null
           created_at?: string
           created_by_supplier_user_id?: string | null
           duties_cost?: number | null
@@ -641,6 +775,8 @@ export type Database = {
           broker_name?: string | null
           carrier_name?: string | null
           china_customs_delay?: boolean
+          closed_short_at?: string | null
+          closed_short_reason?: string | null
           created_at?: string
           created_by_supplier_user_id?: string | null
           duties_cost?: number | null
@@ -3784,6 +3920,14 @@ export type Database = {
       }
       rpc_apply_freight_delivery: {
         Args: { p_actor_id: string; p_shipment_id: string }
+        Returns: Json
+      }
+      rpc_close_freight_short: {
+        Args: { p_actor_id: string; p_reason: string; p_shipment_id: string }
+        Returns: Json
+      }
+      rpc_record_freight_receipt: {
+        Args: { p_actor_id: string; p_entries: Json; p_shipment_id: string }
         Returns: Json
       }
       rpc_apply_freight_status_override: {

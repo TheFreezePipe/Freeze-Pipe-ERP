@@ -75,17 +75,23 @@ export function InventoryProjectionChart({ product, inventory, demandOverride }:
     const dailyBurn = demand / 30;
 
     // Find arriving freight for this SKU (non-delivered, with ETA).
+    // Partial receiving: only the REMAINING units are still arriving —
+    // max(0, quantity - quantity_received) per line; fully received lines
+    // are already in the warehouse total and would double-count if bumped
+    // again on the ETA date.
     const arrivingFreight = freight
       .filter((f) => f.status !== "delivered" && f.eta)
       .flatMap((f) => {
         const items = freightLineItems.filter(
           (li) => li.freight_shipment_id === f.id && li.sku_id === product.id,
         );
-        return items.map((item) => ({
-          date: f.eta!,
-          qty: item.quantity,
-          shipment: f.shipment_number,
-        }));
+        return items
+          .map((item) => ({
+            date: f.eta!,
+            qty: Math.max(0, (item.quantity ?? 0) - (item.quantity_received ?? 0)),
+            shipment: f.shipment_number,
+          }))
+          .filter((af) => af.qty > 0);
       });
 
     // Forward projection — anchored at today's total, then burn down

@@ -2,13 +2,45 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { supabaseUpdateWithVersion } from "@/lib/concurrency";
 import type { FreightShipment, FreightLineItem, ProductSKU } from "@/types/database";
-import type { Database } from "@/lib/database.types";
+import type { Database, Json } from "@/lib/database.types";
 
 type FreightShipmentInsert = Database["public"]["Tables"]["freight_shipments"]["Insert"];
 type FreightLineItemInsert = Database["public"]["Tables"]["freight_line_items"]["Insert"];
+type FreightCartonGroupRow = Database["public"]["Tables"]["freight_carton_groups"]["Row"];
+type FreightCartonGroupSkuRow = Database["public"]["Tables"]["freight_carton_group_skus"]["Row"];
 
 export type FreightLineItemWithProduct = FreightLineItem & { product: ProductSKU | null };
 export type FreightShipmentWithItems = FreightShipment & { line_items: FreightLineItemWithProduct[] };
+
+export type CartonGroupSkuWithProduct = FreightCartonGroupSkuRow & {
+  product: Pick<ProductSKU, "sku" | "product_name"> | null;
+};
+export type CartonGroupWithSkus = FreightCartonGroupRow & {
+  skus: CartonGroupSkuWithProduct[];
+};
+
+/** One entry for rpc_record_freight_receipt. Negative cartons/units = correction. */
+export type FreightReceiptEntry =
+  | { carton_group_id: string; cartons: number }
+  | { line_item_id: string; units: number };
+
+export interface RecordFreightReceiptResult {
+  ok: boolean;
+  units_credited?: number;
+  fully_received?: boolean;
+  credited?: Array<{ sku_id: string; units: number }>;
+  message?: string;
+  error?: string;
+}
+
+export interface CloseFreightShortResult {
+  ok: boolean;
+  units_short?: number;
+  variances_created?: number;
+  factory_orders_reopened?: number;
+  message?: string;
+  error?: string;
+}
 
 export function useFreightShipments() {
   return useQuery({
@@ -149,6 +181,117 @@ export function useConfirmFreightReceipt() {
       qc.invalidateQueries({ queryKey: ["freight", shipmentId] });
       qc.invalidateQueries({ queryKey: ["freight-line-items"] });
       qc.invalidateQueries({ queryKey: ["inventory"] });
+    },
+  });
+}
+
+/**
+ * Carton groups for a shipment, with nested SKU splits + product identity
+ * (sku, product_name), ordered by sort_order. Drives the tap-per-carton
+ * receiving UX; shipments without groups fall back to unit-mode receiving
+ * against raw line items.
+ *
+ * The product embed rides the freight_carton_group_skus.sku_id →
+ * product_skus FK from migration 20260722000001. The generated types file
+ * doesn't (yet) list that relationship, so the cast goes through `unknown`
+ * rather than relying on supabase-js's select-string parser.
+ */
+export function useCartonGroups(shipmentId: string) {
+  return useQuery({
+    queryKey: ["freight-carton-groups", shipmentId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("freight_carton_groups")
+        .select("*, skus:freight_carton_group_skus(*, product:product_skus(sku, product_name))")
+        .eq("freight_shipment_id", shipmentId)
+        .order("sort_order", { ascending: true });
+      if (error) throw error;
+      return data as unknown as CartonGroupWithSkus[];
+    },
+    enabled: !!shipmentId,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+/**
+ * Record an incremental freight receipt (rpc_record_freight_receipt).
+ *
+ * Entries are carton taps ({carton_group_id, cartons: ±n}) or unit-mode
+ * postings ({line_item_id, units: ±n}); negative values are corrections.
+ * The RPC credits inventory buckets per units received and — when every
+ * catalog line reaches its declared quantity — auto-stamps the shipment
+ * delivered + receipt-confirmed. Admin/manager enforced server-side;
+ * hide the affordance from other roles (same contract as
+ * useConfirmFreightReceipt above).
+ */
+export function useRecordFreightReceipt() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: {
+      shipmentId: string;
+      entries: FreightReceiptEntry[];
+      actorId: string;
+    }) => {
+      const { data, error } = await supabase.rpc("rpc_record_freight_receipt", {
+        p_shipment_id: params.shipmentId,
+        p_entries: params.entries as unknown as Json,
+        p_actor_id: params.actorId,
+      });
+      if (error) throw error;
+      const result = data as unknown as RecordFreightReceiptResult;
+      if (!result?.ok) {
+        throw new Error(result?.message ?? result?.error ?? "Failed to record receipt");
+      }
+      return result;
+    },
+    onSuccess: (_data, { shipmentId }) => {
+      qc.invalidateQueries({ queryKey: ["freight"] });
+      qc.invalidateQueries({ queryKey: ["freight", shipmentId] });
+      qc.invalidateQueries({ queryKey: ["freight-line-items"] });
+      qc.invalidateQueries({ queryKey: ["inventory"] });
+      qc.invalidateQueries({ queryKey: ["freight-carton-groups", shipmentId] });
+    },
+  });
+}
+
+/**
+ * Close a partially-received shipment short (rpc_close_freight_short).
+ *
+ * Server-side this files shortage variances, shrinks each line to what
+ * physically arrived (returning the missing units to on-order via the
+ * existing netting), reopens auto-completed factory orders, and stamps
+ * closed_short_at + receipt confirmation. Admin/manager enforced
+ * server-side.
+ */
+export function useCloseFreightShort() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: {
+      shipmentId: string;
+      reason: string;
+      actorId: string;
+    }) => {
+      const { data, error } = await supabase.rpc("rpc_close_freight_short", {
+        p_shipment_id: params.shipmentId,
+        p_reason: params.reason,
+        p_actor_id: params.actorId,
+      });
+      if (error) throw error;
+      const result = data as unknown as CloseFreightShortResult;
+      if (!result?.ok) {
+        throw new Error(result?.message ?? result?.error ?? "Failed to close shipment short");
+      }
+      return result;
+    },
+    onSuccess: (_data, { shipmentId }) => {
+      qc.invalidateQueries({ queryKey: ["freight"] });
+      qc.invalidateQueries({ queryKey: ["freight", shipmentId] });
+      qc.invalidateQueries({ queryKey: ["freight-line-items"] });
+      qc.invalidateQueries({ queryKey: ["inventory"] });
+      qc.invalidateQueries({ queryKey: ["freight-carton-groups", shipmentId] });
+      // Close-short can flip auto-completed factory orders back to
+      // in_production — refresh those too.
+      qc.invalidateQueries({ queryKey: ["factory-orders"] });
     },
   });
 }

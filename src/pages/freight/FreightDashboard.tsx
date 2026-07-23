@@ -417,6 +417,12 @@ function ShipmentCard({
   const missingTracking = isPending && !shipment.tracking_number;
   // Pending receipt: carrier said delivered, operator hasn't confirmed yet.
   const isPendingReceipt = shipment.status === "delivered" && !shipment.receipt_confirmed_at;
+  // Partially received (DERIVED — no status value exists for this): some
+  // units checked in via the receiving panel but the shipment isn't
+  // receipt-confirmed yet. Counts come from already-fetched line items so
+  // no per-card carton-group fetch is needed.
+  const receivedUnits = lines.reduce((s, l) => s + (l.quantity_received ?? 0), 0);
+  const isReceiving = receivedUnits > 0 && !shipment.receipt_confirmed_at;
 
   // Border tint precedence: pending_receipt (green glow, most actionable) >
   // high_risk (red) > missing tracking on pending (amber) > primary.
@@ -450,7 +456,7 @@ function ShipmentCard({
       const lineCount = result.line_items_processed ?? 0;
       toast({
         title: `Receipt confirmed: ${shipment.shipment_number}`,
-        description: `${lineCount} line item${lineCount === 1 ? "" : "s"} credited to warehouse_raw`,
+        description: `${lineCount} line item${lineCount === 1 ? "" : "s"} credited to warehouse inventory`,
       });
     } catch (err) {
       toast({
@@ -487,7 +493,7 @@ function ShipmentCard({
               )}.{" "}
               <span className="text-green-300/80">
                 {(isAdmin || isManager)
-                  ? "Confirm receipt to credit warehouse inventory."
+                  ? "Receive all remaining units to credit warehouse inventory."
                   : "Awaiting admin or manager to confirm receipt."}
               </span>
             </span>
@@ -501,7 +507,10 @@ function ShipmentCard({
               disabled={confirmReceipt.isPending}
             >
               <PackageCheck className="mr-1.5 h-3.5 w-3.5" />
-              {confirmReceipt.isPending ? "Confirming…" : "Confirm receipt"}
+              {/* Relabeled from "Confirm receipt": post-partial-receiving the
+                  RPC credits only the remaining unreceived units, so the
+                  action is "receive whatever's left", not a blanket confirm. */}
+              {confirmReceipt.isPending ? "Receiving…" : "Receive all remaining"}
             </Button>
           )}
         </div>
@@ -535,6 +544,15 @@ function ShipmentCard({
                 onClick={(e) => e.stopPropagation()}
               >
                 <StatusSelectWithOverride shipment={shipment} variant="compact" />
+                {isReceiving && (
+                  <Badge
+                    variant="outline"
+                    className="border-blue-500/40 text-blue-400 text-[10px] py-0 tabular-nums"
+                    title="Partially received — some units are checked in but the shipment isn't closed out yet"
+                  >
+                    Receiving · {receivedUnits.toLocaleString()}/{totalUnits.toLocaleString()} units
+                  </Badge>
+                )}
                 {missingTracking && (
                   <Badge
                     variant="outline"

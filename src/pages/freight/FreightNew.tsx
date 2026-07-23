@@ -36,6 +36,7 @@ import {
   useAllPrimarySkuSupplierCosts,
 } from "@/lib/hooks";
 import { freightShipmentSchema, safeValidate } from "@/lib/schemas";
+import { supabase } from "@/lib/supabase";
 import { getOpenFactoryItemsForSku } from "@/lib/freight/open-factory-items";
 import { buildOnOrderMap } from "@/lib/inventory-aggregates";
 import { describeError } from "@/lib/supabase-error";
@@ -588,6 +589,57 @@ export default function FreightNew() {
           })),
         ],
       });
+
+      // Persist the carton-group structure (for partial receiving) now that
+      // the shipment + line items are committed. This is deliberately
+      // NON-ATOMIC, matching the page's existing shipment-then-line-items
+      // multi-insert pattern: if a carton insert fails we surface the error
+      // but do NOT roll back the shipment — it and its line items are
+      // already valid without a carton plan. shipment_number is UNIQUE at
+      // the DB, so a resubmit of this form can't silently double-create.
+      const groupsToPersist = cartonGroups
+        .map((g) => ({
+          group: g,
+          // Skip SKU rows with no SKU picked or zero total units.
+          skus: g.skus.filter((s) => s.sku_id && skuTotal(s) > 0),
+        }))
+        .filter(({ group, skus }) => group.carton_qty > 0 && skus.length > 0);
+      try {
+        for (const [index, { group, skus }] of groupsToPersist.entries()) {
+          const { data: groupRow, error: groupErr } = await supabase
+            .from("freight_carton_groups")
+            .insert({
+              freight_shipment_id: created.id,
+              carton_qty: group.carton_qty,
+              notes: group.notes || null,
+              sort_order: index,
+            })
+            .select("id")
+            .single();
+          if (groupErr) throw groupErr;
+          const { error: skuErr } = await supabase
+            .from("freight_carton_group_skus")
+            .insert(
+              skus.map((s) => ({
+                carton_group_id: groupRow.id,
+                sku_id: s.sku_id,
+                units_total: skuTotal(s),
+                pre_filled: s.pre_filled,
+              })),
+            );
+          if (skuErr) throw skuErr;
+        }
+      } catch (cartonErr) {
+        // The shipment itself saved fine — only the carton breakdown failed.
+        // Stay on the page (instead of navigating) so the error banner is
+        // actually seen, and make clear the form must not be resubmitted.
+        setSubmitError(
+          `Shipment ${shipmentNumber} was saved, but its carton breakdown failed to save: ` +
+          `${describeError(cartonErr)}. Open the shipment from the Freight list — do not resubmit this form.`,
+        );
+        return;
+      }
+
       navigate(`/freight/${created.id}`);
     } catch (err) {
       setSubmitError(describeError(err));

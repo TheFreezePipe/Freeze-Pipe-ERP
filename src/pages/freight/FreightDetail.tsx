@@ -13,6 +13,7 @@ import { useShipmentTracking } from "@/lib/tracking/use-shipment-tracking";
 import { etaDriftDays } from "@/lib/tracking/reconcile";
 import { getCarrierTrackingUrl } from "@/lib/tracking/carrier-urls";
 import { StatusSelectWithOverride } from "@/components/freight/StatusSelectWithOverride";
+import { ReceivingPanel } from "@/components/freight/ReceivingPanel";
 import { useFreightShipment, useFreightLineItems, useUpdateFreightShipment, useFactoryOrders } from "@/lib/hooks";
 import { useAuth } from "@/lib/auth-context";
 
@@ -285,6 +286,11 @@ export default function FreightDetail() {
           )}
         </CardContent>
       </Card>
+
+      {/* Receiving — carton-native incremental check-in. Prominent (right
+          under the timeline) for any shipment not yet receipt-confirmed;
+          collapses to a read-only summary (or closed-short banner) after. */}
+      <ReceivingPanel shipment={shipment} lineItems={lineItemsRaw} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Shipment details */}

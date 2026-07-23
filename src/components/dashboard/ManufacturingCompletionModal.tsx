@@ -164,6 +164,10 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
 
     // Aggregate fillable arrivals by ETA day. Overdue ETAs land "tomorrow";
     // arrivals beyond the 30-day horizon don't show on this curve.
+    // Partial receiving: only the REMAINING units are still arriving —
+    // remQty = max(0, quantity - quantity_received). Already-received units
+    // are in today's snapshot (snap.*) and would double-count if landed
+    // again on the ETA. The pre-filled split is prorated onto the remainder.
     const arrivals = new Map<string, { raw: number; prefilled: number }>();
     for (const f of shipments) {
       if (f.status === "delivered" || !f.eta) continue;
@@ -173,11 +177,17 @@ export function ManufacturingCompletionModal({ open, onOpenChange }: Props) {
       for (const li of freightLines) {
         if (li.freight_shipment_id !== f.id || !li.sku_id || !fillableIds.has(li.sku_id)) continue;
         const qty = li.quantity ?? 0;
+        const remQty = Math.max(qty - (li.quantity_received ?? 0), 0);
+        if (remQty === 0) continue;
         const pf = Math.min(Math.max(li.quantity_prefilled ?? 0, 0), qty);
-        const raw = Math.max(qty - pf, 0);
+        // Prorate pre-filled across the remainder (guard qty 0 — remQty is
+        // then 0 anyway, but keep the division safe), clamp to [0, remQty].
+        const remPrefilled =
+          qty > 0 ? Math.min(Math.max(Math.round((pf * remQty) / qty), 0), remQty) : 0;
+        const raw = remQty - remPrefilled;
         const cur = arrivals.get(etaDay) ?? { raw: 0, prefilled: 0 };
         cur.raw += raw;
-        cur.prefilled += pf;
+        cur.prefilled += remPrefilled;
         arrivals.set(etaDay, cur);
       }
     }

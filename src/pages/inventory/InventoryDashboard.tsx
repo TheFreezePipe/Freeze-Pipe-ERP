@@ -62,6 +62,10 @@ const FREIGHT_STATUS_PILL: Record<string, { label: string; dot: string; text: st
   on_the_water:    { label: "On the water",    dot: "bg-blue-400",  text: "text-blue-300" },
   high_risk:       { label: "High risk",       dot: "bg-red-500",   text: "text-red-300" },
   pending:         { label: "Pending",         dot: "bg-zinc-500",  text: "text-zinc-400" },
+  // Carrier says delivered but receipt hasn't been confirmed / fully checked
+  // in — units with a remainder still count as in transit (limbo fix), so
+  // these rows can now appear in the popover.
+  delivered:       { label: "Delivered · awaiting check-in", dot: "bg-amber-400", text: "text-amber-300" },
 };
 
 /** Hover popover showing which freight shipments make up a SKU's in-transit total */
@@ -79,15 +83,30 @@ function TransitBreakdownPopover({
   const [open, setOpen] = useState(false);
 
   const shipments = useMemo(() => {
-    return freightLineItems
-      .filter(li => li.sku_id === skuId)
-      .map(li => {
-        const shipment = freightShipments.find(f => f.id === li.freight_shipment_id);
-        return shipment && shipment.status !== "delivered"
-          ? { shipment, quantity: li.quantity }
-          : null;
-      })
-      .filter((x): x is { shipment: FreightShipment; quantity: number } => x !== null)
+    // Per-shipment REMAINING units for this SKU — same math as
+    // buildInTransitMap: max(0, quantity - quantity_received) per line,
+    // summed across the shipment's lines, for EVERY shipment regardless of
+    // status. Fully received shipments drop out (remaining 0); partially
+    // received ones show the remainder plus an "X of Y received" note.
+    const byShipment = new Map<
+      string,
+      { shipment: FreightShipment; remaining: number; received: number; shipped: number }
+    >();
+    for (const li of freightLineItems) {
+      if (li.sku_id !== skuId) continue;
+      const shipment = freightShipments.find(f => f.id === li.freight_shipment_id);
+      if (!shipment) continue;
+      const qty = li.quantity ?? 0;
+      const received = Math.min(Math.max(li.quantity_received ?? 0, 0), qty);
+      const cur =
+        byShipment.get(shipment.id) ?? { shipment, remaining: 0, received: 0, shipped: 0 };
+      cur.remaining += qty - received;
+      cur.received += received;
+      cur.shipped += qty;
+      byShipment.set(shipment.id, cur);
+    }
+    return Array.from(byShipment.values())
+      .filter(row => row.remaining > 0)
       .sort((a, b) => (a.shipment.eta ?? "").localeCompare(b.shipment.eta ?? ""));
   }, [skuId, freightShipments, freightLineItems]);
 
@@ -117,7 +136,7 @@ function TransitBreakdownPopover({
           <div className="px-3 py-4 text-xs text-muted-foreground text-center">No active shipments</div>
         ) : (
           <div className="divide-y divide-border/50">
-            {shipments.map(({ shipment, quantity }) => {
+            {shipments.map(({ shipment, remaining, received, shipped }) => {
               const isAir = shipment.freight_type === "air";
               const Icon = isAir ? Plane : Ship;
               const daysLeft = shipment.eta ? differenceInDays(parseISO(shipment.eta), new Date()) : null;
@@ -149,7 +168,15 @@ function TransitBreakdownPopover({
                       {pill.label}
                     </p>
                   </div>
-                  <p className="text-sm font-semibold tabular-nums">{quantity.toLocaleString()}</p>
+                  <div className="text-right">
+                    <p className="text-sm font-semibold tabular-nums">{remaining.toLocaleString()}</p>
+                    {/* Partial receipt — remainder is still in transit. */}
+                    {received > 0 && (
+                      <p className="text-[10px] text-muted-foreground tabular-nums">
+                        {received.toLocaleString()} of {shipped.toLocaleString()} received
+                      </p>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -190,6 +217,13 @@ function OnOrderBreakdownPopover({
   const orders = useMemo(() => {
     // Total freight already shipped per factory_order_item — netted out of
     // each order's remaining (a line can be split across shipments).
+    //
+    // PARTIAL RECEIVING NOTE (mirrors buildOnOrderMap): read the FULL
+    // freight_line_items.quantity here, NOT quantity - quantity_received.
+    // `quantity` = units that left the factory; receiving progress doesn't
+    // change that, so partially received shipments stay fully netted out of
+    // On Order. Closing a shipment short mutates `quantity` itself, which
+    // restores the undelivered remainder to On Order automatically.
     const shippedByFoi = new Map<string, number>();
     for (const line of freightLineItems) {
       const foi = line.source_factory_order_item_id;

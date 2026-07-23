@@ -22,10 +22,10 @@
  *     here — they move to In Transit until the shipment is delivered.
  *
  *   - **In Transit** per SKU:
- *       Sum(freight_line_item.quantity) across freight_shipments with
- *       status in {pending, on_the_water, high_risk, cleared_customs, tracking}.
- *     Delivered shipments are excluded because their units have landed in
- *     warehouse_raw already.
+ *       Sum(max(0, freight_line_item.quantity - freight_line_item.quantity_received))
+ *       across ALL shipments, regardless of shipment status. Fully received
+ *       lines contribute 0 automatically, so no status whitelist is needed
+ *       (see buildInTransitMap for the invariant).
  *
  * `inventoryTotalsReal` below is the only totals helper — the legacy
  * `computeInventoryTotals` (demo-data) that read the stale columns was
@@ -43,35 +43,42 @@ const ON_ORDER_STATUSES = new Set<FactoryOrderWithItems["status"]>([
   "finished",
 ]);
 
-/** Statuses counted as "in a shipment that hasn't been received into the warehouse yet." */
-const IN_TRANSIT_STATUSES = new Set<FreightShipment["status"]>([
-  "pending",
-  "on_the_water",
-  "high_risk",
-  "cleared_customs",
-  "tracking",
-]);
-
 /**
  * Per-SKU in-transit unit count derived from real freight data.
- * Key: `sku_id`. Value: sum of `freight_line_items.quantity` across all
- * non-delivered shipments containing that SKU.
+ * Key: `sku_id`. Value: sum of per-line REMAINING units across ALL shipments.
+ *
+ * INVARIANT (partial receiving, 2026-07):
+ *   - `freight_line_items.quantity` = units that left the factory. Receiving
+ *     NEVER mutates it; only closing a shipment short reduces it.
+ *   - `freight_line_items.quantity_received` = units physically checked into
+ *     the warehouse so far (default 0).
+ *   - In transit per line is therefore simply the remainder:
+ *         max(0, quantity - quantity_received)
+ *     summed for EVERY shipment REGARDLESS of status. No status whitelist:
+ *     fully received/closed shipments have quantity_received == quantity on
+ *     every catalog line (historical delivered shipments were backfilled this
+ *     way), so their lines contribute 0 automatically.
+ *
+ * Dropping the old status gate also fixes the "delivered by carrier but
+ * awaiting receipt confirmation" limbo, where units were excluded from the
+ * transit sum yet had not been moved into warehouse_raw — they vanished from
+ * both buckets. Now they stay in transit until physically checked in.
+ *
+ * `_shipments` is unused by the math but retained so the many existing call
+ * sites (dashboard, SKU modal, retail-value, order dialogs) keep compiling
+ * unchanged.
  */
 export function buildInTransitMap(
-  shipments: readonly FreightShipment[],
+  _shipments: readonly FreightShipment[],
   freightLines: readonly FreightLineItemWithProduct[],
 ): Map<string, number> {
-  const liveShipmentIds = new Set<string>();
-  for (const s of shipments) {
-    if (IN_TRANSIT_STATUSES.has(s.status)) liveShipmentIds.add(s.id);
-  }
   const out = new Map<string, number>();
   for (const line of freightLines) {
-    if (!liveShipmentIds.has(line.freight_shipment_id)) continue;
     // Non-catalog (sample) lines have no SKU — nothing to count in transit.
     if (!line.sku_id) continue;
-    const prior = out.get(line.sku_id) ?? 0;
-    out.set(line.sku_id, prior + (line.quantity ?? 0));
+    const remaining = Math.max(0, (line.quantity ?? 0) - (line.quantity_received ?? 0));
+    if (remaining === 0) continue;
+    out.set(line.sku_id, (out.get(line.sku_id) ?? 0) + remaining);
   }
   return out;
 }
@@ -88,6 +95,15 @@ export function buildInTransitMap(
  * counts toward shipped_qty regardless of shipment status — once the units
  * are in a shipment, they've left the "on order" bucket (they're now in
  * either In Transit or Warehouse, depending on delivery state).
+ *
+ * PARTIAL RECEIVING NOTE: this function must keep reading the FULL
+ * `freight_line_items.quantity`, NOT `quantity - quantity_received`.
+ * `quantity` means "units that left the factory" — receiving progress does
+ * not change how many units have shipped, so partially received shipments
+ * must stay fully netted out of On Order. Closing a shipment short mutates
+ * `quantity` itself (reduces it to what actually arrived), which restores
+ * the undelivered remainder to On Order automatically — no
+ * quantity_received handling is needed here.
  */
 export function buildOnOrderMap(
   factoryOrders: readonly FactoryOrderWithItems[],

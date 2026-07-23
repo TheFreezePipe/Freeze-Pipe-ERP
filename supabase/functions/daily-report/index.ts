@@ -53,7 +53,12 @@ const skuCell = (sku: string, name?: string) =>
   (name ? `<div style="font-family:${FONT};font-size:11px;color:${TER};margin-top:1px;">${esc(name)}</div>` : "");
 
 interface SalesRow { sku: string; product_name: string; units: number; avg_daily: number; flag: string | null; }
+// NOTE: since the partial-receiving change, items[].qty is the REMAINING
+// units still to receive on the shipment, not the originally shipped qty.
 interface IncomingRow { shipment_number: string; carrier_name: string | null; freight_type: string; eta: string | null; days_out: number | null; items: { sku: string; name: string | null; qty: number }[]; }
+// Shipments partially received for ≥7 days. cartons_* are null when the
+// shipment predates carton-group tracking (no carton plan on file).
+interface ReceivingRow { shipment_number: string; days_outstanding: number; cartons_received: number | null; cartons_total: number | null; units_received: number; units_total: number; }
 interface LowRow { sku: string; product_name: string; wh_units: number; monthly_demand: number; dos_days: number; in_transit: number; next_eta: string | null; }
 interface MktSale { name: string; starts_at: string; ends_at: string; approval: string; sku_count: number; }
 interface MktLaunch { name: string; kind: string; launch_date: string; approval: string; sku_count: number; }
@@ -66,6 +71,9 @@ interface ReportData {
   sales: SalesRow[]; sales_totals: { units: number; sku_count: number };
   incoming: IncomingRow[]; low_stock: LowRow[];
   marketing: MarketingData;
+  // Optional: absent when the deployed rpc_daily_report predates the
+  // partial-receiving change. Render nothing in that case.
+  receiving_outstanding?: ReceivingRow[];
 }
 
 function sectionLabel(text: string): string {
@@ -139,6 +147,35 @@ function renderIncoming(d: ReportData): string {
     </table>`;
   }).join("");
   return sectionLabel("Incoming shipments") + cards;
+}
+
+function renderReceiving(d: ReportData): string {
+  // Key absent (older rpc_daily_report) or empty -> no section at all.
+  const rows = d.receiving_outstanding ?? [];
+  if (!rows.length) return "";
+  const lines = rows.map((r, i) => {
+    // Carton counts are unknown for shipments without a carton plan on
+    // file — omit the parenthetical entirely rather than show "0 of 0".
+    const cartons = r.cartons_total == null
+      ? ""
+      : ` <span style="color:${TER};">(${num(r.cartons_received)} of ${num(r.cartons_total)} cartons)</span>`;
+    return `<div style="font-family:${FONT};font-size:13px;color:${SEC};margin-top:${i === 0 ? 0 : 5}px;">
+      <span style="color:${AMBER};font-weight:700;">⚠</span>
+      <span style="font-family:${MONO};font-weight:500;color:${WHITE};">${esc(r.shipment_number)}</span>
+      <span style="color:${TER};">—</span>
+      <span style="font-family:${MONO};color:${WHITE};font-weight:500;">${num(r.units_received)}</span> of
+      <span style="font-family:${MONO};color:${WHITE};font-weight:500;">${num(r.units_total)}</span> units checked in${cartons}
+      <span style="color:${TER};">·</span>
+      <span style="font-family:${MONO};color:${AMBER};font-weight:700;">${num(r.days_outstanding)}</span> days outstanding
+    </div>`;
+  }).join("");
+  // Amber-tinted callout block, same treatment as the marketing
+  // "awaiting ops confirmation" strip.
+  return sectionLabel("Outstanding receiving") +
+    `<div style="padding:10px 12px;background:#2C2413;border-radius:6px;">
+      ${lines}
+      <div style="font-family:${FONT};font-size:12px;color:${TER};margin-top:8px;">Record arrivals or close short in Freight.</div>
+    </div>`;
 }
 
 function renderLowStock(d: ReportData): string {
@@ -225,6 +262,7 @@ function renderHtml(d: ReportData): string {
         ${renderMarketing(d)}
         ${renderSales(d)}
         ${renderIncoming(d)}
+        ${renderReceiving(d)}
         ${renderLowStock(d)}
         <div style="border-top:1px solid ${BORD};margin-top:28px;padding-top:14px;font-family:${FONT};font-size:12px;color:${TER};">
           <a href="${SITE_URL}/inventory" style="color:${BLUE};text-decoration:none;">Open the ERP</a>
