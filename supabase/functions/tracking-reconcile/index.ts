@@ -63,6 +63,15 @@ interface TrackingUpdate {
   location?: string | null;
   events: Array<{ timestamp: string; description: string; location?: string | null }>;
   checkedAt: string;
+  /** Multi-piece shipment counts (Phase 2 receiving). null/absent = the
+   *  carrier didn't enumerate pieces — the UI falls back to its neutral
+   *  banner. Informational only: NEVER credits inventory. */
+  pieces?: {
+    total: number;
+    delivered: number;
+    onVehicle: number;
+    lastEventAt: string | null;
+  } | null;
 }
 
 interface Shipment {
@@ -78,6 +87,7 @@ interface Shipment {
   eta_last_checked_at: string | null;
   actual_arrival_date: string | null;
   status_overridden_at: string | null;
+  total_cartons: number | null;
 }
 
 const RECEIVE_WINDOW_DAYS = { sea: 7, air: 2 };
@@ -133,6 +143,44 @@ Deno.serve(async (req) => {
         if (applied.etaChanged) report.eta_changes++;
         if (applied.statusChanged) report.status_changes++;
         if (applied.overrideSkipped) report.overrides_skipped++;
+
+        // Phase 2 receiving: persist piece-level counts when the carrier
+        // enumerated them. Separate write, deliberately outside applyUpdate's
+        // status/ETA logic — piece counts are informational and must never
+        // interact with status transitions or inventory.
+        //
+        // Trust guard (verified live 2026-07-23): during the ocean/customs/
+        // linehaul legs both carriers return only the MASTER record — a
+        // single result for a 20-carton shipment. Piece enumeration appears
+        // once boxes hit the domestic ground network. A 1-piece answer for
+        // a multi-carton shipment is master-only noise: store NULLs (also
+        // clearing any stale counts) so the UI shows its neutral banner.
+        const masterOnly =
+          update.pieces != null &&
+          update.pieces.total <= 1 &&
+          (shipment.total_cartons ?? 0) > 1;
+        if (update.pieces) {
+          const cols = masterOnly
+            ? {
+                carrier_pieces_total: null,
+                carrier_pieces_delivered: null,
+                carrier_pieces_on_vehicle: null,
+                carrier_pieces_updated_at: update.checkedAt,
+                carrier_last_piece_event_at: null,
+              }
+            : {
+                carrier_pieces_total: update.pieces.total,
+                carrier_pieces_delivered: update.pieces.delivered,
+                carrier_pieces_on_vehicle: update.pieces.onVehicle,
+                carrier_pieces_updated_at: update.checkedAt,
+                carrier_last_piece_event_at: update.pieces.lastEventAt,
+              };
+          const { error: pieceErr } = await supabase
+            .from("freight_shipments")
+            .update(cols)
+            .eq("id", shipment.id);
+          if (pieceErr) console.warn(`piece-count write failed for ${shipment.shipment_number}: ${pieceErr.message}`);
+        }
       } catch (err) {
         report.errors++;
         report.error_details.push({
@@ -445,12 +493,42 @@ async function fetchFedEx(trackingNumber: string): Promise<TrackingUpdate | null
     location: formatFedExLocation(e.scanLocation),
   }));
 
+  // Multi-piece counts: tracking a master number returns one trackResult
+  // per piece. Only trust the counts when FedEx actually enumerated the
+  // pieces (>1 results, or a genuine single-piece shipment) — if it
+  // returned just the master record for a 23-piece shipment we can't
+  // count per-piece states, so report null and let the UI fall back.
+  // deno-lint-ignore no-explicit-any
+  const allResults: any[] = (trackJson?.output?.completeTrackResults?.[0]?.trackResults ?? [])
+    // deno-lint-ignore no-explicit-any
+    .filter((r: any) => !r.error?.code);
+  const declaredCount = Number(allResults[0]?.shipmentDetails?.packageCount ?? NaN);
+  let pieces: TrackingUpdate["pieces"] = null;
+  if (allResults.length > 1 || (allResults.length === 1 && (!Number.isFinite(declaredCount) || declaredCount <= 1))) {
+    // deno-lint-ignore no-explicit-any
+    const codes = allResults.map((r: any) => r.latestStatusDetail?.code as string | undefined);
+    const total = Math.max(allResults.length, Number.isFinite(declaredCount) ? declaredCount : 0);
+    const lastEventAt = allResults
+      // deno-lint-ignore no-explicit-any
+      .map((r: any) => r.scanEvents?.[0]?.date as string | undefined)
+      .filter(Boolean)
+      .sort()
+      .pop() ?? null;
+    pieces = {
+      total,
+      delivered: codes.filter((c) => c === "DL").length,
+      onVehicle: codes.filter((c) => c === "OD").length,
+      lastEventAt,
+    };
+  }
+
   return {
     status,
     carrierEta,
     deliveredAt,
     events,
     checkedAt: new Date().toISOString(),
+    pieces,
   };
 }
 
@@ -585,12 +663,34 @@ async function fetchUps(trackingNumber: string): Promise<TrackingUpdate | null> 
     location: formatUpsLocation(a.location),
   }));
 
+  // Multi-piece counts: UPS returns every package of a lead/master number
+  // in shipment.package[]. Count each piece's latest activity status.
+  // deno-lint-ignore no-explicit-any
+  const packages: any[] = shipment?.package ?? [];
+  // deno-lint-ignore no-explicit-any
+  const pieceTypes = packages.map((p: any) => p.activity?.[0]?.status?.type as string | undefined);
+  const lastEventAt = packages
+    // deno-lint-ignore no-explicit-any
+    .map((p: any) => (p.activity?.[0] ? upsActivityTimestamp(p.activity[0]) : ""))
+    .filter(Boolean)
+    .sort()
+    .pop() || null;
+  const pieces: TrackingUpdate["pieces"] = packages.length > 0
+    ? {
+        total: packages.length,
+        delivered: pieceTypes.filter((t) => t === "D" || t === "DO" || t === "DD").length,
+        onVehicle: pieceTypes.filter((t) => t === "O").length,
+        lastEventAt,
+      }
+    : null;
+
   return {
     status,
     carrierEta,
     deliveredAt,
     events,
     checkedAt: new Date().toISOString(),
+    pieces,
   };
 }
 

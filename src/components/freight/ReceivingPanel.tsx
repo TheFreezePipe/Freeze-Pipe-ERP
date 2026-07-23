@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { ClipboardCheck, Minus, Plus, PackageCheck, AlertTriangle } from "lucide-react";
-import { format, parseISO } from "date-fns";
+import { format, formatDistanceToNow, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
@@ -238,6 +238,58 @@ export function ReceivingPanel({ shipment, lineItems }: Props) {
   const headlineTotal = cartonMode ? totalCartons : totalUnits;
   const noun = cartonMode ? "carton" : "unit";
 
+  // ---- Carrier piece-level intel (Phase 2) -------------------------------
+  // carrier_pieces_* are populated ONLY when the carrier enumerates pieces
+  // (typically once boxes are on the domestic ground leg); all-null means no
+  // piece data and the neutral banner below stays exactly as before. Piece
+  // counts are informational — they never credit inventory; only tapped
+  // cartons do.
+  const piecesDelivered = shipment.carrier_pieces_delivered;
+  const piecesTotal = shipment.carrier_pieces_total;
+  const piecesOnVehicle = shipment.carrier_pieces_on_vehicle;
+  const piecesUpdatedAt = shipment.carrier_pieces_updated_at;
+
+  const awaitingCheckIn = piecesDelivered != null ? piecesDelivered - receivedCartons : 0;
+  // State A (action): carrier has delivered more pieces than cartons checked
+  // in — lead with the gap. State B (calm): check-ins have caught up with the
+  // carrier's delivered count. Neutral: no piece data, unit mode, or the
+  // headline-done state (existing states win).
+  const bannerState: "action" | "calm" | "neutral" =
+    cartonMode && !headlineDone && piecesDelivered != null
+      ? awaitingCheckIn > 0
+        ? "action"
+        : "calm"
+      : "neutral";
+
+  // "Carrier delivered 18 of 24 pieces · 6 on a truck · updated 2 hours ago"
+  const carrierDetail =
+    piecesDelivered == null
+      ? null
+      : [
+          piecesTotal != null
+            ? `Carrier delivered ${piecesDelivered.toLocaleString()} of ${piecesTotal.toLocaleString()} pieces`
+            : `Carrier delivered ${piecesDelivered.toLocaleString()} pieces`,
+          piecesOnVehicle != null && piecesOnVehicle > 0
+            ? `${piecesOnVehicle.toLocaleString()} on a truck`
+            : null,
+          piecesUpdatedAt
+            ? `updated ${formatDistanceToNow(parseISO(piecesUpdatedAt), { addSuffix: true })}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+  const stillInTransit =
+    piecesTotal != null && piecesDelivered != null ? piecesTotal - piecesDelivered : null;
+  const recordedAheadOfScans = piecesDelivered != null && receivedCartons > piecesDelivered;
+  // Unit-mode shipments keep the neutral banner but surface piece data as a
+  // plain informational line.
+  const unitModeCarrierLine =
+    !cartonMode && piecesDelivered != null
+      ? piecesTotal != null
+        ? `Carrier: ${piecesDelivered.toLocaleString()} of ${piecesTotal.toLocaleString()} pieces delivered`
+        : `Carrier: ${piecesDelivered.toLocaleString()} pieces delivered`
+      : null;
+
   const anyPending = record.isPending;
 
   return (
@@ -250,39 +302,80 @@ export function ReceivingPanel({ shipment, lineItems }: Props) {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Headline banner — big count first, supporting line below. Phase 1
-              has no carrier piece feed, so this is the neutral variant. */}
-          <div
-            className={cn(
-              "rounded-lg border p-4 flex items-center gap-4",
-              headlineDone
-                ? "border-green-500/30 bg-green-500/10"
-                : "border-amber-500/30 bg-amber-500/10",
-            )}
-          >
+          {/* Headline banner. With carrier piece data (carton mode) this is
+              State A (delivered pieces outpace check-ins — act) or State B
+              (caught up — calm); otherwise the neutral Phase 1 variant. */}
+          {bannerState === "action" ? (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 flex items-center gap-4">
+              <div className="text-4xl font-bold tabular-nums leading-none shrink-0 text-amber-400">
+                {awaitingCheckIn.toLocaleString()}
+              </div>
+              <div>
+                <p className="text-sm font-semibold">
+                  {awaitingCheckIn === 1 ? "carton" : "cartons"} on your dock awaiting check-in
+                </p>
+                {carrierDetail && (
+                  <p className="text-[13px] text-muted-foreground">{carrierDetail}</p>
+                )}
+              </div>
+            </div>
+          ) : bannerState === "calm" ? (
+            <div className="rounded-lg border border-green-500/30 bg-green-500/10 p-4 flex items-center gap-4">
+              <PackageCheck className="h-7 w-7 text-green-400 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-green-300">
+                  All delivered cartons are checked in — {receivedCartons.toLocaleString()} of{" "}
+                  {(piecesDelivered ?? 0).toLocaleString()}
+                </p>
+                {stillInTransit != null && stillInTransit > 0 && (
+                  <p className="text-[13px] text-muted-foreground">
+                    {stillInTransit.toLocaleString()} piece{stillInTransit === 1 ? "" : "s"} still
+                    in transit
+                  </p>
+                )}
+                {recordedAheadOfScans && (
+                  <p className="text-[11px] text-muted-foreground/70">
+                    recorded ahead of carrier scans
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
             <div
               className={cn(
-                "text-4xl font-bold tabular-nums leading-none shrink-0",
-                headlineDone ? "text-green-400" : "text-amber-400",
+                "rounded-lg border p-4 flex items-center gap-4",
+                headlineDone
+                  ? "border-green-500/30 bg-green-500/10"
+                  : "border-amber-500/30 bg-amber-500/10",
               )}
             >
-              {headlineReceived.toLocaleString()}
-              <span className="text-xl font-semibold text-muted-foreground">
-                {" "}/ {headlineTotal.toLocaleString()}
-              </span>
+              <div
+                className={cn(
+                  "text-4xl font-bold tabular-nums leading-none shrink-0",
+                  headlineDone ? "text-green-400" : "text-amber-400",
+                )}
+              >
+                {headlineReceived.toLocaleString()}
+                <span className="text-xl font-semibold text-muted-foreground">
+                  {" "}/ {headlineTotal.toLocaleString()}
+                </span>
+              </div>
+              <div>
+                <p className="text-sm font-semibold">
+                  {headlineDone
+                    ? `All ${noun}s checked in`
+                    : `${headlineReceived.toLocaleString()} of ${headlineTotal.toLocaleString()} ${noun}s checked in`}
+                </p>
+                <p className="text-[13px] text-muted-foreground">
+                  {receivedUnits.toLocaleString()} of {totalUnits.toLocaleString()} units credited to
+                  inventory
+                </p>
+                {unitModeCarrierLine && (
+                  <p className="text-[13px] text-muted-foreground">{unitModeCarrierLine}</p>
+                )}
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-semibold">
-                {headlineDone
-                  ? `All ${noun}s checked in`
-                  : `${headlineReceived.toLocaleString()} of ${headlineTotal.toLocaleString()} ${noun}s checked in`}
-              </p>
-              <p className="text-[13px] text-muted-foreground">
-                {receivedUnits.toLocaleString()} of {totalUnits.toLocaleString()} units credited to
-                inventory
-              </p>
-            </div>
-          </div>
+          )}
 
           {groupsLoading ? (
             <p className="text-sm text-muted-foreground">Loading carton groups…</p>

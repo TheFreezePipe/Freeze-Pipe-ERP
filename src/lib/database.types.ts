@@ -768,7 +768,12 @@ export type Database = {
         Row: {
           actual_arrival_date: string | null
           broker_name: string | null
+          carrier_last_piece_event_at: string | null
           carrier_name: string | null
+          carrier_pieces_delivered: number | null
+          carrier_pieces_on_vehicle: number | null
+          carrier_pieces_total: number | null
+          carrier_pieces_updated_at: string | null
           china_customs_delay: boolean
           closed_short_at: string | null
           closed_short_reason: string | null
@@ -802,7 +807,12 @@ export type Database = {
         Insert: {
           actual_arrival_date?: string | null
           broker_name?: string | null
+          carrier_last_piece_event_at?: string | null
           carrier_name?: string | null
+          carrier_pieces_delivered?: number | null
+          carrier_pieces_on_vehicle?: number | null
+          carrier_pieces_total?: number | null
+          carrier_pieces_updated_at?: string | null
           china_customs_delay?: boolean
           closed_short_at?: string | null
           closed_short_reason?: string | null
@@ -836,7 +846,12 @@ export type Database = {
         Update: {
           actual_arrival_date?: string | null
           broker_name?: string | null
+          carrier_last_piece_event_at?: string | null
           carrier_name?: string | null
+          carrier_pieces_delivered?: number | null
+          carrier_pieces_on_vehicle?: number | null
+          carrier_pieces_total?: number | null
+          carrier_pieces_updated_at?: string | null
           china_customs_delay?: boolean
           closed_short_at?: string | null
           closed_short_reason?: string | null

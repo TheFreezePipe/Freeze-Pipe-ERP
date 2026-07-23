@@ -58,7 +58,15 @@ interface SalesRow { sku: string; product_name: string; units: number; avg_daily
 interface IncomingRow { shipment_number: string; carrier_name: string | null; freight_type: string; eta: string | null; days_out: number | null; items: { sku: string; name: string | null; qty: number }[]; }
 // Shipments partially received for ≥7 days. cartons_* are null when the
 // shipment predates carton-group tracking (no carton plan on file).
-interface ReceivingRow { shipment_number: string; days_outstanding: number; cartons_received: number | null; cartons_total: number | null; units_received: number; units_total: number; }
+// carrier_* fields are optional (absent on an older deployed rpc_daily_report)
+// and null when the carrier hasn't enumerated pieces for the shipment.
+interface ReceivingRow {
+  shipment_number: string; days_outstanding: number;
+  cartons_received: number | null; cartons_total: number | null;
+  units_received: number; units_total: number;
+  carrier_delivered?: number | null; carrier_total?: number | null;
+  carrier_last_movement?: string | null;
+}
 interface LowRow { sku: string; product_name: string; wh_units: number; monthly_demand: number; dos_days: number; in_transit: number; next_eta: string | null; }
 interface MktSale { name: string; starts_at: string; ends_at: string; approval: string; sku_count: number; }
 interface MktLaunch { name: string; kind: string; launch_date: string; approval: string; sku_count: number; }
@@ -159,6 +167,22 @@ function renderReceiving(d: ReportData): string {
     const cartons = r.cartons_total == null
       ? ""
       : ` <span style="color:${TER};">(${num(r.cartons_received)} of ${num(r.cartons_total)} cartons)</span>`;
+    // Carrier piece counts — informational only; absent/null when the carrier
+    // hasn't enumerated pieces (or the deployed RPC predates the columns).
+    const carrier = r.carrier_total == null
+      ? ""
+      : ` <span style="color:${TER};">·</span> carrier reports
+      <span style="font-family:${MONO};color:${WHITE};font-weight:500;">${num(r.carrier_delivered)}</span> of
+      <span style="font-family:${MONO};color:${WHITE};font-weight:500;">${num(r.carrier_total)}</span> delivered`;
+    // Flag stalled piece movement only when it's actually stale (last carrier
+    // scan more than 3 days ago) — recent movement is unremarkable.
+    let stalled = "";
+    if (r.carrier_last_movement) {
+      const ageDays = Math.floor((Date.now() - new Date(r.carrier_last_movement + "T12:00:00Z").getTime()) / 86_400_000);
+      if (ageDays > 3) {
+        stalled = ` <span style="color:${TER};">·</span> <span style="color:${AMBER};">no piece movement since ${fmtDate(r.carrier_last_movement, { month: "short", day: "numeric" })}</span>`;
+      }
+    }
     return `<div style="font-family:${FONT};font-size:13px;color:${SEC};margin-top:${i === 0 ? 0 : 5}px;">
       <span style="color:${AMBER};font-weight:700;">⚠</span>
       <span style="font-family:${MONO};font-weight:500;color:${WHITE};">${esc(r.shipment_number)}</span>
@@ -166,7 +190,7 @@ function renderReceiving(d: ReportData): string {
       <span style="font-family:${MONO};color:${WHITE};font-weight:500;">${num(r.units_received)}</span> of
       <span style="font-family:${MONO};color:${WHITE};font-weight:500;">${num(r.units_total)}</span> units checked in${cartons}
       <span style="color:${TER};">·</span>
-      <span style="font-family:${MONO};color:${AMBER};font-weight:700;">${num(r.days_outstanding)}</span> days outstanding
+      <span style="font-family:${MONO};color:${AMBER};font-weight:700;">${num(r.days_outstanding)}</span> days outstanding${carrier}${stalled}
     </div>`;
   }).join("");
   // Amber-tinted callout block, same treatment as the marketing
