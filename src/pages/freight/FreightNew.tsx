@@ -136,13 +136,26 @@ export default function FreightNew() {
     return max > 0 ? String(max + 1) : "";
   }, [allShipments]);
 
-  // Auto-fill the number from the sea progression when sea is selected and
-  // the operator hasn't overridden it. Cleared for air (different scheme)
-  // so they enter the AIR-### number manually.
+  // Same idea for air, on the "AIR-###" progression. Case-insensitive match
+  // tolerates a stray "Air-244"; output is canonical uppercase "AIR-###".
+  const nextAirNumber = useMemo(() => {
+    let max = 0;
+    for (const s of allShipments) {
+      if (s.freight_type !== "air") continue;
+      const m = /^AIR-(\d+)$/i.exec(s.shipment_number);
+      if (!m) continue;
+      const n = parseInt(m[1], 10);
+      if (n > max) max = n;
+    }
+    return max > 0 ? `AIR-${max + 1}` : "";
+  }, [allShipments]);
+
+  // Auto-fill the number from the matching progression when the operator
+  // hasn't overridden it — sea = next integer, air = next AIR-###.
   useEffect(() => {
     if (numberTouched) return;
-    setShipmentNumber(freightType === "sea" ? nextSeaNumber : "");
-  }, [freightType, nextSeaNumber, numberTouched]);
+    setShipmentNumber(freightType === "sea" ? nextSeaNumber : nextAirNumber);
+  }, [freightType, nextSeaNumber, nextAirNumber, numberTouched]);
   const [carrierName, setCarrierName] = useState("");
   const [forwarderCode, setForwarderCode] = useState("");
   const [trackingNumber, setTrackingNumber] = useState("");
@@ -645,14 +658,14 @@ export default function FreightNew() {
                 <Label htmlFor="shipment-number">Shipment Number *</Label>
                 <Input
                   id="shipment-number"
-                  placeholder={freightType === "sea" ? (nextSeaNumber || "443") : "AIR-243"}
+                  placeholder={freightType === "sea" ? (nextSeaNumber || "443") : (nextAirNumber || "AIR-243")}
                   value={shipmentNumber}
                   onChange={e => { setShipmentNumber(e.target.value); setNumberTouched(true); }}
                   required
                 />
-                {freightType === "sea" && !numberTouched && nextSeaNumber && (
+                {!numberTouched && (freightType === "sea" ? nextSeaNumber : nextAirNumber) && (
                   <p className="text-xs text-muted-foreground">
-                    Auto-suggested next sea number — edit if needed.
+                    Auto-suggested next {freightType} number — edit if needed.
                   </p>
                 )}
               </div>
