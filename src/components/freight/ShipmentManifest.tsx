@@ -62,19 +62,25 @@ interface Props {
   foItemIdToOrder: Map<string, FoRef>;
 }
 
-/** Per-carton SKU breakdown for a multi-SKU group's subline: "SKU ×12 + SKU ×6".
- *  Non-integral splits fall back to the group total so we never show a fake
- *  fraction (same rule the old ReceivingPanel used). */
-function mixedCartonSubline(group: CartonGroupWithSkus): string {
-  return group.skus
-    .map((s) => {
-      const sku = s.product?.sku ?? "Unknown SKU";
-      const perCarton = s.units_total / group.carton_qty;
-      return Number.isInteger(perCarton)
-        ? `${sku} ×${perCarton}`
-        : `${sku} · ${s.units_total.toLocaleString()} total`;
-    })
-    .join(" + ");
+/** Per-carton SKU breakdown for a multi-SKU group's subline: "SKU ×12 + SKU ×6",
+ *  with a cyan pre-filled marker per SKU that carries it. Non-integral splits
+ *  fall back to the group total so we never show a fake fraction (same rule
+ *  the old ReceivingPanel used). */
+function mixedCartonSubline(group: CartonGroupWithSkus): React.ReactNode {
+  return group.skus.map((s, i) => {
+    const sku = s.product?.sku ?? "Unknown SKU";
+    const perCarton = s.units_total / group.carton_qty;
+    const label = Number.isInteger(perCarton)
+      ? `${sku} ×${perCarton}`
+      : `${sku} · ${s.units_total.toLocaleString()} total`;
+    return (
+      <span key={s.id ?? `${sku}-${i}`}>
+        {i > 0 && " + "}
+        {label}
+        {s.pre_filled && <span className="text-cyan-400"> (pre-filled)</span>}
+      </span>
+    );
+  });
 }
 
 /** Units credited so far for a group — mirrors the RPC's cumulative-rounding
@@ -523,7 +529,18 @@ export function ShipmentManifest({
                       return (
                         <tr key={line.id} className="border-b border-border/50">
                           <td className="px-4 py-3">
-                            <p className="font-medium">{line.product?.sku ?? line.sku_id}</p>
+                            <p className="font-medium inline-flex items-center gap-1.5">
+                              {line.product?.sku ?? line.sku_id}
+                              {/* Legacy lines carry prefill on the line itself
+                                  (quantity_prefilled), possibly partial. */}
+                              {(line.quantity_prefilled ?? 0) > 0 && (
+                                <span className="rounded border border-cyan-500/50 px-1 py-px text-[9px] uppercase tracking-wide text-cyan-400">
+                                  {(line.quantity_prefilled ?? 0) >= line.quantity
+                                    ? "pre-filled"
+                                    : `${(line.quantity_prefilled ?? 0).toLocaleString()} pre-filled`}
+                                </span>
+                              )}
+                            </p>
                             <p className="text-xs text-muted-foreground">
                               {line.product?.product_name ?? ""}
                             </p>
