@@ -5,25 +5,69 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Ship, Plane, Package, DollarSign, FileText, RefreshCw, TrendingUp, TrendingDown, Pencil, Check, X, ExternalLink, ShieldAlert } from "lucide-react";
-import { FREIGHT_TYPES, type FreightStatus } from "@/lib/constants";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  ArrowLeft,
+  Boxes,
+  CalendarClock,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  DollarSign,
+  ExternalLink,
+  FileText,
+  MoreVertical,
+  Package,
+  Pencil,
+  Plane,
+  RefreshCw,
+  Ship,
+  ShieldAlert,
+  X,
+} from "lucide-react";
+import { FREIGHT_TYPES } from "@/lib/constants";
 import { format, parseISO, formatDistanceToNow, addDays } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useShipmentTracking } from "@/lib/tracking/use-shipment-tracking";
 import { etaDriftDays } from "@/lib/tracking/reconcile";
 import { getCarrierTrackingUrl } from "@/lib/tracking/carrier-urls";
 import { StatusSelectWithOverride } from "@/components/freight/StatusSelectWithOverride";
-import { ReceivingPanel } from "@/components/freight/ReceivingPanel";
-import { useFreightShipment, useFreightLineItems, useUpdateFreightShipment, useFactoryOrders } from "@/lib/hooks";
+import { ShipmentStepper } from "@/components/freight/ShipmentStepper";
+import { ShipmentManifest } from "@/components/freight/ShipmentManifest";
+import { isReceivingActive } from "@/lib/freight/receiving";
+import { CloseShortDialog } from "@/components/freight/CloseShortDialog";
+import {
+  useFreightShipment,
+  useFreightLineItems,
+  useUpdateFreightShipment,
+  useFactoryOrders,
+  useCartonGroups,
+} from "@/lib/hooks";
 import { useAuth } from "@/lib/auth-context";
 
-const TIMELINE_STEPS: { status: FreightStatus; label: string }[] = [
-  { status: "on_the_water", label: "On the Water" },
-  { status: "cleared_customs", label: "Cleared Customs" },
-  { status: "tracking", label: "Tracking" },
-  { status: "out_for_delivery", label: "Out for Delivery" },
-  { status: "delivered", label: "Delivered" },
-];
+// ---------------------------------------------------------------------------
+// FreightDetail — owner-approved prototype layout (2026-07):
+//   1. Header band: number + type + status chip + derived receiving chip;
+//      carrier · tracking (copyable) · shipped subline; override/refresh
+//      affordances on the right.
+//   2. Metric cards: cartons, units, ETA (with drift chip), total cost.
+//   3. Horizontal stepper (Created → Shipped → Customs → Ground → Received)
+//      with the collapsed scan history beneath it.
+//   4. Dock check-in banner + 5. manifest table (ShipmentManifest — replaces
+//      the old ReceivingPanel and Line Items card).
+//   6. Cost strip with expandable breakdown + close-short escape hatch.
+// ---------------------------------------------------------------------------
+
+/** Whole-dollar money for the strip + metric card ("$12,340"). */
+function fmtUsd(n: number): string {
+  return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
 
 export default function FreightDetail() {
   const { id } = useParams();
@@ -33,9 +77,10 @@ export default function FreightDetail() {
 
   const { data: shipment, isLoading: shipmentLoading } = useFreightShipment(id ?? "");
   const { data: lineItemsRaw = [], isLoading: lineItemsLoading } = useFreightLineItems(id);
-  // Factory orders — needed to surface a "from FO-X" subtitle on each
-  // line item that has a source_factory_order_item_id. Building a tiny
-  // lookup map below is cheaper than per-row hooks.
+  const { data: groups = [], isLoading: groupsLoading } = useCartonGroups(id ?? "");
+  // Factory orders — needed to derive the manifest's "From order" links from
+  // each line item's source_factory_order_item_id. Building a tiny lookup map
+  // below is cheaper than per-row hooks.
   const { data: factoryOrders = [] } = useFactoryOrders();
   const foItemIdToOrder = useMemo(() => {
     const map = new Map<string, { id: string; number: string | null }>();
@@ -64,12 +109,14 @@ export default function FreightDetail() {
   // Inline edit for freight_cost — same pencil pattern, but parses to a
   // number. Empty input clears to NULL so the cost-breakdown row falls
   // back to "$0" rather than a literal zero (matches the convention used
-  // by the supplier-portal RPC's `p_clear_freight_cost` flag). Applies to
-  // both air and sea shipments — freight_type doesn't gate the edit since
-  // freight_cost lives on the parent shipment row regardless of mode.
+  // by the supplier-portal RPC's `p_clear_freight_cost` flag).
   const [editingCost, setEditingCost] = useState(false);
   const [costDraft, setCostDraft] = useState("");
   const [costError, setCostError] = useState<string | null>(null);
+  // Cost strip breakdown — collapsed one-liner by default.
+  const [costOpen, setCostOpen] = useState(false);
+  const [closeShortOpen, setCloseShortOpen] = useState(false);
+  const [trackingCopied, setTrackingCopied] = useState(false);
 
   function startCarrierEdit() {
     setCarrierDraft(shipment?.carrier_name ?? "");
@@ -151,9 +198,6 @@ export default function FreightDetail() {
   }
 
   function startCostEdit() {
-    // Pre-fill the input with the existing value (or empty string if none).
-    // Use the raw number so the operator sees the same thing they'd see
-    // in the cost-breakdown row, not a formatted "$1,234.56".
     setCostDraft(shipment?.freight_cost?.toString() ?? "");
     setEditingCost(true);
     setCostError(null);
@@ -194,7 +238,18 @@ export default function FreightDetail() {
     }
   }
 
-  if (shipmentLoading || lineItemsLoading) {
+  async function copyTrackingNumber() {
+    if (!shipment?.tracking_number) return;
+    try {
+      await navigator.clipboard.writeText(shipment.tracking_number);
+      setTrackingCopied(true);
+      window.setTimeout(() => setTrackingCopied(false), 1500);
+    } catch {
+      // Clipboard unavailable (permissions / non-secure context) — no-op.
+    }
+  }
+
+  if (shipmentLoading || lineItemsLoading || groupsLoading) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
         Loading shipment…
@@ -212,306 +267,367 @@ export default function FreightDetail() {
   // Generated FreightShipment widens enums to plain string even though the
   // DB CHECKs narrow them; cast at the indexing sites.
   const typeInfo = FREIGHT_TYPES[shipment.freight_type as keyof typeof FREIGHT_TYPES];
-  const isHighRisk = shipment.status === "high_risk";
+  const isSea = shipment.freight_type === "sea";
 
-  const statusOrder: FreightStatus[] = ["on_the_water", "cleared_customs", "tracking", "out_for_delivery", "delivered"];
-  const currentIndex = isHighRisk ? 0 : statusOrder.indexOf(shipment.status as FreightStatus);
+  const catalogLines = lineItemsRaw.filter((l) => l.sku_id);
+  const totalUnits = catalogLines.reduce((s, l) => s + l.quantity, 0);
+  const receivedUnits = catalogLines.reduce((s, l) => s + (l.quantity_received ?? 0), 0);
+  const cartonMode = groups.length > 0;
+  const totalCartons = groups.reduce((s, g) => s + g.carton_qty, 0);
+  const receivedCartons = groups.reduce((s, g) => s + g.received_cartons, 0);
+
+  const isConfirmed = !!shipment.receipt_confirmed_at;
+  const isClosedShort = !!shipment.closed_short_at;
+  const receivingActive = isReceivingActive(shipment, lineItemsRaw);
+  const hasReceivable = cartonMode || catalogLines.length > 0;
+  const fullyDone = cartonMode
+    ? totalCartons > 0 && receivedCartons >= totalCartons
+    : totalUnits > 0 && receivedUnits >= totalUnits;
+  const partiallyReceived = receivedUnits > 0 && !fullyDone;
 
   const totalCostLineItems = lineItemsRaw.reduce((s, li) => s + (li.unit_cost ?? 0) * li.quantity, 0);
   const totalRetailValue = lineItemsRaw.reduce((s, li) => s + (li.retail_value ?? 0) * li.quantity, 0);
-  const totalQty = lineItemsRaw.reduce((s, li) => s + li.quantity, 0);
+  const freightCost = shipment.freight_cost ?? 0;
+  const dutiesCost = shipment.duties_cost ?? 0;
+  const insuranceCost = shipment.insurance_cost ?? 0;
+  const totalLandedCost = freightCost + dutiesCost + insuranceCost;
+
+  const trackingHref = getCarrierTrackingUrl(shipment.carrier_name, shipment.tracking_number);
+  const showRefresh = shipment.status !== "delivered" && !!shipment.tracking_number;
+  const showChinaCustoms = shipment.status !== "delivered";
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-4">
+      {/* ---- 1. Header band ------------------------------------------------ */}
+      <div className="flex items-start gap-3">
         <Button variant="ghost" size="icon" onClick={() => navigate("/freight")}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <div className="flex-1">
-          <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2.5 flex-wrap">
             <h1 className="text-2xl font-bold">{shipment.shipment_number}</h1>
-            <Badge variant="outline" className="text-xs">{typeInfo.label}</Badge>
-            {isHighRisk && (
-              <Badge variant="outline" className="border-red-500 text-red-400">High Risk</Badge>
-            )}
+            <Badge variant="outline" className="text-xs gap-1">
+              {isSea ? (
+                <Ship className="h-3 w-3 text-blue-400" />
+              ) : (
+                <Plane className="h-3 w-3 text-cyan-400" />
+              )}
+              {typeInfo.label}
+            </Badge>
+            <StatusSelectWithOverride shipment={shipment} variant="compact" />
+            {/* Derived receiving chip */}
+            {isClosedShort ? (
+              <Badge
+                variant="outline"
+                className="border-amber-500/50 text-amber-400 bg-amber-500/10"
+                title={`Closed short ${format(parseISO(shipment.closed_short_at!), "MMM d, yyyy")}${shipment.closed_short_reason ? ` — ${shipment.closed_short_reason}` : ""}`}
+              >
+                Closed short
+              </Badge>
+            ) : isConfirmed ? (
+              <Badge
+                variant="outline"
+                className="border-green-500/50 text-green-400 bg-green-500/10"
+                title={`Received in full · confirmed ${format(parseISO(shipment.receipt_confirmed_at!), "MMM d, yyyy")}`}
+              >
+                Received
+              </Badge>
+            ) : receivingActive && hasReceivable ? (
+              <Badge variant="outline" className="border-amber-500/50 text-amber-400 bg-amber-500/10 tabular-nums">
+                {cartonMode
+                  ? `Receiving · ${receivedCartons.toLocaleString()} of ${totalCartons.toLocaleString()} ctns`
+                  : `Receiving · ${receivedUnits.toLocaleString()} of ${totalUnits.toLocaleString()} units`}
+              </Badge>
+            ) : null}
             {shipment.china_customs_delay && (
               <Badge variant="outline" className="border-amber-500 text-amber-400">China Customs Delay</Badge>
             )}
           </div>
-          <p className="text-muted-foreground text-sm">{shipment.carrier_name ?? "No carrier"} &middot; {shipment.tracking_number ?? "No tracking"}</p>
-        </div>
-        <StatusSelectWithOverride shipment={shipment} variant="full" />
-      </div>
-
-      {/* Timeline */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Shipment Timeline</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-between">
-            {TIMELINE_STEPS.map((step, i) => {
-              const isActive = !isHighRisk && currentIndex >= i;
-              const isCurrent = !isHighRisk && currentIndex === i;
-              return (
-                <div key={step.status} className="flex flex-col items-center flex-1">
-                  <div className="flex items-center w-full">
-                    {i > 0 && (
-                      <div className={cn("h-0.5 flex-1", isActive ? "bg-primary" : "bg-muted")} />
+          {/* Subline: carrier · tracking · shipped · forwarder */}
+          <div className="mt-1 flex items-center gap-1.5 flex-wrap text-sm text-muted-foreground">
+            {editingCarrier ? (
+              <span className="inline-flex items-center gap-1">
+                <Input
+                  value={carrierDraft}
+                  onChange={(e) => setCarrierDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveCarrierEdit();
+                    if (e.key === "Escape") cancelCarrierEdit();
+                  }}
+                  autoFocus
+                  placeholder={isSea ? "e.g. Maersk" : "e.g. FedEx"}
+                  className="h-6 w-36 text-sm"
+                  disabled={updateShipment.isPending}
+                />
+                <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0" onClick={saveCarrierEdit} disabled={updateShipment.isPending} title="Save (Enter)">
+                  <Check className="h-3.5 w-3.5 text-green-400" />
+                </Button>
+                <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0" onClick={cancelCarrierEdit} disabled={updateShipment.isPending} title="Cancel (Escape)">
+                  <X className="h-3.5 w-3.5 text-muted-foreground" />
+                </Button>
+              </span>
+            ) : canEdit ? (
+              <button
+                type="button"
+                onClick={startCarrierEdit}
+                className="group inline-flex items-center gap-1 hover:text-foreground"
+                title="Click to edit carrier"
+              >
+                <span>{shipment.carrier_name ?? <span className="italic">No carrier</span>}</span>
+                <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </button>
+            ) : (
+              <span>{shipment.carrier_name ?? "No carrier"}</span>
+            )}
+            <span>·</span>
+            {editingTracking ? (
+              <span className="inline-flex items-center gap-1">
+                <Input
+                  value={trackingDraft}
+                  onChange={(e) => setTrackingDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveTrackingEdit();
+                    if (e.key === "Escape") cancelTrackingEdit();
+                  }}
+                  autoFocus
+                  placeholder="Tracking number"
+                  className="h-6 w-44 text-xs font-mono"
+                  disabled={updateShipment.isPending}
+                />
+                <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0" onClick={saveTrackingEdit} disabled={updateShipment.isPending} title="Save (Enter)">
+                  <Check className="h-3.5 w-3.5 text-green-400" />
+                </Button>
+                <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0" onClick={cancelTrackingEdit} disabled={updateShipment.isPending} title="Cancel (Escape)">
+                  <X className="h-3.5 w-3.5 text-muted-foreground" />
+                </Button>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1">
+                {shipment.tracking_number ? (
+                  <>
+                    {trackingHref ? (
+                      <a
+                        href={trackingHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-mono text-xs text-primary hover:underline inline-flex items-center gap-1"
+                        title={`Open ${shipment.carrier_name} tracking page`}
+                      >
+                        {shipment.tracking_number}
+                        <ExternalLink className="h-3 w-3 opacity-60" />
+                      </a>
+                    ) : (
+                      <span className="font-mono text-xs text-foreground/90">{shipment.tracking_number}</span>
                     )}
-                    <div className={cn(
-                      "h-8 w-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold",
-                      isCurrent ? "bg-primary text-primary-foreground ring-2 ring-primary/30" :
-                      isActive ? "bg-primary text-primary-foreground" :
-                      "bg-muted text-muted-foreground"
-                    )}>
-                      {i + 1}
-                    </div>
-                    {i < TIMELINE_STEPS.length - 1 && (
-                      <div className={cn("h-0.5 flex-1", !isHighRisk && currentIndex > i ? "bg-primary" : "bg-muted")} />
-                    )}
-                  </div>
-                  <p className={cn("text-xs mt-2", isCurrent ? "text-primary font-medium" : "text-muted-foreground")}>
-                    {step.label}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-          {isHighRisk && (
-            <div className="mt-4 rounded-lg bg-red-500/10 border border-red-500/20 p-3 text-sm text-red-400">
-              This shipment is under customs inspection (High Risk). Timeline is paused until cleared.
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Receiving — carton-native incremental check-in. Prominent (right
-          under the timeline) for any shipment not yet receipt-confirmed;
-          collapses to a read-only summary (or closed-short banner) after. */}
-      <ReceivingPanel shipment={shipment} lineItems={lineItemsRaw} />
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        {/* Shipment details */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              {shipment.freight_type === "sea" ? <Ship className="h-4 w-4 text-blue-400" /> : <Plane className="h-4 w-4 text-cyan-400" />}
-              Shipment Details
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <p className="text-xs text-muted-foreground">Carrier</p>
-                {editingCarrier ? (
-                  <div className="flex items-center gap-1">
-                    <Input
-                      value={carrierDraft}
-                      onChange={(e) => setCarrierDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") saveCarrierEdit();
-                        if (e.key === "Escape") cancelCarrierEdit();
-                      }}
-                      autoFocus
-                      placeholder={shipment.freight_type === "sea" ? "e.g. Maersk" : "e.g. FedEx"}
-                      className="h-7 text-sm"
-                      disabled={updateShipment.isPending}
-                    />
-                    <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={saveCarrierEdit} disabled={updateShipment.isPending} title="Save (Enter)">
-                      <Check className="h-3.5 w-3.5 text-green-400" />
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-5 w-5 text-muted-foreground hover:text-foreground"
+                      onClick={copyTrackingNumber}
+                      title="Copy tracking number"
+                    >
+                      {trackingCopied ? (
+                        <Check className="h-3 w-3 text-green-400" />
+                      ) : (
+                        <Copy className="h-3 w-3" />
+                      )}
                     </Button>
-                    <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={cancelCarrierEdit} disabled={updateShipment.isPending} title="Cancel (Escape)">
-                      <X className="h-3.5 w-3.5 text-muted-foreground" />
-                    </Button>
-                  </div>
-                ) : canEdit ? (
+                  </>
+                ) : (
+                  <span className="italic text-xs">No tracking</span>
+                )}
+                {canEdit && (
                   <button
                     type="button"
-                    onClick={startCarrierEdit}
-                    className="group inline-flex items-center gap-1 font-medium hover:text-foreground"
-                    title="Click to edit carrier"
+                    onClick={startTrackingEdit}
+                    className="text-muted-foreground hover:text-foreground"
+                    title="Edit tracking number"
                   >
-                    <span>{shipment.carrier_name ?? <span className="text-muted-foreground italic">No carrier</span>}</span>
-                    <Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <Pencil className="h-3 w-3" />
                   </button>
-                ) : (
-                  <p className="font-medium">{shipment.carrier_name ?? "-"}</p>
                 )}
-                {carrierError && (
-                  <p className="text-[11px] text-red-400 mt-0.5" title={carrierError}>{carrierError}</p>
-                )}
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Tracking #</p>
-                {editingTracking ? (
-                  <div className="flex items-center gap-1">
-                    <Input
-                      value={trackingDraft}
-                      onChange={(e) => setTrackingDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") saveTrackingEdit();
-                        if (e.key === "Escape") cancelTrackingEdit();
-                      }}
-                      autoFocus
-                      placeholder="Tracking number"
-                      className="h-7 text-xs font-mono"
-                      disabled={updateShipment.isPending}
-                    />
-                    <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={saveTrackingEdit} disabled={updateShipment.isPending} title="Save (Enter)">
-                      <Check className="h-3.5 w-3.5 text-green-400" />
-                    </Button>
-                    <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={cancelTrackingEdit} disabled={updateShipment.isPending} title="Cancel (Escape)">
-                      <X className="h-3.5 w-3.5 text-muted-foreground" />
-                    </Button>
-                  </div>
-                ) : (
-                  // Read mode: tracking number renders as a carrier-tracking
-                  // link when both carrier_name and tracking_number are set
-                  // and we have a URL pattern for that carrier. Admin/manager
-                  // also gets a separate pencil to enter edit mode — kept
-                  // distinct from the link so a click on the number opens
-                  // the carrier page (the primary action) rather than the
-                  // editor (the rarer one).
-                  (() => {
-                    const trackingHref = getCarrierTrackingUrl(
-                      shipment.carrier_name,
-                      shipment.tracking_number,
-                    );
-                    return (
-                      <div className="inline-flex items-center gap-1.5">
-                        {shipment.tracking_number ? (
-                          trackingHref ? (
-                            <a
-                              href={trackingHref}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="font-medium font-mono text-xs text-primary hover:underline inline-flex items-center gap-1"
-                              title={`Open ${shipment.carrier_name} tracking page`}
-                            >
-                              {shipment.tracking_number}
-                              <ExternalLink className="h-3 w-3 opacity-60" />
-                            </a>
-                          ) : (
-                            <span className="font-medium font-mono text-xs">
-                              {shipment.tracking_number}
-                            </span>
-                          )
-                        ) : (
-                          <span className="text-muted-foreground italic text-xs">No tracking</span>
-                        )}
-                        {canEdit && (
-                          <button
-                            type="button"
-                            onClick={startTrackingEdit}
-                            className="text-muted-foreground hover:text-foreground"
-                            title="Edit tracking number"
-                          >
-                            <Pencil className="h-3 w-3" />
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })()
-                )}
-                {trackingError && (
-                  <p className="text-[11px] text-red-400 mt-0.5" title={trackingError}>{trackingError}</p>
-                )}
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Forwarder</p>
-                <p className="font-medium">{shipment.forwarder_code ?? "-"}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Ship Date</p>
-                <p className="font-medium">{shipment.ship_date ? format(parseISO(shipment.ship_date), "MMM d, yyyy") : "-"}</p>
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <p className="text-xs text-muted-foreground">ETA</p>
-                  {shipment.status !== "delivered" && shipment.tracking_number && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-5 w-5 text-muted-foreground hover:text-foreground"
-                      onClick={() => tracking.refetch()}
-                      disabled={tracking.isFetching}
-                      title="Check carrier for updated ETA"
-                    >
-                      <RefreshCw className={cn("h-3 w-3", tracking.isFetching && "animate-spin")} />
-                    </Button>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className={cn(
-                    "font-medium",
-                    isLate && "text-red-400",
-                    isEarly && "text-green-400",
-                  )}>
-                    {shipment.eta ? format(parseISO(shipment.eta), "MMM d, yyyy") : "-"}
-                  </p>
-                  {isLate && <TrendingUp className="h-3.5 w-3.5 text-red-400" />}
-                  {isEarly && <TrendingDown className="h-3.5 w-3.5 text-green-400" />}
-                </div>
-                {drift !== 0 && shipment.eta_original && (
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Originally <span className="line-through">{format(parseISO(shipment.eta_original), "MMM d")}</span>
-                    <span className={cn("ml-1.5 font-medium", isLate ? "text-red-400" : "text-green-400")}>
-                      {isLate ? `+${drift}d` : `${drift}d`}
-                    </span>
-                  </p>
-                )}
-                {lastChecked ? (
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    Checked {formatDistanceToNow(parseISO(lastChecked), { addSuffix: true })}
-                  </p>
-                ) : tracking.isFetching ? (
-                  <p className="text-[10px] text-muted-foreground mt-0.5">Checking carrier…</p>
-                ) : (
-                  <p className="text-[10px] text-muted-foreground mt-0.5">Not yet checked</p>
-                )}
-              </div>
-              {shipment.actual_arrival_date && (
-                <div className="col-span-2">
-                  <p className="text-xs text-muted-foreground">Actual Arrival</p>
-                  <p className="font-medium text-green-400">{format(parseISO(shipment.actual_arrival_date), "MMM d, yyyy")}</p>
-                </div>
-              )}
-            </div>
-
-            {/* China Customs Inspection — pushes ETA +7 days and flags the shipment. */}
-            {shipment.status !== "delivered" && (
-              <div className="mt-4 border-t border-border/50 pt-3">
-                <Button
-                  variant="outline"
-                  size="sm"
+              </span>
+            )}
+            {shipment.ship_date && (
+              <>
+                <span>·</span>
+                <span>shipped {format(parseISO(shipment.ship_date), "MMM d, yyyy")}</span>
+              </>
+            )}
+            {shipment.forwarder_code && (
+              <>
+                <span>·</span>
+                <span title="Forwarder">fwd {shipment.forwarder_code}</span>
+              </>
+            )}
+          </div>
+          {(carrierError || trackingError) && (
+            <p className="text-[11px] text-red-400 mt-0.5">{carrierError ?? trackingError}</p>
+          )}
+        </div>
+        {/* Right side: refresh tracking + overflow actions */}
+        <div className="flex items-center gap-1 shrink-0">
+          {showRefresh && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground hover:text-foreground"
+              onClick={() => tracking.refetch()}
+              disabled={tracking.isFetching}
+              title="Check carrier for updated ETA"
+            >
+              <RefreshCw className={cn("h-4 w-4", tracking.isFetching && "animate-spin")} />
+            </Button>
+          )}
+          {showChinaCustoms && canEdit && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" title="More actions">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
                   onClick={markChinaCustomsInspection}
                   disabled={updateShipment.isPending}
-                  className="border-amber-500/40 text-amber-400 hover:text-amber-300"
+                  className="text-amber-400 focus:text-amber-300"
                 >
                   <ShieldAlert className="mr-2 h-3.5 w-3.5" />
                   China Customs Inspection (+7 days)
-                </Button>
-                {shipment.china_customs_delay && (
-                  <span className="ml-3 text-[11px] text-amber-400/80">Flagged: China Customs Delay</span>
-                )}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+      </div>
+
+      {/* ---- 2. Metric cards ------------------------------------------------ */}
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+        {cartonMode && (
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">Cartons</p>
+                <Boxes className="h-4 w-4 text-blue-400" />
               </div>
-            )}
+              <p className="text-2xl font-bold tabular-nums mt-1">
+                {receivedCartons.toLocaleString()}
+                <span className="text-base font-semibold text-muted-foreground"> / {totalCartons.toLocaleString()}</span>
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">received / total</p>
+            </CardContent>
+          </Card>
+        )}
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">Units</p>
+              <Package className="h-4 w-4 text-primary" />
+            </div>
+            <p className="text-2xl font-bold tabular-nums mt-1">
+              {receivedUnits.toLocaleString()}
+              <span className="text-base font-semibold text-muted-foreground"> / {totalUnits.toLocaleString()}</span>
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">received / total (catalog)</p>
           </CardContent>
         </Card>
-
-        {/* Cost breakdown */}
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">ETA</p>
+              <CalendarClock className="h-4 w-4 text-cyan-400" />
+            </div>
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              <p className="text-2xl font-bold tabular-nums">
+                {shipment.eta ? format(parseISO(shipment.eta), "MMM d") : "—"}
+              </p>
+              {drift !== 0 && shipment.eta_original && (
+                <span
+                  className={cn(
+                    "rounded px-1.5 py-0.5 text-[11px] font-medium tabular-nums",
+                    isLate && "bg-amber-500/10 text-amber-400",
+                    isEarly && "bg-green-500/10 text-green-400",
+                  )}
+                  title={`Originally ${format(parseISO(shipment.eta_original), "MMM d, yyyy")}`}
+                >
+                  {isLate ? `+${drift}d` : `−${Math.abs(drift)}d`}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {shipment.actual_arrival_date
+                ? `arrived ${format(parseISO(shipment.actual_arrival_date), "MMM d")}`
+                : lastChecked
+                  ? `checked ${formatDistanceToNow(parseISO(lastChecked), { addSuffix: true })}`
+                  : tracking.isFetching
+                    ? "checking carrier…"
+                    : "not yet checked"}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">Total cost</p>
               <DollarSign className="h-4 w-4 text-yellow-400" />
-              Cost Breakdown
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-2 text-sm">
+            </div>
+            <p className="text-2xl font-bold tabular-nums mt-1">{fmtUsd(totalLandedCost)}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">freight + duties + insurance</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ---- 3. Stepper + scan history -------------------------------------- */}
+      <ShipmentStepper shipment={shipment} />
+
+      {/* ---- 4 + 5. Dock banner + manifest ---------------------------------- */}
+      <ShipmentManifest
+        shipment={shipment}
+        lineItems={lineItemsRaw}
+        groups={groups}
+        receivingActive={receivingActive}
+        foItemIdToOrder={foItemIdToOrder}
+      />
+
+      {/* ---- 6. Cost strip --------------------------------------------------- */}
+      <Card>
+        <CardContent className="py-3 px-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setCostOpen((o) => !o)}
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              aria-expanded={costOpen}
+            >
+              {costOpen ? (
+                <ChevronDown className="h-4 w-4 shrink-0" />
+              ) : (
+                <ChevronRight className="h-4 w-4 shrink-0" />
+              )}
+              <span className="tabular-nums text-left">
+                Freight <span className="font-medium text-foreground">{fmtUsd(freightCost)}</span>
+                {" · "}
+                Duties <span className="font-medium text-foreground">{fmtUsd(dutiesCost)}</span>
+                {" · "}
+                Insurance <span className="font-medium text-foreground">{fmtUsd(insuranceCost)}</span>
+                {" · "}
+                <span className="font-bold text-primary">Total {fmtUsd(totalLandedCost)}</span>
+              </span>
+            </button>
+            {receivingActive && partiallyReceived && canEdit && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-red-400 hover:text-red-300 hover:bg-red-500/10 h-7 text-xs"
+                onClick={() => setCloseShortOpen(true)}
+              >
+                Close short…
+              </Button>
+            )}
+          </div>
+          {costOpen && (
+            <div className="mt-3 border-t border-border/50 pt-3 space-y-2 text-sm max-w-md">
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">Freight</span>
                 {editingCost ? (
@@ -546,19 +662,27 @@ export default function FreightDetail() {
                     className="group inline-flex items-center gap-1 tabular-nums hover:text-foreground"
                     title="Click to edit freight cost"
                   >
-                    <span>${(shipment.freight_cost ?? 0).toLocaleString()}</span>
+                    <span>${freightCost.toLocaleString()}</span>
                     <Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                   </button>
                 ) : (
-                  <span className="tabular-nums">${(shipment.freight_cost ?? 0).toLocaleString()}</span>
+                  <span className="tabular-nums">${freightCost.toLocaleString()}</span>
                 )}
               </div>
               {costError && (
                 <p className="text-[11px] text-red-400 text-right -mt-1" title={costError}>{costError}</p>
               )}
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Duties</span>
+                <span className="tabular-nums">${dutiesCost.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Insurance</span>
+                <span className="tabular-nums">${insuranceCost.toLocaleString()}</span>
+              </div>
               <div className="flex justify-between font-bold">
-                <span>Total Cost</span>
-                <span className="tabular-nums text-primary">${(shipment.freight_cost ?? 0).toLocaleString()}</span>
+                <span>Total</span>
+                <span className="tabular-nums text-primary">${totalLandedCost.toLocaleString()}</span>
               </div>
               <Separator />
               <div className="flex justify-between text-xs text-muted-foreground">
@@ -570,82 +694,7 @@ export default function FreightDetail() {
                 <span className="tabular-nums">${totalRetailValue.toLocaleString()}</span>
               </div>
             </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Line items */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Package className="h-4 w-4" />
-            Line Items ({totalQty} units total)
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
-                <th className="px-4 py-3">SKU</th>
-                <th className="px-3 py-3 text-right">Qty</th>
-                <th className="px-3 py-3 text-right">Unit Cost</th>
-                <th className="px-3 py-3 text-right">Subtotal</th>
-                <th className="px-3 py-3 text-right">Retail/Unit</th>
-                <th className="px-4 py-3 text-right">Retail Value</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lineItemsRaw.map(li => {
-                const sourceFo = li.source_factory_order_item_id
-                  ? foItemIdToOrder.get(li.source_factory_order_item_id)
-                  : null;
-                return (
-                <tr key={li.id} className="border-b border-border/50">
-                  <td className="px-4 py-3">
-                    {li.sku_id ? (
-                      <>
-                        <p className="font-medium">{li.product?.sku ?? li.sku_id}</p>
-                        <p className="text-xs text-muted-foreground">{li.product?.product_name ?? ""}</p>
-                      </>
-                    ) : (
-                      <>
-                        <p className="font-medium inline-flex items-center gap-1.5">
-                          {li.custom_description ?? "Non-catalog item"}
-                          <span className="rounded border border-amber-500/50 px-1 py-px text-[9px] uppercase tracking-wide text-amber-400">
-                            sample
-                          </span>
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Not in catalog — won't be added to inventory on receipt
-                        </p>
-                      </>
-                    )}
-                    {/* When this line is linked to a specific factory
-                        order item, show "from FO-X" so the operator
-                        knows which order's stock this represents. Two
-                        rows with the same SKU but different source FOs
-                        will read clearly as the intended split. */}
-                    {sourceFo && (
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/inventory/factory-orders/${sourceFo.id}`)}
-                        className="text-[10px] text-cyan-400 hover:underline mt-0.5"
-                        title="Open the source factory order"
-                      >
-                        from {sourceFo.number ?? sourceFo.id.slice(0, 8)}
-                      </button>
-                    )}
-                  </td>
-                  <td className="px-3 py-3 text-right tabular-nums">{li.quantity}</td>
-                  <td className="px-3 py-3 text-right tabular-nums">${(li.unit_cost ?? 0).toFixed(2)}</td>
-                  <td className="px-3 py-3 text-right tabular-nums font-medium">${((li.unit_cost ?? 0) * li.quantity).toLocaleString()}</td>
-                  <td className="px-3 py-3 text-right tabular-nums">${(li.retail_value ?? 0).toFixed(2)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums font-medium text-primary">${((li.retail_value ?? 0) * li.quantity).toLocaleString()}</td>
-                </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          )}
         </CardContent>
       </Card>
 
@@ -663,6 +712,13 @@ export default function FreightDetail() {
           </CardContent>
         </Card>
       )}
+
+      <CloseShortDialog
+        open={closeShortOpen}
+        onOpenChange={setCloseShortOpen}
+        shipment={shipment}
+        lineItems={lineItemsRaw}
+      />
     </div>
   );
 }
