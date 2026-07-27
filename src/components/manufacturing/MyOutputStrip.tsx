@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { TrendingUp, ChevronRight } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
-import { useTaskLogs } from "@/lib/hooks";
+import { useMyRecentTaskLogs } from "@/lib/hooks/use-task-logs";
 
 const ymdLocal = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -16,7 +16,9 @@ const ymdLocal = (d: Date) =>
  */
 export function MyOutputStrip() {
   const { profile } = useAuth();
-  const { data: logs = [] } = useTaskLogs();
+  // Lean self-only recent rows — NOT the full task-log history; this strip
+  // renders on crew phones (see hook doc).
+  const { data: logs = [] } = useMyRecentTaskLogs(profile?.id);
 
   const stats = useMemo(() => {
     if (!profile?.id) return null;

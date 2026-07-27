@@ -112,8 +112,36 @@ export function useLogTask() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["task-logs"] });
+      qc.invalidateQueries({ queryKey: ["task-logs-mine"] });
       qc.invalidateQueries({ queryKey: ["inventory"] });
       qc.invalidateQueries({ queryKey: ["inventory-transactions"] });
     },
+  });
+}
+
+/**
+ * Lean personal feed for the Workspace "My output" strip: only the
+ * signed-in employee's recent rows, four columns, no joins. The strip
+ * previously rode useTaskLogs() — the FULL history (tens of thousands of
+ * rows with product+profile joins) — on every crew phone, which is the
+ * prime suspect in mobile load failures (Sentry, 2026-07-27). Eight days
+ * comfortably covers the strip's today + Monday-start week math.
+ */
+export function useMyRecentTaskLogs(employeeId: string | undefined, days = 8) {
+  return useQuery({
+    queryKey: ["task-logs-mine", employeeId, days],
+    enabled: !!employeeId,
+    queryFn: async () => {
+      const since = new Date(Date.now() - days * 86_400_000).toISOString();
+      const { data, error } = await supabase
+        .from("task_logs")
+        .select("employee_id, quantity_processed, time_completed, created_at")
+        .eq("employee_id", employeeId!)
+        .gte("created_at", since)
+        .limit(2000);
+      if (error) throw error;
+      return data ?? [];
+    },
+    staleTime: 60 * 1000,
   });
 }

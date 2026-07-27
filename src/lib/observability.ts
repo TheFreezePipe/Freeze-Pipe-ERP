@@ -16,6 +16,7 @@
  */
 
 import { APP_ENV } from "@/lib/env";
+import { describeError } from "@/lib/supabase-error";
 
 const SENTRY_DSN = import.meta.env.VITE_SENTRY_DSN as string | undefined;
 
@@ -76,7 +77,16 @@ export async function captureException(err: unknown, context?: Record<string, un
   if (APP_ENV !== "prod" || !SENTRY_DSN) return;
   try {
     const Sentry = await import("@sentry/react");
-    Sentry.captureException(err, context ? { extra: context } : undefined);
+    // Supabase/PostgREST errors are plain objects, not Errors. Captured
+    // raw, Sentry titles them "Object captured as exception with keys:
+    // code, details, hint, message" and buries the useful text (seen
+    // 2026-07-27, /manufacturing/workspace). Normalize: synthesize an
+    // Error carrying the human-readable message; keep the original
+    // object in extras for the code/details/hint specifics.
+    const normalized = err instanceof Error ? err : new Error(describeError(err));
+    const extra =
+      err instanceof Error ? context : { ...(context ?? {}), originalError: err };
+    Sentry.captureException(normalized, extra ? { extra } : undefined);
   } catch {
     // Swallow — observability must never throw.
   }
