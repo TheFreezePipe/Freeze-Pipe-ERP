@@ -36,6 +36,8 @@ import { format, parseISO, formatDistanceToNow, addDays } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useShipmentTracking } from "@/lib/tracking/use-shipment-tracking";
 import { etaDriftDays } from "@/lib/tracking/reconcile";
+import { detectCarrier } from "@/lib/freight/detect-carrier";
+import { toast } from "@/hooks/use-toast";
 import { getCarrierTrackingUrl } from "@/lib/tracking/carrier-urls";
 import { StatusSelectWithOverride } from "@/components/freight/StatusSelectWithOverride";
 import { ShipmentStepper } from "@/components/freight/ShipmentStepper";
@@ -185,11 +187,23 @@ export default function FreightDetail() {
       setEditingTracking(false);
       return;
     }
+    // Carrier auto-detection: a recognized format fills an EMPTY carrier in
+    // the same save (so tracking polls start working immediately); a
+    // recognized format that CONTRADICTS the stored carrier only warns —
+    // the operator may know something the pattern doesn't.
+    const detected = nextValue ? detectCarrier(nextValue) : null;
+    const updates: { tracking_number: string | null; carrier_name?: string } =
+      { tracking_number: nextValue };
+    if (detected && !shipment.carrier_name) {
+      updates.carrier_name = detected;
+    }
     try {
-      await updateShipment.mutateAsync({
-        id: shipment.id,
-        updates: { tracking_number: nextValue },
-      });
+      await updateShipment.mutateAsync({ id: shipment.id, updates });
+      if (detected && !shipment.carrier_name) {
+        toast({ title: `Carrier set to ${detected}`, description: "Auto-detected from the tracking number format. Edit the carrier if that's wrong." });
+      } else if (detected && shipment.carrier_name && shipment.carrier_name !== detected) {
+        toast({ title: "Carrier may be wrong", description: `This tracking number looks like ${detected}, but the shipment's carrier is ${shipment.carrier_name}. Tracking updates need the right carrier.` });
+      }
       setEditingTracking(false);
       setTrackingDraft("");
     } catch (err) {

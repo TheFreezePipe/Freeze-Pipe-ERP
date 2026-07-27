@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { addDays, format, parseISO } from "date-fns";
+import { detectCarrier } from "@/lib/freight/detect-carrier";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -158,8 +159,20 @@ export default function FreightNew() {
     setShipmentNumber(freightType === "sea" ? nextSeaNumber : nextAirNumber);
   }, [freightType, nextSeaNumber, nextAirNumber, numberTouched]);
   const [carrierName, setCarrierName] = useState("");
+  // Once the operator picks a carrier themselves we stop auto-detecting.
+  const [carrierTouched, setCarrierTouched] = useState(false);
   const [forwarderCode, setForwarderCode] = useState("");
   const [trackingNumber, setTrackingNumber] = useState("");
+
+  // Auto-detect the final-mile carrier from the tracking number's format
+  // (1Z… = UPS, 12/15/20/22 digits = FedEx, 10 digits = DHL) so the
+  // operator doesn't have to pick it manually. Mirrors the ship-date and
+  // shipment-number auto-suggest patterns: suggestion only, stops on touch.
+  useEffect(() => {
+    if (carrierTouched) return;
+    const detected = detectCarrier(trackingNumber);
+    if (detected) setCarrierName(detected);
+  }, [trackingNumber, carrierTouched]);
   const [shipDate, setShipDate] = useState("");
   const [eta, setEta] = useState("");
   // Once the operator edits the ETA themselves we stop auto-suggesting.
@@ -740,7 +753,7 @@ export default function FreightNew() {
                     these are the US final-mile carriers — the original ocean
                     carrier (Maersk/COSCO/etc.) is captured in freight_type='sea'
                     and isn't tracked at the carrier_name level here. */}
-                <Select value={carrierName} onValueChange={setCarrierName}>
+                <Select value={carrierName} onValueChange={(v) => { setCarrierTouched(true); setCarrierName(v); }}>
                   <SelectTrigger id="carrier">
                     <SelectValue placeholder="Select carrier" />
                   </SelectTrigger>
@@ -750,6 +763,11 @@ export default function FreightNew() {
                     <SelectItem value="DHL">DHL</SelectItem>
                   </SelectContent>
                 </Select>
+                {!carrierTouched && !!carrierName && detectCarrier(trackingNumber) === carrierName && (
+                  <p className="text-[10px] text-muted-foreground">
+                    Auto-detected from the tracking number. Change if wrong.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="forwarder">Forwarder ID</Label>
