@@ -16,11 +16,16 @@ import {
   buildOnOrderMap,
   inventoryTotalsReal,
 } from "@/lib/inventory-aggregates";
+import {
+  buildPlannedAllocationMap,
+  allocatedReserve,
+  type PlannedAllocation,
+} from "@/lib/allocation";
 import { SKUDetailModal } from "@/components/inventory/SKUDetailModal";
 import { useMemo, useState, useEffect } from "react";
 import { useUrlFilter, useUrlBoolFilter } from "@/lib/use-url-filter";
 import type { ProductSKU, InventoryLevel, FreightShipment } from "@/types/database";
-import { useInventory, useBulkCycleCount, useFreightShipments, useFreightLineItems, useFactoryOrders, useForecastDemandMap, useDemandOverrides, useSuppliers, useAllPrimarySkuSupplierCosts, type CycleCountField, type CycleCountReason } from "@/lib/hooks";
+import { useInventory, useBulkCycleCount, useFreightShipments, useFreightLineItems, useFactoryOrders, useProductBoms, useForecastDemandMap, useDemandOverrides, useSuppliers, useAllPrimarySkuSupplierCosts, type CycleCountField, type CycleCountReason } from "@/lib/hooks";
 import { useAuth } from "@/lib/auth-context";
 import {
   AlertDialog,
@@ -200,21 +205,29 @@ const FACTORY_STATUS_PILL: Record<string, { label: string; dot: string; text: st
 
 /** Hover popover showing which factory orders make up a SKU's on-order total.
  *  Mirrors TransitBreakdownPopover; rows use the same math as buildOnOrderMap
- *  so the per-order quantities sum exactly to totalUnits. */
+ *  (including the planned-allocation reserve) so the per-order FREE
+ *  quantities sum exactly to totalUnits. Each row splits into a green
+ *  "free" chip and — for linked child orders — an amber "allocated →
+ *  parent" chip for units the parent's factory will consume. */
 function OnOrderBreakdownPopover({
   skuId,
+  sku,
   totalUnits,
   factoryOrders,
   freightLineItems,
+  plannedAllocations,
 }: {
   skuId: string;
+  /** SKU code, for the "True loose {SKU} incoming" footer. */
+  sku: string;
   totalUnits: number;
   factoryOrders: FactoryOrderWithItems[];
   freightLineItems: FreightLineItemWithProduct[];
+  plannedAllocations: Map<string, PlannedAllocation>;
 }) {
   const [open, setOpen] = useState(false);
 
-  const orders = useMemo(() => {
+  const { orders, orderedTotal } = useMemo(() => {
     // Total freight already shipped per factory_order_item — netted out of
     // each order's remaining (a line can be split across shipments).
     //
@@ -232,31 +245,60 @@ function OnOrderBreakdownPopover({
     }
     // Same active-order statuses as buildOnOrderMap (ON_ORDER_STATUSES).
     const active = new Set(["ordered", "in_production", "finished"]);
-    const rows: { order: FactoryOrderWithItems; quantity: number }[] = [];
+    const rows: {
+      order: FactoryOrderWithItems;
+      ordered: number;
+      free: number;
+      allocated: number;
+      parentOrderNumber: string | null;
+    }[] = [];
+    let orderedTotal = 0;
     for (const order of factoryOrders) {
       if (!active.has(order.status)) continue;
-      let remainingForSku = 0;
+      let ordered = 0;
+      let free = 0;
+      let allocated = 0;
+      let parentOrderNumber: string | null = null;
       for (const item of order.items ?? []) {
         if (item.sku_id !== skuId) continue;
         const shipped = shippedByFoi.get(item.id) ?? 0;
-        remainingForSku += Math.max(
+        // ALLOCATED reserve — identical to buildOnOrderMap: the larger of
+        // the day-one plan and the ship-time realized consumption.
+        const reserved = allocatedReserve(item, plannedAllocations);
+        ordered += item.quantity_ordered ?? 0;
+        allocated += reserved;
+        free += Math.max(
           0,
           (item.quantity_ordered ?? 0) -
             (item.quantity_breakage ?? 0) -
             shipped -
             (item.quantity_shipped_manual ?? 0) -
-            (item.quantity_consumed_by_parent ?? 0),
+            reserved,
         );
+        if (parentOrderNumber === null) {
+          parentOrderNumber = plannedAllocations.get(item.id)?.parentOrderNumber ?? null;
+        }
       }
-      if (remainingForSku > 0) rows.push({ order, quantity: remainingForSku });
+      // Consumed-only fallback (no BOM plan entry, e.g. post-ship true-up):
+      // resolve the parent's order number off the link itself.
+      if (parentOrderNumber === null && allocated > 0 && order.parent_factory_order_id) {
+        parentOrderNumber =
+          factoryOrders.find((o) => o.id === order.parent_factory_order_id)?.order_number ??
+          null;
+      }
+      if (free > 0 || allocated > 0) {
+        rows.push({ order, ordered, free, allocated, parentOrderNumber });
+        orderedTotal += ordered;
+      }
     }
     // Soonest expected completion first; null completion sinks to the bottom.
-    return rows.sort((a, b) =>
+    rows.sort((a, b) =>
       (a.order.expected_completion ?? "9999-99-99").localeCompare(
         b.order.expected_completion ?? "9999-99-99",
       ),
     );
-  }, [skuId, factoryOrders, freightLineItems]);
+    return { orders: rows, orderedTotal };
+  }, [skuId, factoryOrders, freightLineItems, plannedAllocations]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -283,42 +325,72 @@ function OnOrderBreakdownPopover({
         {orders.length === 0 ? (
           <div className="px-3 py-4 text-xs text-muted-foreground text-center">No open factory orders</div>
         ) : (
-          <div className="divide-y divide-border/50">
-            {orders.map(({ order, quantity }) => {
-              const daysLeft = order.expected_completion
-                ? differenceInDays(parseISO(order.expected_completion), new Date())
-                : null;
-              const pill =
-                FACTORY_STATUS_PILL[order.status] ?? {
-                  label: order.status,
-                  dot: "bg-zinc-500",
-                  text: "text-zinc-400",
-                };
-              return (
-                <div key={order.id} className="flex items-center gap-3 px-3 py-2">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-md bg-orange-400/10 text-orange-400">
-                    <Factory className="h-4 w-4" />
+          <>
+            <div className="divide-y divide-border/50">
+              {orders.map(({ order, ordered, free, allocated, parentOrderNumber }) => {
+                const daysLeft = order.expected_completion
+                  ? differenceInDays(parseISO(order.expected_completion), new Date())
+                  : null;
+                const pill =
+                  FACTORY_STATUS_PILL[order.status] ?? {
+                    label: order.status,
+                    dot: "bg-zinc-500",
+                    text: "text-zinc-400",
+                  };
+                return (
+                  <div key={order.id} className="flex items-center gap-3 px-3 py-2">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-md bg-orange-400/10 text-orange-400">
+                      <Factory className="h-4 w-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium truncate">
+                        {order.order_number ?? order.supplier?.code ?? "Awaiting #"}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {order.expected_completion ? `ETA ${format(parseISO(order.expected_completion), "MMM d")}` : "ETA —"}
+                        {daysLeft !== null && daysLeft >= 0 && ` · ${daysLeft}d`}
+                        {daysLeft !== null && daysLeft < 0 && ` · ${Math.abs(daysLeft)}d overdue`}
+                      </p>
+                      {/* Status pill — dot + label, matching the freight popover. */}
+                      <p className={`mt-0.5 inline-flex items-center gap-1 text-[10px] ${pill.text}`}>
+                        <span className={`inline-block h-1.5 w-1.5 rounded-full ${pill.dot}`} />
+                        {pill.label}
+                      </p>
+                      {/* Free vs allocated split. Ride-alongs (allocated 0)
+                          show the free chip only. */}
+                      <div className="mt-1 flex flex-wrap items-center gap-1">
+                        <span
+                          className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] tabular-nums ${
+                            free > 0
+                              ? "border-green-500/40 bg-green-500/10 text-green-300"
+                              : "border-border text-muted-foreground"
+                          }`}
+                        >
+                          {free.toLocaleString()} free
+                        </span>
+                        {allocated > 0 && (
+                          <span className="inline-flex items-center rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] tabular-nums text-amber-300">
+                            {allocated.toLocaleString()} allocated → {parentOrderNumber ?? "parent order"}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-sm font-semibold tabular-nums shrink-0">
+                      {ordered.toLocaleString()}
+                      <span className="ml-1 text-[10px] font-normal text-muted-foreground">ordered</span>
+                    </p>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium truncate">
-                      {order.order_number ?? order.supplier?.code ?? "Awaiting #"}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground">
-                      {order.expected_completion ? `ETA ${format(parseISO(order.expected_completion), "MMM d")}` : "ETA —"}
-                      {daysLeft !== null && daysLeft >= 0 && ` · ${daysLeft}d`}
-                      {daysLeft !== null && daysLeft < 0 && ` · ${Math.abs(daysLeft)}d overdue`}
-                    </p>
-                    {/* Status pill — dot + label, matching the freight popover. */}
-                    <p className={`mt-0.5 inline-flex items-center gap-1 text-[10px] ${pill.text}`}>
-                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${pill.dot}`} />
-                      {pill.label}
-                    </p>
-                  </div>
-                  <p className="text-sm font-semibold tabular-nums">{quantity.toLocaleString()}</p>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+            <div className="border-t border-border px-3 py-2">
+              <p className="text-[11px] text-muted-foreground tabular-nums">
+                True loose {sku} incoming:{" "}
+                <span className="font-semibold text-foreground">{totalUnits.toLocaleString()}</span>{" "}
+                of {orderedTotal.toLocaleString()} ordered
+              </p>
+            </div>
+          </>
         )}
       </PopoverContent>
     </Popover>
@@ -392,6 +464,7 @@ export default function InventoryDashboard() {
   const { data: freightShipments = [] } = useFreightShipments();
   const { data: freightLineItems = [] } = useFreightLineItems();
   const { data: factoryOrders = [] } = useFactoryOrders();
+  const { data: boms = [] } = useProductBoms();
   const forecastMap = useForecastDemandMap();
   // Which SKUs carry a MANUAL demand pin — the map above already resolves
   // all pin modes (manual/trailing/forecast); this set only distinguishes
@@ -415,9 +488,16 @@ export default function InventoryDashboard() {
     () => buildInTransitMap(freightShipments, freightLineItems),
     [freightShipments, freightLineItems],
   );
+  // Planned allocations for linked child orders (ALLOCATED, owner decision
+  // 2026-07-27) — on-order counts free units only; the same map feeds the
+  // per-order breakdown popover so its rows sum to the column total.
+  const plannedAllocations = useMemo(
+    () => buildPlannedAllocationMap(factoryOrders, boms),
+    [factoryOrders, boms],
+  );
   const onOrderMap = useMemo(
-    () => buildOnOrderMap(factoryOrders, freightLineItems),
-    [factoryOrders, freightLineItems],
+    () => buildOnOrderMap(factoryOrders, freightLineItems, plannedAllocations),
+    [factoryOrders, freightLineItems, plannedAllocations],
   );
   const bulkCycleCount = useBulkCycleCount();
   const { profile } = useAuth();
@@ -1125,9 +1205,11 @@ export default function InventoryDashboard() {
                             {totals.onOrderTotal > 0 ? (
                               <OnOrderBreakdownPopover
                                 skuId={product.id}
+                                sku={product.sku}
                                 totalUnits={totals.onOrderTotal}
                                 factoryOrders={factoryOrders}
                                 freightLineItems={freightLineItems}
+                                plannedAllocations={plannedAllocations}
                               />
                             ) : (
                               <span className="block px-3 py-2 text-muted-foreground/50">-</span>

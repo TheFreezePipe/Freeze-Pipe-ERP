@@ -23,6 +23,12 @@ import { Input } from "@/components/ui/input";
 import { format, differenceInDays, parseISO } from "date-fns";
 import { StatCard } from "@/components/shared/StatCard";
 import { NewFactoryOrderDialog } from "@/components/manufacturing/NewFactoryOrderDialog";
+import { LinkOrderDialog } from "@/components/inventory/LinkOrderDialog";
+import {
+  buildPlannedAllocationMap,
+  allocatedReserve,
+  type PlannedAllocation,
+} from "@/lib/allocation";
 import { type FactoryOrderStatus } from "@/lib/constants";
 import {
   useFactoryOrders,
@@ -204,6 +210,14 @@ export default function FactoryOrders() {
     return out;
   }, [freightLines]);
 
+  // Planned allocations for linked child orders (ALLOCATED, owner decision
+  // 2026-07-27). Drives the per-component allocation chips on the linked-
+  // children panel — same map every on-order surface nets against.
+  const plannedAllocations = useMemo(
+    () => buildPlannedAllocationMap(orders, boms),
+    [orders, boms],
+  );
+
   const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   function startEdit(orderId: string, currentOrderNumber: string | null) {
@@ -307,6 +321,7 @@ export default function FactoryOrders() {
       allOrders={orders}
       allProducts={allProducts}
       boms={boms}
+      plannedAllocations={plannedAllocations}
       freightMap={freightMap}
       todayIso={todayIso}
       isEditing={editingId === o.id}
@@ -409,6 +424,7 @@ function OrderCard({
   allOrders,
   allProducts,
   boms,
+  plannedAllocations,
   freightMap,
   todayIso,
   isEditing,
@@ -422,6 +438,7 @@ function OrderCard({
   allOrders: FactoryOrderWithItems[];
   allProducts: Array<{ id: string; sku: string }>;
   boms: ProductBomRow[];
+  plannedAllocations: Map<string, PlannedAllocation>;
   freightMap: FreightMap;
   todayIso: string;
   isEditing: boolean;
@@ -660,6 +677,8 @@ function OrderCard({
             childOrders={childOrders}
             missingComponents={missingComponents}
             skuByIdLookup={skuByIdLookup}
+            boms={boms}
+            plannedAllocations={plannedAllocations}
           />
         )}
 
@@ -890,6 +909,8 @@ function ComponentOrdersPanel({
   childOrders,
   missingComponents,
   skuByIdLookup,
+  boms,
+  plannedAllocations,
 }: {
   order: FactoryOrderWithItems;
   allOrders: FactoryOrderWithItems[];
@@ -901,10 +922,19 @@ function ComponentOrdersPanel({
     qtyShort: number;
   }>;
   skuByIdLookup: Map<string, string>;
+  boms: ProductBomRow[];
+  plannedAllocations: Map<string, PlannedAllocation>;
 }) {
   const linkMut = useLinkFactoryOrderToParent();
   const unlinkMut = useUnlinkFactoryOrderFromParent();
   const [linkError, setLinkError] = useState<string | null>(null);
+  // Link-preview intercept: picking a parent in the Select no longer links
+  // immediately — it stages the child here and opens LinkOrderDialog, which
+  // previews the allocation split. Confirm runs the same link mutation the
+  // Select used to call directly; Cancel aborts. `selectResetKey` remounts
+  // the Selects afterwards so a canceled pick doesn't stay displayed.
+  const [pendingChild, setPendingChild] = useState<FactoryOrderWithItems | null>(null);
+  const [selectResetKey, setSelectResetKey] = useState(0);
 
   // Candidate orders for linking, per missing component SKU. Filter:
   //   - contains a line item for the component SKU
@@ -926,6 +956,18 @@ function ComponentOrdersPanel({
     } catch (err) {
       setLinkError(err instanceof Error ? err.message : "Link failed");
     }
+  }
+
+  async function handleConfirmLink(childOrderId: string) {
+    await handleLink(childOrderId);
+    // Close either way — a failure surfaces via the panel's linkError line.
+    setPendingChild(null);
+    setSelectResetKey((k) => k + 1);
+  }
+
+  function handleCancelLink() {
+    setPendingChild(null);
+    setSelectResetKey((k) => k + 1);
   }
 
   async function handleUnlink(childOrderId: string) {
@@ -973,10 +1015,32 @@ function ComponentOrdersPanel({
                 </>
               )}
               <span className="text-muted-foreground">·</span>
-              <span className="tabular-nums">
-                {c.items
-                  .map((i) => `${i.quantity_ordered} ${i.product?.sku ?? "?"}`)
-                  .join(", ")}
+              {/* Per-component allocation chips: amber = units the parent's
+                  build will consume (max of day-one plan and realized
+                  consumption); muted/green = ride-alongs the link leaves
+                  untouched. */}
+              <span className="flex flex-wrap items-center gap-1">
+                {c.items.map((i) => {
+                  const allocated = allocatedReserve(i, plannedAllocations);
+                  const skuLabel =
+                    i.product?.sku ?? skuByIdLookup.get(i.sku_id) ?? i.sku_id.slice(0, 8);
+                  return allocated > 0 ? (
+                    <span
+                      key={i.id}
+                      className="inline-flex items-center rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] tabular-nums text-amber-300"
+                    >
+                      {skuLabel}: {allocated.toLocaleString()} of{" "}
+                      {i.quantity_ordered.toLocaleString()} allocated
+                    </span>
+                  ) : (
+                    <span
+                      key={i.id}
+                      className="inline-flex items-center rounded border border-emerald-500/30 bg-emerald-500/5 px-1.5 py-0.5 text-[10px] tabular-nums text-emerald-300/70"
+                    >
+                      {skuLabel}: {i.quantity_ordered.toLocaleString()} ride along
+                    </span>
+                  );
+                })}
               </span>
               <Button
                 variant="ghost"
@@ -1019,7 +1083,15 @@ function ComponentOrdersPanel({
                   No unlinked orders for this SKU — place one first
                 </span>
               ) : (
-                <Select onValueChange={(id) => handleLink(id)}>
+                <Select
+                  // Remounts after a canceled/confirmed preview so the pick
+                  // doesn't linger in the trigger as if it were linked.
+                  key={`linker-${m.componentSkuId}-${selectResetKey}`}
+                  onValueChange={(id) => {
+                    const child = allOrders.find((o) => o.id === id);
+                    if (child) setPendingChild(child);
+                  }}
+                >
                   <SelectTrigger className="h-7 text-xs">
                     <SelectValue placeholder="Link existing order…" />
                   </SelectTrigger>
@@ -1046,6 +1118,20 @@ function ComponentOrdersPanel({
       {linkError && (
         <p className="text-[11px] text-red-400 px-2">{linkError}</p>
       )}
+
+      {/* Link preview — confirm allocates, cancel aborts. */}
+      <LinkOrderDialog
+        open={pendingChild !== null}
+        onOpenChange={(o) => {
+          if (!o) handleCancelLink();
+        }}
+        child={pendingChild}
+        parent={order}
+        boms={boms}
+        skuByIdLookup={skuByIdLookup}
+        onConfirm={(childOrderId) => void handleConfirmLink(childOrderId)}
+        isPending={linkMut.isPending}
+      />
     </div>
   );
 }

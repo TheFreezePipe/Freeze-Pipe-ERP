@@ -23,6 +23,7 @@ import {
   buildInTransitMap,
   buildOnOrderMap,
 } from "@/lib/inventory-aggregates";
+import { buildPlannedAllocationMap } from "@/lib/allocation";
 import { getEffectiveDemand } from "@/lib/demand";
 import { buildOrderPreview } from "@/lib/order-preview";
 import {
@@ -33,6 +34,7 @@ import {
   useFreightShipments,
   useFreightLineItems,
   useFactoryOrders,
+  useProductBoms,
   useAllPrimarySkuSupplierCosts,
   useForecastDemandMap,
 } from "@/lib/hooks";
@@ -96,6 +98,7 @@ export function NewFactoryOrderDialog({
   const { data: shipments = [] } = useFreightShipments();
   const { data: freightLines = [] } = useFreightLineItems();
   const { data: factoryOrders = [] } = useFactoryOrders();
+  const { data: boms = [] } = useProductBoms();
   // Primary supplier unit_cost per SKU — what `rawCostFor` should
   // return when real cost data exists. Pre-imported via migration 045.
   const { data: primaryCostBySkuId } = useAllPrimarySkuSupplierCosts();
@@ -112,9 +115,15 @@ export function NewFactoryOrderDialog({
     () => buildInTransitMap(shipments, freightLines),
     [shipments, freightLines],
   );
+  // Planned allocations for linked child orders — on-order counts free
+  // units only (allocated component units belong to the parent's build).
+  const planned = useMemo(
+    () => buildPlannedAllocationMap(factoryOrders, boms),
+    [factoryOrders, boms],
+  );
   const onOrderMap = useMemo(
-    () => buildOnOrderMap(factoryOrders, freightLines),
-    [factoryOrders, freightLines],
+    () => buildOnOrderMap(factoryOrders, freightLines, planned),
+    [factoryOrders, freightLines, planned],
   );
 
   const [supplierId, setSupplierId] = useState<string>("");

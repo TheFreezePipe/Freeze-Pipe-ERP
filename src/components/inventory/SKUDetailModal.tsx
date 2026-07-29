@@ -17,6 +17,7 @@ import {
   buildOnOrderMap,
   inventoryTotalsReal,
 } from "@/lib/inventory-aggregates";
+import { buildPlannedAllocationMap } from "@/lib/allocation";
 import type { ProductSKU, InventoryLevel } from "@/types/database";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -28,6 +29,7 @@ import {
   useFreightShipments,
   useFreightLineItems,
   useFactoryOrders,
+  useProductBoms,
   useSkuForecastMap,
   useForecastDemandMap,
 } from "@/lib/hooks";
@@ -68,13 +70,20 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
   const { data: shipments = [] } = useFreightShipments();
   const { data: freightLines = [] } = useFreightLineItems();
   const { data: factoryOrders = [] } = useFactoryOrders();
+  const { data: boms = [] } = useProductBoms();
   const forecastRowMap = useSkuForecastMap();
   const forecastMap = useForecastDemandMap();
+  // Planned allocations for linked child orders — the On Order card counts
+  // free units only (allocated component units belong to the parent's build).
+  const planned = useMemo(
+    () => buildPlannedAllocationMap(factoryOrders, boms),
+    [factoryOrders, boms],
+  );
   const totals = useMemo(() => {
     const inTransitMap = buildInTransitMap(shipments, freightLines);
-    const onOrderMap = buildOnOrderMap(factoryOrders, freightLines);
+    const onOrderMap = buildOnOrderMap(factoryOrders, freightLines, planned);
     return inventoryTotalsReal(inventory, inTransitMap, onOrderMap);
-  }, [inventory, shipments, freightLines, factoryOrders]);
+  }, [inventory, shipments, freightLines, factoryOrders, planned]);
   const forecastData = forecastRowMap.get(product.id);
   // The shared map already resolves pins (manual/trailing/forecast) and the
   // auto chain — this is the value every other surface sees for this SKU.

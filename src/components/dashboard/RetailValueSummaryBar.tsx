@@ -4,6 +4,7 @@ import {
   useFreightShipments,
   useFreightLineItems,
   useFactoryOrders,
+  useProductBoms,
   useAllSkuEconomics,
   useAllPrimarySkuSupplierCosts,
 } from "@/lib/hooks";
@@ -33,6 +34,9 @@ export function RetailValueSummaryBar() {
   const { data: shipments = [] } = useFreightShipments();
   const { data: freightLines = [] } = useFreightLineItems();
   const { data: factoryOrders = [] } = useFactoryOrders();
+  // BoM rows let the breakdown reserve ALLOCATED component units on linked
+  // child orders — on-order $ counts free units only.
+  const { data: boms = [] } = useProductBoms();
   const { data: economicsById } = useAllSkuEconomics();
   const { data: primaryCostBySkuId } = useAllPrimarySkuSupplierCosts();
 
@@ -55,8 +59,9 @@ export function RetailValueSummaryBar() {
         factoryOrders,
         economicsById,
         primaryCostBySkuId,
+        boms,
       ),
-    [inventory, shipments, freightLines, factoryOrders, economicsById, primaryCostBySkuId],
+    [inventory, shipments, freightLines, factoryOrders, economicsById, primaryCostBySkuId, boms],
   );
 
   const warehousePct = total > 0 ? (warehouse / total) * 100 : 0;

@@ -35,6 +35,7 @@
 import type { FactoryOrderWithItems } from "./hooks/use-factory-orders";
 import type { FreightLineItemWithProduct } from "./hooks/use-freight";
 import type { FreightShipment, InventoryLevel } from "@/types/database";
+import { allocatedReserve, type PlannedAllocation } from "./allocation";
 
 /** Statuses counted as "still coming from the factory, not yet shipped." */
 const ON_ORDER_STATUSES = new Set<FactoryOrderWithItems["status"]>([
@@ -108,6 +109,11 @@ export function buildInTransitMap(
 export function buildOnOrderMap(
   factoryOrders: readonly FactoryOrderWithItems[],
   freightLines: readonly FreightLineItemWithProduct[],
+  // ALLOCATED (owner decision 2026-07-27): pass the planned-allocation map
+  // (buildPlannedAllocationMap) so linked components reserve
+  // GREATEST(planned, realized consumption) from LINK day, not ship day.
+  // Optional for callers that predate allocation — they get consumed-only.
+  plannedAllocations?: Map<string, PlannedAllocation>,
 ): Map<string, number> {
   // Aggregate freight qty by source_factory_order_item_id first — a single
   // line item can be split across multiple shipments, and we need the total
@@ -128,10 +134,14 @@ export function buildOnOrderMap(
       // Units recorded as shipped outside the system (e.g. pre-go-live)
       // have also left the factory — net them out like freight-shipped.
       const manualShipped = item.quantity_shipped_manual ?? 0;
-      // Component units absorbed into shipped parent (assembled) orders are
-      // no longer separately on order.
-      const consumedByParent = item.quantity_consumed_by_parent ?? 0;
-      const remaining = Math.max(0, (item.quantity_ordered ?? 0) - breakage - shipped - manualShipped - consumedByParent);
+      // Component units claimed by a linked parent order are not separately
+      // on order: reserve the larger of the day-one PLAN (BOM × parent
+      // ordered qty) and the ship-time REALIZED consumption. Before the
+      // parent ships, the plan holds; after, the true-up wins — and if the
+      // factory packed fewer than planned, the difference frees up here
+      // automatically.
+      const reserved = allocatedReserve(item, plannedAllocations);
+      const remaining = Math.max(0, (item.quantity_ordered ?? 0) - breakage - shipped - manualShipped - reserved);
       if (remaining === 0) continue;
       out.set(item.sku_id, (out.get(item.sku_id) ?? 0) + remaining);
     }

@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { buildInTransitMap, buildOnOrderMap } from "./inventory-aggregates";
+import { buildPlannedAllocationMap } from "./allocation";
 import type { FreightLineItemWithProduct } from "./hooks/use-freight";
-import type { FactoryOrderWithItems, FactoryOrderItemWithProduct } from "./hooks/use-factory-orders";
+import type {
+  FactoryOrderWithItems,
+  FactoryOrderItemWithProduct,
+  ProductBomRow,
+} from "./hooks/use-factory-orders";
 import type { FreightShipment, ProductSKU } from "@/types/database";
 
 // ---- Fixture factories — keep tests terse -----------------------------------
@@ -229,5 +234,58 @@ describe("buildOnOrderMap (partial-receiving invariant)", () => {
     ];
     const map = buildOnOrderMap([fo], lines);
     expect(map.get("sku-1")).toBe(300);
+  });
+});
+
+// ---- buildOnOrderMap + planned allocations ----------------------------------
+//
+// ALLOCATED (owner decision 2026-07-27): a child order linked to a parent
+// reserves max(planned, consumed) component units from LINK day — those go
+// into the parent's products at the factory and never arrive as loose stock.
+// Without the planned map, callers get the legacy consumed-only behavior.
+
+describe("buildOnOrderMap (allocated reserve for linked child orders)", () => {
+  const bom: ProductBomRow = {
+    id: "bom-1",
+    parent_sku_id: "sku-compound",
+    component_sku_id: "sku-child",
+    units_per_parent: 1,
+    component_type: "produced",
+    assembled_at_supplier_id: "sup-nancy",
+  };
+
+  /** Parent (100× compound SKU) + linked child (150× component, 20 already
+   *  consumed at ship-time). Planned = min(150, 1 × 100) = 100. */
+  function linkedPair() {
+    const parentItem = orderItem({ sku_id: "sku-compound", quantity_ordered: 100 });
+    const parent = order({ status: "in_production", items: [parentItem] });
+    const childItem = orderItem({
+      sku_id: "sku-child",
+      quantity_ordered: 150,
+      quantity_consumed_by_parent: 20,
+    });
+    const child = order({
+      status: "in_production",
+      items: [childItem],
+      parent_factory_order_id: parent.id,
+    });
+    return { parent, child, childItem };
+  }
+
+  it("with the planned map, a linked child's on-order counts FREE units only", () => {
+    const { parent, child, childItem } = linkedPair();
+    const planned = buildPlannedAllocationMap([parent, child], [bom]);
+    expect(planned.get(childItem.id)?.planned).toBe(100);
+
+    const map = buildOnOrderMap([parent, child], [], planned);
+    // Reserve = max(consumed 20, planned 100) = 100 → 150 − 100 = 50 free.
+    expect(map.get("sku-child")).toBe(50);
+  });
+
+  it("without the map, legacy consumed-only math applies", () => {
+    const { parent, child } = linkedPair();
+    const map = buildOnOrderMap([parent, child], []);
+    // Only the realized ship-time consumption is netted: 150 − 20 = 130.
+    expect(map.get("sku-child")).toBe(130);
   });
 });

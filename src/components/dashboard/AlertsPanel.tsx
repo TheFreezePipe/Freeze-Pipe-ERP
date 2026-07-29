@@ -9,6 +9,7 @@ import {
   buildOnOrderMap,
   inventoryTotalsReal,
 } from "@/lib/inventory-aggregates";
+import { buildPlannedAllocationMap } from "@/lib/allocation";
 import { differenceInDays, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
 import {
@@ -16,6 +17,7 @@ import {
   useFreightShipments,
   useFreightLineItems,
   useFactoryOrders,
+  useProductBoms,
   useForecastDemandMap,
 } from "@/lib/hooks";
 
@@ -60,14 +62,22 @@ export function AlertsPanel() {
   const { data: freight = [] } = useFreightShipments();
   const { data: freightLines = [] } = useFreightLineItems();
   const { data: factoryOrders = [] } = useFactoryOrders();
+  const { data: boms = [] } = useProductBoms();
   const forecastMap = useForecastDemandMap();
+
+  // Planned allocations for linked child orders — on-order must count
+  // free units only (allocated component units go to the parent's factory).
+  const planned = useMemo(
+    () => buildPlannedAllocationMap(factoryOrders, boms),
+    [factoryOrders, boms],
+  );
 
   const alerts = useMemo<Alert[]>(() => {
     // Build per-SKU aggregates once per render — replaces the legacy
     // inventory_levels.in_transit_* / nancy_* / yx_* reads with live
     // data from freight_shipments + factory_orders.
     const inTransitMap = buildInTransitMap(freight, freightLines);
-    const onOrderMap = buildOnOrderMap(factoryOrders, freightLines);
+    const onOrderMap = buildOnOrderMap(factoryOrders, freightLines, planned);
     const result: Alert[] = [];
 
     // Low stock and demand alerts from inventory
@@ -151,7 +161,7 @@ export function AlertsPanel() {
 
     const order = { red: 0, orange: 1, yellow: 2, blue: 3, green: 4 };
     return result.sort((a, b) => order[a.severity] - order[b.severity]);
-  }, [inventory, freight, freightLines, factoryOrders, forecastMap]);
+  }, [inventory, freight, freightLines, factoryOrders, planned, forecastMap]);
 
   if (alerts.length === 0) {
     return (

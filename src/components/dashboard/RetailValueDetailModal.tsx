@@ -22,6 +22,7 @@ import {
   useFreightShipments,
   useFreightLineItems,
   useFactoryOrders,
+  useProductBoms,
   useAllSkuEconomics,
   useAllPrimarySkuSupplierCosts,
   useForecastDemandMap,
@@ -137,6 +138,9 @@ export function RetailValueDetailModal({ open, onOpenChange }: Props) {
   const { data: shipments = [] } = useFreightShipments();
   const { data: freightLines = [] } = useFreightLineItems();
   const { data: factoryOrders = [] } = useFactoryOrders();
+  // BoM rows let the breakdown reserve ALLOCATED component units on linked
+  // child orders — keeps this modal's totals identical to the summary bar.
+  const { data: boms = [] } = useProductBoms();
   const { data: economicsById } = useAllSkuEconomics();
   const { data: primaryCostBySkuId } = useAllPrimarySkuSupplierCosts();
   const forecastMap = useForecastDemandMap();
@@ -155,8 +159,9 @@ export function RetailValueDetailModal({ open, onOpenChange }: Props) {
         factoryOrders,
         economicsById,
         primaryCostBySkuId,
+        boms,
       ),
-    [inventory, shipments, freightLines, factoryOrders, economicsById, primaryCostBySkuId],
+    [inventory, shipments, freightLines, factoryOrders, economicsById, primaryCostBySkuId, boms],
   );
 
   const markup = b.totalCash > 0 ? b.total / b.totalCash : 0;

@@ -34,12 +34,14 @@ import {
   useFreightLineItems,
   useFreightShipments,
   useCreateFreightShipment,
+  useProductBoms,
   useAllPrimarySkuSupplierCosts,
 } from "@/lib/hooks";
 import { freightShipmentSchema, safeValidate } from "@/lib/schemas";
 import { supabase } from "@/lib/supabase";
 import { getOpenFactoryItemsForSku } from "@/lib/freight/open-factory-items";
 import { buildOnOrderMap } from "@/lib/inventory-aggregates";
+import { buildPlannedAllocationMap } from "@/lib/allocation";
 import { describeError } from "@/lib/supabase-error";
 import { cn } from "@/lib/utils";
 
@@ -101,6 +103,10 @@ export default function FreightNew() {
   const { data: freightLineItems = [] } = useFreightLineItems();
   // Existing shipments — used to auto-suggest the next sea shipment number.
   const { data: allShipments = [] } = useFreightShipments();
+  // Active produced BoM rows — feed the planned-allocation map below so
+  // component units allocated to a linked parent order are never offered
+  // as shippable on the child's own freight.
+  const { data: boms = [] } = useProductBoms();
   // Per-SKU primary supplier unit cost map. Used to populate
   // freight_line_items.unit_cost with real numbers instead of the
   // hardcoded 0 that previously zeroed out every freight movement's
@@ -218,9 +224,13 @@ export default function FreightNew() {
   // placed on a freight line they leave the on-order bucket (they're now in
   // transit), so they no longer show here. SKUs with open orders are surfaced
   // first in the dropdown because those are most likely loaded onto a shipment.
+  const plannedAllocations = useMemo(
+    () => buildPlannedAllocationMap(factoryOrders, boms),
+    [factoryOrders, boms],
+  );
   const openFactoryUnitsBySKU = useMemo(
-    () => buildOnOrderMap(factoryOrders, freightLineItems),
-    [factoryOrders, freightLineItems],
+    () => buildOnOrderMap(factoryOrders, freightLineItems, plannedAllocations),
+    [factoryOrders, freightLineItems, plannedAllocations],
   );
 
   const availableSKUs = useMemo(() => {
@@ -310,6 +320,7 @@ export default function FreightNew() {
               value as string,
               factoryOrders,
               freightLineItems,
+              plannedAllocations,
             );
             const autoSource =
               openForSku.length === 1 ? openForSku[0].factory_order_item_id : null;
@@ -388,7 +399,7 @@ export default function FreightNew() {
           }
         }
         if (unlinkedQty <= 0) continue;
-        const open = getOpenFactoryItemsForSku(s.sku_id, factoryOrders, freightLineItems);
+        const open = getOpenFactoryItemsForSku(s.sku_id, factoryOrders, freightLineItems, plannedAllocations);
         if (open.length === 0) continue; // no open order to link → legitimately spot
         const product = products.find((p) => p.id === s.sku_id);
         const skuLabel = product?.sku ?? s.sku_id.slice(0, 8);
@@ -896,7 +907,7 @@ export default function FreightNew() {
                         // Open factory-order items for the picker(s), computed
                         // per-row. Empty when no SKU selected yet.
                         const openFoItems = skuEntry.sku_id
-                          ? getOpenFactoryItemsForSku(skuEntry.sku_id, factoryOrders, freightLineItems)
+                          ? getOpenFactoryItemsForSku(skuEntry.sku_id, factoryOrders, freightLineItems, plannedAllocations)
                           : [];
                         const isSplit = skuEntry.allocations.length > 1;
                         const lineTotal = skuTotal(skuEntry);

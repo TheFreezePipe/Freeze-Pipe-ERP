@@ -15,7 +15,7 @@
 import type {
   InventoryWithProduct,
 } from "./hooks/use-inventory";
-import type { FactoryOrderWithItems } from "./hooks/use-factory-orders";
+import type { FactoryOrderWithItems, ProductBomRow } from "./hooks/use-factory-orders";
 import type { FreightLineItemWithProduct } from "./hooks/use-freight";
 import type { FreightShipment, ProductSKU } from "@/types/database";
 import type { SKUEconomics } from "@/types/database";
@@ -24,6 +24,7 @@ import {
   buildOnOrderMap,
   inventoryTotalsReal,
 } from "./inventory-aggregates";
+import { buildPlannedAllocationMap } from "./allocation";
 import { computeListD2C } from "./inventory-math";
 
 /** Per-SKU value row. Retail is always populated; cash is 0 when the SKU
@@ -83,9 +84,17 @@ export function buildRetailValueBreakdown(
   factoryOrders: readonly FactoryOrderWithItems[],
   economicsById: EconomicsMap,
   primaryCostBySkuId: PrimaryCostMap,
+  // Active produced BoM rows (useProductBoms). When provided, linked child
+  // orders reserve their ALLOCATED component units from link day — the
+  // on-order bucket then counts free units only, matching every other
+  // surface. Optional so non-UI callers (tests) keep the legacy
+  // consumed-only math without fetching BoMs.
+  boms?: readonly ProductBomRow[],
 ): RetailValueBreakdown {
   const inTransitMap = buildInTransitMap(shipments, freightLines);
-  const onOrderMap = buildOnOrderMap(factoryOrders, freightLines);
+  const plannedAllocations =
+    boms && boms.length > 0 ? buildPlannedAllocationMap(factoryOrders, boms) : undefined;
+  const onOrderMap = buildOnOrderMap(factoryOrders, freightLines, plannedAllocations);
 
   const rows: RetailValueRow[] = [];
   let warehouse = 0;

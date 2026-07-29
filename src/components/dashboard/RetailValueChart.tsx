@@ -5,6 +5,7 @@ import {
   useFreightShipments,
   useFreightLineItems,
   useFactoryOrders,
+  useProductBoms,
   useForecastDemandMap,
 } from "@/lib/hooks";
 import {
@@ -12,6 +13,7 @@ import {
   buildOnOrderMap,
   inventoryTotalsReal,
 } from "@/lib/inventory-aggregates";
+import { buildPlannedAllocationMap } from "@/lib/allocation";
 import { getEffectiveDemand } from "@/lib/demand";
 
 // Colors matching the reference dashboard (green=warehouse, yellow=transit, pink=on order)
@@ -25,11 +27,19 @@ export function RetailValueChart() {
   const { data: shipments = [] } = useFreightShipments();
   const { data: freightLines = [] } = useFreightLineItems();
   const { data: factoryOrders = [] } = useFactoryOrders();
+  const { data: boms = [] } = useProductBoms();
   const forecastMap = useForecastDemandMap();
+
+  // Planned allocations for linked child orders — on-order counts free
+  // units only (allocated component units belong to the parent's build).
+  const planned = useMemo(
+    () => buildPlannedAllocationMap(factoryOrders, boms),
+    [factoryOrders, boms],
+  );
 
   const chartData = useMemo(() => {
     const inTransitMap = buildInTransitMap(shipments, freightLines);
-    const onOrderMap = buildOnOrderMap(factoryOrders, freightLines);
+    const onOrderMap = buildOnOrderMap(factoryOrders, freightLines, planned);
     // demandUnits kept alongside the $ value so the tooltip can show both.
     const byCat: Record<string, { warehouse: number; transit: number; onOrder: number; demand: number; demandUnits: number }> = {};
 
@@ -65,7 +75,7 @@ export function RetailValueChart() {
         demandUnits: Math.round(vals.demandUnits),
       }))
       .sort((a, b) => (b.warehouse + b.transit + b.onOrder) - (a.warehouse + a.transit + a.onOrder));
-  }, [inventory, shipments, freightLines, factoryOrders, forecastMap]);
+  }, [inventory, shipments, freightLines, factoryOrders, planned, forecastMap]);
 
   return (
     <ResponsiveContainer width="100%" height={320}>
