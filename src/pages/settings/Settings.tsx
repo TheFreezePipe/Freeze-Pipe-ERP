@@ -5,9 +5,14 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import ChangeLog from "./ChangeLog";
 import UserManagement from "./UserManagement";
+import ReportingApi from "./ReportingApi";
 
 export default function SettingsPage() {
   const { profile, role } = useAuth();
+  // Reporting API tab is strictly admin-only (owner requirement) — the tab
+  // is hidden for other roles AND the underlying RLS/RPCs enforce it
+  // server-side, so the UI gate is convenience, not the boundary.
+  const isAdmin = role === "admin";
 
   const initials = profile?.full_name
     ?.split(" ")
@@ -33,6 +38,7 @@ export default function SettingsPage() {
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="changelog">Change Log</TabsTrigger>
           <TabsTrigger value="users">User Management</TabsTrigger>
+          {isAdmin && <TabsTrigger value="api">Reporting API</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="profile" className="mt-4">
@@ -66,6 +72,12 @@ export default function SettingsPage() {
         <TabsContent value="users" className="mt-4">
           <UserManagement />
         </TabsContent>
+
+        {isAdmin && (
+          <TabsContent value="api" className="mt-4">
+            <ReportingApi />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

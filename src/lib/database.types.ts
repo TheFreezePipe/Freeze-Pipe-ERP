@@ -14,6 +14,47 @@ export type Database = {
   }
   public: {
     Tables: {
+      api_keys: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          key_hash: string
+          key_hint: string
+          last_used_at: string | null
+          name: string
+          revoked_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          key_hash: string
+          key_hint: string
+          last_used_at?: string | null
+          name?: string
+          revoked_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          key_hash?: string
+          key_hint?: string
+          last_used_at?: string | null
+          name?: string
+          revoked_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_keys_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_chain_config: {
         Row: {
           checkpoint_seq: number
@@ -4217,6 +4258,10 @@ export type Database = {
         Returns: Json
       }
       rpc_refresh_sales_daily: { Args: { p_days?: number }; Returns: number }
+      rpc_reporting: {
+        Args: { p_days?: number; p_section: string }
+        Returns: Json
+      }
       rpc_resolve_breakage_report: {
         Args: {
           p_replacement_factory_order_id?: string
@@ -4234,6 +4279,8 @@ export type Database = {
         }
         Returns: Json
       }
+      rpc_revoke_reporting_key: { Args: { p_actor_id: string }; Returns: Json }
+      rpc_rotate_reporting_key: { Args: { p_actor_id: string }; Returns: Json }
       rpc_sales_pulse: {
         Args: never
         Returns: {
