@@ -1015,29 +1015,25 @@ function ComponentOrdersPanel({
                 </>
               )}
               <span className="text-muted-foreground">·</span>
-              {/* Per-component allocation chips: amber = units the parent's
-                  build will consume (max of day-one plan and realized
-                  consumption); muted/green = ride-alongs the link leaves
-                  untouched. */}
+              {/* Per-component allocation chips — ONLY components the
+                  parent's build will consume (max of day-one plan and
+                  realized consumption). Ride-along SKUs are deliberately
+                  not rendered here (owner call 2026-07-27: visual noise);
+                  they remain fully visible on the child order's own card
+                  and in the on-order breakdowns. */}
               <span className="flex flex-wrap items-center gap-1">
                 {c.items.map((i) => {
                   const allocated = allocatedReserve(i, plannedAllocations);
+                  if (allocated <= 0) return null;
                   const skuLabel =
                     i.product?.sku ?? skuByIdLookup.get(i.sku_id) ?? i.sku_id.slice(0, 8);
-                  return allocated > 0 ? (
+                  return (
                     <span
                       key={i.id}
                       className="inline-flex items-center rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] tabular-nums text-amber-300"
                     >
                       {skuLabel}: {allocated.toLocaleString()} of{" "}
                       {i.quantity_ordered.toLocaleString()} allocated
-                    </span>
-                  ) : (
-                    <span
-                      key={i.id}
-                      className="inline-flex items-center rounded border border-emerald-500/30 bg-emerald-500/5 px-1.5 py-0.5 text-[10px] tabular-nums text-emerald-300/70"
-                    >
-                      {skuLabel}: {i.quantity_ordered.toLocaleString()} ride along
                     </span>
                   );
                 })}
