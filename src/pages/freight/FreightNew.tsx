@@ -40,6 +40,7 @@ import {
 import { freightShipmentSchema, safeValidate } from "@/lib/schemas";
 import { supabase } from "@/lib/supabase";
 import { getOpenFactoryItemsForSku } from "@/lib/freight/open-factory-items";
+import { buildPrefillRateBySku, suggestPrefilled } from "@/lib/freight/prefill-default";
 import { buildOnOrderMap } from "@/lib/inventory-aggregates";
 import { buildPlannedAllocationMap } from "@/lib/allocation";
 import { describeError } from "@/lib/supabase-error";
@@ -254,6 +255,19 @@ export default function FreightNew() {
     return { totalCartons, totalUnits };
   }, [cartonGroups]);
 
+  // Pre-fill smart default: per-SKU prefill history from every existing
+  // freight line. When a SKU whose history is decisively pre-filled
+  // (>=70% of units across >=2 shipments) is selected, its checkbox
+  // starts CHECKED — the recurring miss the owner hand-fixed on
+  // shipments 447/458/459. Manual toggles always win.
+  const prefillRateBySku = useMemo(
+    () => buildPrefillRateBySku(freightLineItems),
+    [freightLineItems],
+  );
+  // SKU-entry ids whose checkbox was set by history (drives the hint;
+  // cleared the moment the operator toggles that entry themselves).
+  const [autoPrefilledIds, setAutoPrefilledIds] = useState<Set<string>>(new Set());
+
   // --- Carton group actions ---
   function addCartonGroup() {
     setCartonGroups(prev => [...prev, {
@@ -298,6 +312,26 @@ export default function FreightNew() {
     field: "sku_id" | "pre_filled",
     value: string | boolean,
   ) {
+    // History-based default, computed before the state update so both
+    // setters below see the same decision.
+    const historySuggests =
+      field === "sku_id" && suggestPrefilled(prefillRateBySku.get(value as string));
+    if (field === "sku_id") {
+      setAutoPrefilledIds(prev => {
+        const next = new Set(prev);
+        if (historySuggests) next.add(skuEntryId);
+        else next.delete(skuEntryId);
+        return next;
+      });
+    } else {
+      // Operator decided themselves — the hint no longer applies.
+      setAutoPrefilledIds(prev => {
+        if (!prev.has(skuEntryId)) return prev;
+        const next = new Set(prev);
+        next.delete(skuEntryId);
+        return next;
+      });
+    }
     setCartonGroups(prev => prev.map(g => {
       if (g.id !== groupId) return g;
       return {
@@ -327,7 +361,7 @@ export default function FreightNew() {
             return {
               ...s,
               sku_id: value as string,
-              pre_filled: false,
+              pre_filled: historySuggests,
               allocations: [{ id: nextId(), quantity: keptQty, source_factory_order_item_id: autoSource }],
             };
           }
@@ -1022,7 +1056,14 @@ export default function FreightNew() {
                                   checked={skuEntry.pre_filled}
                                   onCheckedChange={(checked) => updateSKUField(group.id, skuEntry.id, "pre_filled", !!checked)}
                                 />
-                                <span className="text-xs text-muted-foreground">Filled</span>
+                                <span className="text-xs text-muted-foreground">
+                                  Filled
+                                  {autoPrefilledIds.has(skuEntry.id) && skuEntry.pre_filled && (
+                                    <span className="ml-1 text-[10px] text-cyan-400/80" title="Defaulted from this SKU's shipment history — untick if this batch ships empty">
+                                      · from history
+                                    </span>
+                                  )}
+                                </span>
                               </label>
                             ) : (
                               <div className="w-[60px]" />
