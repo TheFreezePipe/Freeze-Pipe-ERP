@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
+import { signedLedgerQuantity } from "@/lib/ledger-sign";
 
 const PAGE_SIZE = 10;
 
@@ -472,11 +473,15 @@ function TargetCell({ entry }: { entry: TimelineEntry }) {
 function DetailsCell({ entry }: { entry: TimelineEntry }) {
   if (entry.inventory) {
     const t = entry.inventory;
+    // Write-off rows (breakage, close-shorts) store quantity positive with
+    // the removal meaning in movement_kind — flip for display or a breakage
+    // reads as "+1", i.e. the opposite of what happened to the stock level.
+    const qty = signedLedgerQuantity(t);
     return (
       <div className="space-y-0.5">
-        {t.quantity !== 0 ? (
+        {qty !== 0 ? (
           <div className="flex items-center gap-1.5">
-            {t.quantity > 0 ? (
+            {qty > 0 ? (
               <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-green-400" />
             ) : (
               <ArrowDownRight className="h-3.5 w-3.5 shrink-0 text-red-400" />
@@ -484,11 +489,11 @@ function DetailsCell({ entry }: { entry: TimelineEntry }) {
             <span
               className={cn(
                 "tabular-nums font-semibold",
-                t.quantity > 0 ? "text-green-400" : "text-red-400",
+                qty > 0 ? "text-green-400" : "text-red-400",
               )}
             >
-              {t.quantity > 0 ? "+" : ""}
-              {t.quantity.toLocaleString()}
+              {qty > 0 ? "+" : ""}
+              {qty.toLocaleString()}
             </span>
             <span className="text-muted-foreground/80">
               {t.field_affected.replace(/_/g, " ")}

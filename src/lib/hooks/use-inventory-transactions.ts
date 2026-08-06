@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { deltaToWarehouseTotal, type LedgerRow } from "@/lib/ledger-sign";
 import type { InventoryTransaction, ProductSKU, Profile } from "@/types/database";
 import {
   type ChangeLogFilters,
@@ -94,17 +95,10 @@ export function useInventoryTransactions(arg: number | ChangeLogFilters = 200) {
  *
  *   total_at(t) = current_total - Σ delta(tx) for tx.created_at > t
  *
- * Where delta(tx) is how much TOTAL warehouse changed at tx:
- *   - movement_kind='net_change' AND field_affected starts with 'warehouse_'
- *       → delta = tx.quantity   (already signed: negative for sales)
- *   - movement_kind='category_move' between two warehouse_* buckets
- *       → delta = 0   (intra-warehouse movement; total unchanged)
- *   - movement_kind='category_move' from warehouse_* to non-warehouse field
- *       → delta = -tx.quantity   (units left the warehouse)
- *   - movement_kind='category_move' to warehouse_* from non-warehouse field
- *       → delta = +tx.quantity   (units entered the warehouse)
- *   - movement_kind='metadata' (oversell warnings, audit-only) → 0
- *   - field_affected on non-inventory columns (eta, status, etc.) → 0
+ * Where delta(tx) is deltaToWarehouseTotal from @/lib/ledger-sign — the
+ * per-movement-kind sign rules (incl. write_off rows, which store positive
+ * quantities but mean removal) live there with the Change Log's display
+ * sign so the two can never drift apart again.
  *
  * Returns end-of-day balances, oldest first. If a SKU has no inventory-
  * affecting transactions in the window, the series is filled flat at the
@@ -140,37 +134,8 @@ export function useSkuWarehouseTotalHistory(
         .order("created_at", { ascending: false })
         .limit(5000);
       if (error) throw error;
-      type TxRow = {
-        created_at: string;
-        quantity: number;
-        movement_kind: string;
-        field_affected: string;
-        from_field: string | null;
-        to_field: string | null;
-      };
+      type TxRow = LedgerRow & { created_at: string };
       const txs = (data ?? []) as unknown as TxRow[];
-
-      const isWarehouseField = (f: string | null) =>
-        !!f && f.startsWith("warehouse_");
-
-      function deltaToTotal(tx: TxRow): number {
-        if (tx.movement_kind === "metadata") return 0;
-        if (tx.movement_kind === "category_move") {
-          const fromIsWh = isWarehouseField(tx.from_field);
-          const toIsWh = isWarehouseField(tx.to_field);
-          // Intra-warehouse move — total unchanged.
-          if (fromIsWh && toIsWh) return 0;
-          // Units leaving warehouse (rare; would be e.g. write-off).
-          if (fromIsWh && !toIsWh) return -tx.quantity;
-          // Units entering warehouse from somewhere else.
-          if (!fromIsWh && toIsWh) return tx.quantity;
-          return 0;
-        }
-        // net_change — only counts when the field is one of our warehouse
-        // buckets. tx on metadata fields like 'eta', 'status', 'role',
-        // 'row_hash' contribute nothing.
-        return isWarehouseField(tx.field_affected) ? tx.quantity : 0;
-      }
 
       // Walk the timeline. Anchor at "end of today" = current total,
       // then walk backwards subtracting deltas as we cross each tx
@@ -190,7 +155,7 @@ export function useSkuWarehouseTotalHistory(
           txIdx < txs.length &&
           new Date(txs[txIdx].created_at).getTime() > eod.getTime()
         ) {
-          runningBalance -= deltaToTotal(txs[txIdx]);
+          runningBalance -= deltaToWarehouseTotal(txs[txIdx]);
           txIdx++;
         }
         out.push({
