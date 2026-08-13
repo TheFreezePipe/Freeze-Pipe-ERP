@@ -8,6 +8,7 @@ import {
   ChevronDown,
   Package,
   Calendar,
+  Timer,
   Truck,
   CheckSquare,
   Square,
@@ -35,6 +36,7 @@ import {
   type FreightLineItemWithProduct,
 } from "@/lib/hooks";
 import type { FreightShipment } from "@/types/database";
+import { averageSeaTransitDays } from "@/lib/freight/transit-time";
 import { PrefillReportModal } from "@/components/freight/PrefillReportModal";
 import { useAuth } from "@/lib/auth-context";
 
@@ -114,7 +116,9 @@ export default function FreightDashboard() {
     const cashAtRiskCost = highRiskItems.reduce((s, li) => s + (li.unit_cost ?? 0) * li.quantity, 0);
     const cashAtRiskRetail = highRiskItems.reduce((s, li) => s + (li.retail_value ?? 0) * li.quantity, 0);
 
-    return { activeCount, seaCount, airCount, highRiskCount, cashAtRiskCost, cashAtRiskRetail, prefillPct, prefillTotal };
+    const seaTransit = averageSeaTransitDays(freight);
+
+    return { activeCount, seaCount, airCount, highRiskCount, cashAtRiskCost, cashAtRiskRetail, prefillPct, prefillTotal, seaTransit };
   }, [freight, freightLineItems]);
 
   const sortedFreight = useMemo(() => {
@@ -269,8 +273,31 @@ export default function FreightDashboard() {
           icon={stats.airCount > 0 && stats.seaCount === 0 ? Plane : Ship}
           iconColor="text-blue-400"
         />
-        <StatCard title="High Risk" value={stats.highRiskCount} subtitle="Under inspection" icon={AlertTriangle} iconColor="text-red-400" />
-        <StatCard title="Cash at Risk" value={`$${stats.cashAtRiskCost.toLocaleString()}`} subtitle={`$${stats.cashAtRiskRetail.toLocaleString()} retail value`} icon={DollarSign} iconColor="text-yellow-400" />
+        {/* High Risk + Cash at Risk condensed into one card (owner request
+            2026-08-06): count stays the headline, the dollars-at-stake move
+            into the subtitle so the fourth grid slot frees up for transit. */}
+        <StatCard
+          title="High Risk"
+          value={stats.highRiskCount}
+          subtitle={
+            stats.highRiskCount > 0
+              ? `$${stats.cashAtRiskCost.toLocaleString()} cost · $${stats.cashAtRiskRetail.toLocaleString()} retail at risk`
+              : "No shipments under inspection"
+          }
+          icon={AlertTriangle}
+          iconColor="text-red-400"
+        />
+        <StatCard
+          title="Avg Sea Transit"
+          value={stats.seaTransit.count > 0 ? `${stats.seaTransit.avgDays}d` : "—"}
+          subtitle={
+            stats.seaTransit.count > 0
+              ? `${stats.seaTransit.count} arrival${stats.seaTransit.count === 1 ? "" : "s"} in last 30 days`
+              : "No sea arrivals in last 30 days"
+          }
+          icon={Timer}
+          iconColor="text-yellow-400"
+        />
         <StatCard
           title="Pre-filled"
           value={stats.prefillTotal > 0 ? `${stats.prefillPct}%` : "—"}
