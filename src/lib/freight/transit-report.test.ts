@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   buildTransitRows,
+  buildReceiptSpans,
+  weeklyAggregate,
   windowStats,
   trailingMedianSeries,
   transitBand,
@@ -9,6 +11,7 @@ import {
   ON_TIME_GRACE_DAYS,
   P90_MIN_N,
   TREND_MIN_N,
+  CARTON_NATIVE_SINCE,
   type TransitShipmentSource,
 } from "./transit-report";
 
@@ -24,6 +27,7 @@ const ship = (over: Partial<TransitShipmentSource>): TransitShipmentSource => ({
   eta_original: null,
   receipt_confirmed_at: null,
   china_customs_delay: false,
+  created_at: "2026-08-01T00:00:00Z", // carton-native era by default
   ...over,
 });
 
@@ -184,5 +188,89 @@ describe("inTransitSummary", () => {
 describe("grace constant sanity", () => {
   it("uses the agreed 3-day grace", () => {
     expect(ON_TIME_GRACE_DAYS).toBe(3);
+  });
+});
+
+describe("arrival spread (first→last carton)", () => {
+  const events = (id: string, dates: string[]) =>
+    dates.map((d) => ({ freight_shipment_id: id, received_at: d + "T15:00:00Z" }));
+
+  it("computes first→last check-in span per shipment", () => {
+    const spans = buildReceiptSpans([
+      ...events("a", ["2026-08-20", "2026-08-22", "2026-08-25"]),
+      ...events("b", ["2026-08-21"]),
+    ]);
+    expect(spans.get("a")).toBe(5);
+    expect(spans.get("b")).toBe(0);
+  });
+
+  it("attaches spreads only to carton-native shipments", () => {
+    const modern = arrived("2026-08-25", 33, { id: "modern" });
+    const legacy = arrived("2026-08-01", 35, {
+      id: "legacy",
+      created_at: "2026-07-01T00:00:00Z", // pre carton-native shape
+    });
+    const spans = new Map([
+      ["modern", 4],
+      ["legacy", 0],
+    ]);
+    const rows = buildTransitRows([modern, legacy], spans);
+    expect(rows.find((r) => r.id === "modern")?.spreadDays).toBe(4);
+    expect(rows.find((r) => r.id === "legacy")?.spreadDays).toBeNull();
+  });
+
+  it("aggregates spread stats in windowStats and names the worst", () => {
+    const spans = new Map([
+      ["s1", 2],
+      ["s2", 7],
+    ]);
+    const rows = buildTransitRows(
+      [
+        arrived("2026-08-01", 30, { id: "s1", shipment_number: "452" }),
+        arrived("2026-08-05", 34, { id: "s2", shipment_number: "453" }),
+        arrived("2026-08-06", 32, { id: "s3", shipment_number: "454" }), // not yet received
+      ],
+      spans,
+    );
+    const s = windowStats(rows, 30, TODAY);
+    expect(s.spreadN).toBe(2);
+    expect(s.spreadMedian).toBe(4.5);
+    expect(s.spreadMax).toBe(7);
+    expect(s.spreadMaxNumber).toBe("453");
+  });
+
+  it("reports zero spread coverage when no carton-native shipments arrived", () => {
+    const rows = buildTransitRows(
+      [arrived("2026-08-01", 30, { created_at: "2026-07-01T00:00:00Z" })],
+      new Map(),
+    );
+    expect(windowStats(rows, 30, TODAY).spreadN).toBe(0);
+  });
+
+  it("keeps the carton-native boundary at the receiving launch date", () => {
+    expect(CARTON_NATIVE_SINCE).toBe("2026-07-22");
+  });
+});
+
+describe("weeklyAggregate", () => {
+  it("buckets arrivals into Monday-aligned weeks with median and range", () => {
+    const rows = buildTransitRows([
+      arrived("2026-08-03", 30), // Monday
+      arrived("2026-08-05", 40), // same week
+      arrived("2026-08-09", 50), // Sunday, still same week
+      arrived("2026-08-10", 28), // next Monday → new bucket
+    ]);
+    const weeks = weeklyAggregate(rows);
+    expect(weeks).toHaveLength(2);
+    expect(weeks[0]).toMatchObject({ weekStart: "2026-08-03", n: 3, median: 40, min: 30, max: 50 });
+    expect(weeks[1]).toMatchObject({ weekStart: "2026-08-10", n: 1, median: 28 });
+  });
+
+  it("counts customs holds per bucket", () => {
+    const rows = buildTransitRows([
+      arrived("2026-08-03", 45, { china_customs_delay: true }),
+      arrived("2026-08-04", 33),
+    ]);
+    expect(weeklyAggregate(rows)[0].customsCount).toBe(1);
   });
 });

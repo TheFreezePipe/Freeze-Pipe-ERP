@@ -73,6 +73,25 @@ export function useFreightLineItems(shipmentId?: string) {
   });
 }
 
+/**
+ * All check-in events, two columns only — feeds the transit report's
+ * Arrival Spread (first→last carton per shipment). Volume stays small
+ * (a handful of events per shipment).
+ */
+export function useFreightReceiptEvents() {
+  return useQuery({
+    queryKey: ["freight-receipt-events"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("freight_receipts")
+        .select("freight_shipment_id, received_at");
+      if (error) throw error;
+      return (data ?? []) as { freight_shipment_id: string; received_at: string }[];
+    },
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
 export function useFreightShipment(id: string) {
   return useQuery({
     queryKey: ["freight", id],

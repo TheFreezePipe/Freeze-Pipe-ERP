@@ -21,6 +21,7 @@ export interface TransitShipmentSource {
   eta_original: string | null;
   receipt_confirmed_at: string | null;
   china_customs_delay: boolean | null;
+  created_at: string;
 }
 
 export interface TransitRow {
@@ -33,6 +34,10 @@ export interface TransitRow {
   slipDays: number | null;
   /** arrival → receipt confirmed; null while still unconfirmed. */
   dwellDays: number | null;
+  /** First→last check-in event, days. Null for shipments created before
+   *  the carton-native shape existed (their one-shot receives would sit
+   *  in the median as fake zeros) and for shipments not yet received. */
+  spreadDays: number | null;
   customsDelay: boolean;
 }
 
@@ -42,6 +47,13 @@ export const ON_TIME_GRACE_DAYS = 3;
 export const P90_MIN_N = 15;
 /** Below this many arrivals the trailing-median trend line hides. */
 export const TREND_MIN_N = 5;
+/** Dock-to-stock beyond this many days surfaces the exception note. */
+export const DWELL_ALERT_DAYS = 5;
+/** Shipments created before this predate carton-group entry — their
+ *  receipts are structurally one-session and excluded from spread stats. */
+export const CARTON_NATIVE_SINCE = "2026-07-22";
+/** Windows holding more arrivals than this render as weekly aggregates. */
+export const AGGREGATE_THRESHOLD = 120;
 
 export const REPORT_WINDOWS = [
   { key: "30", label: "30D", days: 30 },
@@ -65,18 +77,44 @@ export function percentile(values: readonly number[], p: number): number {
   return s[lo] + (s[Math.min(lo + 1, s.length - 1)] - s[lo]) * (i - lo);
 }
 
+export interface ReceiptEvent {
+  freight_shipment_id: string;
+  received_at: string;
+}
+
+/** First→last check-in date span (days) per shipment. */
+export function buildReceiptSpans(events: readonly ReceiptEvent[]): Map<string, number> {
+  const range = new Map<string, { first: string; last: string }>();
+  for (const e of events) {
+    const d = e.received_at.slice(0, 10);
+    const r = range.get(e.freight_shipment_id);
+    if (!r) range.set(e.freight_shipment_id, { first: d, last: d });
+    else {
+      if (d < r.first) r.first = d;
+      if (d > r.last) r.last = d;
+    }
+  }
+  const out = new Map<string, number>();
+  for (const [id, r] of range) out.set(id, diffDays(r.last, r.first));
+  return out;
+}
+
 /**
  * Arrived sea shipments with both dates, oldest arrival first. Negative
  * transits (arrival before ship date — data entry error) are excluded:
  * they tell us nothing about the lane and would poison every percentile.
  */
-export function buildTransitRows(shipments: readonly TransitShipmentSource[]): TransitRow[] {
+export function buildTransitRows(
+  shipments: readonly TransitShipmentSource[],
+  receiptSpans?: ReadonlyMap<string, number>,
+): TransitRow[] {
   const rows: TransitRow[] = [];
   for (const s of shipments) {
     if (s.freight_type !== "sea") continue;
     if (!s.ship_date || !s.actual_arrival_date) continue;
     const transit = diffDays(s.actual_arrival_date, s.ship_date);
     if (transit < 0) continue;
+    const cartonNative = s.created_at.slice(0, 10) >= CARTON_NATIVE_SINCE;
     rows.push({
       id: s.id,
       number: s.shipment_number ?? "—",
@@ -87,6 +125,7 @@ export function buildTransitRows(shipments: readonly TransitShipmentSource[]): T
       dwellDays: s.receipt_confirmed_at
         ? Math.max(diffDays(s.receipt_confirmed_at.slice(0, 10), s.actual_arrival_date), 0)
         : null,
+      spreadDays: cartonNative ? receiptSpans?.get(s.id) ?? null : null,
       customsDelay: !!s.china_customs_delay,
     });
   }
@@ -118,6 +157,11 @@ export interface TransitWindowStats {
   dwellMedian: number;
   dwellMax: number;
   dwellMaxNumber: string | null;
+  /** Arrival spread (first→last carton) over carton-native shipments. */
+  spreadN: number;
+  spreadMedian: number;
+  spreadMax: number;
+  spreadMaxNumber: string | null;
   /** Trend line renders only when true (n >= TREND_MIN_N). */
   showTrend: boolean;
 }
@@ -134,7 +178,9 @@ export function windowStats(
       n: 0, medianTransit: 0, avgTransit: 0, minTransit: 0, maxTransit: 0,
       s2sMedian: 0, s2sP90: null, s2sWorst: null,
       withPromise: 0, onTimeCount: 0, lateMedianSlip: null,
-      dwellMedian: 0, dwellMax: 0, dwellMaxNumber: null, showTrend: false,
+      dwellMedian: 0, dwellMax: 0, dwellMaxNumber: null,
+      spreadN: 0, spreadMedian: 0, spreadMax: 0, spreadMaxNumber: null,
+      showTrend: false,
     };
   }
 
@@ -152,6 +198,8 @@ export function windowStats(
   const late = promised.filter((r) => (r.slipDays as number) > ON_TIME_GRACE_DAYS);
   const dwells = confirmed.map((r) => r.dwellDays as number);
   const dwellMax = dwells.length ? Math.max(...dwells) : 0;
+  const spreads = w.filter((r) => r.spreadDays != null);
+  const spreadMax = spreads.length ? Math.max(...spreads.map((r) => r.spreadDays as number)) : 0;
 
   return {
     n: w.length,
@@ -172,6 +220,12 @@ export function windowStats(
     dwellMaxNumber: dwells.length
       ? confirmed.find((r) => r.dwellDays === dwellMax)?.number ?? null
       : null,
+    spreadN: spreads.length,
+    spreadMedian: percentile(spreads.map((r) => r.spreadDays as number), 0.5),
+    spreadMax,
+    spreadMaxNumber: spreads.length
+      ? spreads.find((r) => r.spreadDays === spreadMax)?.number ?? null
+      : null,
     showTrend: w.length >= TREND_MIN_N,
   };
 }
@@ -191,6 +245,47 @@ export function trailingMedianSeries(rows: readonly TransitRow[], k = 5): number
 export function transitBand(rows: readonly TransitRow[]): { p25: number; p75: number; p90: number } {
   const t = rows.map((r) => r.transitDays);
   return { p25: percentile(t, 0.25), p75: percentile(t, 0.75), p90: percentile(t, 0.9) };
+}
+
+export interface WeeklyBucket {
+  /** Monday-aligned ISO date the bucket starts on. */
+  weekStart: string;
+  n: number;
+  median: number;
+  min: number;
+  max: number;
+  customsCount: number;
+}
+
+/**
+ * Weekly rollup for windows too dense to render per-dot (see
+ * AGGREGATE_THRESHOLD). One mark per calendar week of arrivals: median
+ * tick with a min–max whisker, customs count carried for the tooltip.
+ */
+export function weeklyAggregate(rows: readonly TransitRow[]): WeeklyBucket[] {
+  const buckets = new Map<string, TransitRow[]>();
+  for (const r of rows) {
+    const epochDays = Math.floor(Date.parse(r.arrivalDate + "T00:00:00Z") / DAY_MS);
+    // Epoch day 0 was a Thursday; +3 aligns bucket boundaries to Mondays.
+    const weekStartDays = epochDays - ((epochDays + 3) % 7);
+    const key = new Date(weekStartDays * DAY_MS).toISOString().slice(0, 10);
+    const arr = buckets.get(key);
+    if (arr) arr.push(r);
+    else buckets.set(key, [r]);
+  }
+  return [...buckets.entries()]
+    .map(([weekStart, rs]) => {
+      const t = rs.map((r) => r.transitDays);
+      return {
+        weekStart,
+        n: rs.length,
+        median: percentile(t, 0.5),
+        min: Math.min(...t),
+        max: Math.max(...t),
+        customsCount: rs.filter((r) => r.customsDelay).length,
+      };
+    })
+    .sort((a, b) => a.weekStart.localeCompare(b.weekStart));
 }
 
 export interface InTransitSummary {

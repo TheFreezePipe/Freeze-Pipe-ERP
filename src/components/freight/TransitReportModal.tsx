@@ -10,15 +10,19 @@ import { Button } from "@/components/ui/button";
 import { Ship, AlertTriangle } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
-import { useFreightShipments } from "@/lib/hooks";
+import { useFreightShipments, useFreightReceiptEvents } from "@/lib/hooks";
 import {
   buildTransitRows,
+  buildReceiptSpans,
+  weeklyAggregate,
   windowStats,
   trailingMedianSeries,
   transitBand,
   inTransitSummary,
   REPORT_WINDOWS,
   ON_TIME_GRACE_DAYS,
+  DWELL_ALERT_DAYS,
+  AGGREGATE_THRESHOLD,
   type ReportWindowKey,
   type TransitRow,
 } from "@/lib/freight/transit-report";
@@ -52,7 +56,9 @@ export function TransitReportModal({ open, onOpenChange }: Props) {
   // Compiler); only goes stale across midnight, which a reload fixes.
   const [todayIso] = useState(() => new Date().toISOString().slice(0, 10));
 
-  const rows = useMemo(() => buildTransitRows(shipments), [shipments]);
+  const { data: receiptEvents = [] } = useFreightReceiptEvents();
+  const spans = useMemo(() => buildReceiptSpans(receiptEvents), [receiptEvents]);
+  const rows = useMemo(() => buildTransitRows(shipments, spans), [shipments, spans]);
   const band = useMemo(() => transitBand(rows), [rows]);
   const trail = useMemo(() => trailingMedianSeries(rows), [rows]);
   const onWater = useMemo(() => inTransitSummary(shipments, todayIso), [shipments, todayIso]);
@@ -68,34 +74,60 @@ export function TransitReportModal({ open, onOpenChange }: Props) {
         .slice(0, 10),
     [days, todayIso],
   );
-  const inWin = (r: TransitRow) => r.arrivalDate >= cutoff;
-  const windowRows = rows.filter(inWin);
+  const windowRows = useMemo(
+    () => rows.filter((r) => r.arrivalDate >= cutoff),
+    [rows, cutoff],
+  );
+  // Past this density, per-dot rendering is mush — switch to weekly marks.
+  const aggregated = windowRows.length > AGGREGATE_THRESHOLD;
+  const weeks = useMemo(
+    () => (aggregated ? weeklyAggregate(windowRows) : []),
+    [aggregated, windowRows],
+  );
 
-  // X spans full history (context never crops); Y padded to the data.
+  // X spans the SELECTED WINDOW (plus a one-week lead-in for breathing
+  // room), clamped to where data actually starts — the axis stops
+  // compressing all history as the dataset grows. Long-run context lives
+  // in the band + the pre-warmed trend line instead of dimmed dots.
   const scale = useMemo(() => {
     if (rows.length === 0) return null;
-    const tMin = Date.parse(rows[0].arrivalDate) - 5 * 86_400_000;
+    const tMin = Math.max(
+      Date.parse(cutoff + "T00:00:00Z") - 7 * 86_400_000,
+      Date.parse(rows[0].arrivalDate) - 5 * 86_400_000,
+    );
     const tMax = Date.parse(todayIso + "T23:59:59Z");
-    const vAll = rows.map((r) => r.transitDays);
-    const vMin = Math.max(Math.min(...vAll) - 4, 0);
-    const vMax = Math.max(...vAll) + 4;
+    const tMinIso = new Date(tMin).toISOString().slice(0, 10);
+    const visible = rows.filter((r) => r.arrivalDate >= tMinIso);
+    const vAll = visible.length ? visible.map((r) => r.transitDays) : [30, 40];
+    const vMin = Math.max(Math.min(...vAll, band.p25) - 4, 0);
+    const vMax = Math.max(...vAll, band.p75) + 4;
     return {
+      tMinIso,
       x: (iso: string) => X0 + ((Date.parse(iso) - tMin) / (tMax - tMin)) * (X1 - X0),
       y: (v: number) => Y1 - ((v - vMin) / (vMax - vMin)) * (Y1 - Y0),
       yTicks: gridTicks(vMin, vMax),
       monthTicks: monthStarts(tMin, tMax),
     };
-  }, [rows, todayIso]);
+  }, [rows, cutoff, todayIso, band]);
+
+  // Rows on the cropped axis, each carrying its full-history trailing
+  // median so the trend line enters the left edge already informed.
+  const visiblePairs = useMemo(() => {
+    if (!scale) return [];
+    return rows
+      .map((r, i) => ({ r, trend: trail[i] }))
+      .filter(({ r }) => r.arrivalDate >= scale.tMinIso);
+  }, [rows, trail, scale]);
 
   // Same-day arrivals jitter right so every dot stays visible.
   const jitter = useMemo(() => {
     const seen = new Map<string, number>();
-    return rows.map((r) => {
+    return visiblePairs.map(({ r }) => {
       const k = seen.get(r.arrivalDate) ?? 0;
       seen.set(r.arrivalDate, k + 1);
       return k * 5.5;
     });
-  }, [rows]);
+  }, [visiblePairs]);
 
   const hovered = hoverId ? rows.find((r) => r.id === hoverId) : null;
   const sixMoNote = days >= 180 && rows.length > 0 && windowRows.length === rows.length;
@@ -161,22 +193,31 @@ export function TransitReportModal({ open, onOpenChange }: Props) {
                   {stats.minTransit}–{stats.maxTransit}d
                 </em>
               </Tile>
-              <Tile label="Ship → sellable" value={fmt1(stats.s2sMedian)} unit="days">
+              <Tile
+                label="Plan on"
+                value={stats.s2sP90 != null ? `${Math.round(stats.s2sP90)}` : "—"}
+                unit={stats.s2sP90 != null ? "days" : ""}
+              >
                 {stats.s2sP90 != null ? (
                   <>
-                    plan on{" "}
-                    <em className="not-italic font-semibold text-foreground/90">
-                      {Math.round(stats.s2sP90)}d
-                    </em>{" "}
-                    (P90) for PO timing
+                    realistic worst case for PO timing (P90, ship → checked in)
+                    {stats.s2sWorst && (
+                      <>
+                        {" "}· worst{" "}
+                        <em className="not-italic font-semibold text-foreground/90">
+                          {stats.s2sWorst.days}d
+                        </em>{" "}
+                        (#{stats.s2sWorst.number})
+                      </>
+                    )}
                   </>
                 ) : stats.s2sWorst ? (
                   <>
-                    worst:{" "}
+                    needs 15+ arrivals · worst so far{" "}
                     <em className="not-italic font-semibold text-foreground/90">
                       {stats.s2sWorst.days}d
                     </em>{" "}
-                    (#{stats.s2sWorst.number}) — P90 needs 15+ arrivals
+                    (#{stats.s2sWorst.number})
                   </>
                 ) : (
                   "awaiting first check-in"
@@ -216,31 +257,55 @@ export function TransitReportModal({ open, onOpenChange }: Props) {
                   </>
                 )}
               </Tile>
-              <Tile label="Dock → stock" value={fmt1(stats.dwellMedian)} unit="days">
-                {stats.dwellMax > 5 ? (
-                  <span className="text-amber-400 inline-flex items-center gap-1">
-                    <AlertTriangle className="h-3 w-3" />#{stats.dwellMaxNumber} sat{" "}
-                    {stats.dwellMax}d unchecked
-                  </span>
-                ) : (
+              <Tile
+                label="Arrival spread"
+                value={stats.spreadN > 0 ? fmt1(stats.spreadMedian) : "—"}
+                unit={stats.spreadN > 0 ? "days" : ""}
+              >
+                {stats.spreadN > 0 ? (
                   <>
-                    longest {stats.dwellMax}d
-                    {stats.dwellMax > 0 && stats.dwellMaxNumber
-                      ? ` (#${stats.dwellMaxNumber})`
-                      : ""}{" "}
-                    — crew is fast
+                    first → last carton
+                    {stats.spreadMax > 0 && stats.spreadMaxNumber && (
+                      <>
+                        {" "}· worst{" "}
+                        <em className="not-italic font-semibold text-foreground/90">
+                          {stats.spreadMax}d
+                        </em>{" "}
+                        (#{stats.spreadMaxNumber})
+                      </>
+                    )}{" "}
+                    · {stats.spreadN} measured
                   </>
+                ) : (
+                  "first → last carton · collecting — first carton-tracked arrivals landing now"
                 )}
               </Tile>
             </div>
 
+            {/* Dock-to-stock earns pixels only as an exception: the crew's
+                routine same-day check-in is a solved problem, but a shipment
+                sitting unchecked past the threshold deserves a callout. */}
+            {stats.dwellMax > DWELL_ALERT_DAYS && (
+              <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-400">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                <span>
+                  #{stats.dwellMaxNumber} sat {stats.dwellMax} days between arrival and
+                  check-in — worth a look.
+                </span>
+              </div>
+            )}
+
             {scale && (
               <div className="relative">
                 <div className="flex items-baseline gap-2.5 mb-0.5">
-                  <span className="text-xs font-semibold">Every arrival, ship→door days</span>
+                  <span className="text-xs font-semibold">
+                    {aggregated ? "Weekly transit, ship→door days" : "Every arrival, ship→door days"}
+                  </span>
                   <span className="text-[11px] text-muted-foreground">
                     {sixMoNote && "6M and 1Y are identical until data ages past Mar 2026 · "}
-                    dots outside the selected window are dimmed
+                    {aggregated
+                      ? `${windowRows.length} arrivals rolled up by week`
+                      : "band and trend carry the long-run context"}
                   </span>
                 </div>
                 <svg
@@ -274,58 +339,122 @@ export function TransitReportModal({ open, onOpenChange }: Props) {
                       </text>
                     </g>
                   ))}
-                  {/* trailing-5 median — hidden for very thin windows */}
-                  {stats.showTrend && (
+                  {/* trailing-5 median — full-history values, so the line
+                      enters the cropped axis already informed. Hidden for
+                      very thin windows. */}
+                  {stats.showTrend && visiblePairs.length > 1 && (
                     <polyline
                       fill="none"
                       strokeWidth={2}
                       strokeLinejoin="round"
                       className="stroke-primary opacity-85"
-                      points={rows.map((r, i) => `${scale.x(r.arrivalDate) + jitter[i]},${scale.y(trail[i])}`).join(" ")}
+                      points={visiblePairs
+                        .map(({ r, trend }, i) => `${scale.x(r.arrivalDate) + jitter[i]},${scale.y(trend)}`)
+                        .join(" ")}
                     />
                   )}
-                  {rows.map((r, i) => {
-                    const cx = scale.x(r.arrivalDate) + jitter[i];
-                    const cy = scale.y(r.transitDays);
-                    const dim = !inWin(r);
-                    return (
-                      <g
-                        key={r.id}
-                        className={cn("cursor-pointer", dim && "opacity-30")}
-                        onMouseEnter={(e) => {
-                          setHoverId(r.id);
-                          const box = (e.currentTarget.ownerSVGElement as SVGSVGElement).getBoundingClientRect();
-                          setTipPos({
-                            x: Math.min(e.clientX - box.left + 14, box.width - 205),
-                            y: e.clientY - box.top - 10,
-                          });
-                        }}
-                      >
-                        {r.customsDelay && (
-                          <circle cx={cx} cy={cy} r={8} fill="none" stroke="#fbbf24" strokeWidth={2} />
-                        )}
-                        <circle
-                          cx={cx}
-                          cy={cy}
-                          r={4.5}
-                          fill="hsl(var(--chart-1))"
-                          className={cn("stroke-background", hoverId === r.id && "stroke-foreground")}
-                          strokeWidth={1.5}
-                        />
-                        <circle cx={cx} cy={cy} r={11} fill="transparent" />
-                      </g>
-                    );
-                  })}
+                  {aggregated
+                    ? weeks.map((wk) => {
+                        const cx = scale.x(wk.weekStart) + 12;
+                        return (
+                          <g key={wk.weekStart}>
+                            <line
+                              x1={cx}
+                              x2={cx}
+                              y1={scale.y(wk.max)}
+                              y2={scale.y(wk.min)}
+                              className="stroke-foreground/30"
+                              strokeWidth={1.5}
+                            />
+                            <line
+                              x1={cx - 6}
+                              x2={cx + 6}
+                              y1={scale.y(wk.median)}
+                              y2={scale.y(wk.median)}
+                              stroke="hsl(var(--chart-1))"
+                              strokeWidth={3}
+                            >
+                              <title>{`week of ${md(wk.weekStart)} — ${wk.n} arrivals · median ${wk.median}d · ${wk.min}–${wk.max}d${wk.customsCount ? ` · ${wk.customsCount} customs` : ""}`}</title>
+                            </line>
+                          </g>
+                        );
+                      })
+                    : visiblePairs.map(({ r }, i) => {
+                        const cx = scale.x(r.arrivalDate) + jitter[i];
+                        const cy = scale.y(r.transitDays);
+                        const dim = r.arrivalDate < cutoff; // lead-in week only
+                        return (
+                          <g
+                            key={r.id}
+                            className={cn("cursor-pointer", dim && "opacity-30")}
+                            onMouseEnter={(e) => {
+                              setHoverId(r.id);
+                              const box = (e.currentTarget.ownerSVGElement as SVGSVGElement).getBoundingClientRect();
+                              setTipPos({
+                                x: Math.min(e.clientX - box.left + 14, box.width - 205),
+                                y: e.clientY - box.top - 10,
+                              });
+                            }}
+                          >
+                            {/* arrival spread: whisker reaching back to the
+                                day the FIRST carton landed */}
+                            {r.spreadDays != null && r.spreadDays > 0 && (
+                              <line
+                                x1={scale.x(addDaysIso(r.arrivalDate, -r.spreadDays))}
+                                x2={cx}
+                                y1={cy}
+                                y2={cy}
+                                stroke="hsl(var(--chart-1))"
+                                strokeWidth={2}
+                                opacity={0.45}
+                              />
+                            )}
+                            {r.customsDelay && (
+                              <circle cx={cx} cy={cy} r={8} fill="none" stroke="#fbbf24" strokeWidth={2} />
+                            )}
+                            <circle
+                              cx={cx}
+                              cy={cy}
+                              r={4.5}
+                              fill="hsl(var(--chart-1))"
+                              className={cn("stroke-background", hoverId === r.id && "stroke-foreground")}
+                              strokeWidth={1.5}
+                            />
+                            <circle cx={cx} cy={cy} r={11} fill="transparent" />
+                          </g>
+                        );
+                      })}
                 </svg>
                 <div className="flex gap-4 flex-wrap text-[11px] text-muted-foreground mt-1">
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full" style={{ background: "hsl(var(--chart-1))" }} />
-                    arrival (transit days)
-                  </span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full border-2 border-amber-400" />
-                    customs hold
-                  </span>
+                  {aggregated ? (
+                    <>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="h-[3px] w-3" style={{ background: "hsl(var(--chart-1))" }} />
+                        weekly median
+                      </span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="w-px h-3 bg-foreground/30" />
+                        week min–max
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full" style={{ background: "hsl(var(--chart-1))" }} />
+                        arrival (transit days)
+                      </span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full border-2 border-amber-400" />
+                        customs hold
+                      </span>
+                      {windowRows.some((r) => (r.spreadDays ?? 0) > 0) && (
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="h-0.5 w-3.5 opacity-50" style={{ background: "hsl(var(--chart-1))" }} />
+                          first→last carton
+                        </span>
+                      )}
+                    </>
+                  )}
                   <span className="inline-flex items-center gap-1.5">
                     <span className="h-2 w-3 bg-foreground/10 rounded-sm" />
                     typical range (middle 50%)
@@ -352,6 +481,7 @@ export function TransitReportModal({ open, onOpenChange }: Props) {
                     <span className="text-muted-foreground">
                       {hovered.slipDays != null &&
                         `· promise ${hovered.slipDays > 0 ? "+" : ""}${hovered.slipDays}d `}
+                      {hovered.spreadDays != null && `· cartons over ${hovered.spreadDays}d `}
                       {hovered.dwellDays != null && `· check-in ${hovered.dwellDays}d`}
                     </span>
                   </div>
@@ -369,6 +499,7 @@ export function TransitReportModal({ open, onOpenChange }: Props) {
                       <th className="sticky top-0 bg-muted/80 backdrop-blur px-3 py-2">Arrived</th>
                       <th className="sticky top-0 bg-muted/80 backdrop-blur px-3 py-2 text-right">Transit</th>
                       <th className="sticky top-0 bg-muted/80 backdrop-blur px-3 py-2 text-right">vs Promise</th>
+                      <th className="sticky top-0 bg-muted/80 backdrop-blur px-3 py-2 text-right" title="First to last carton">Spread</th>
                       <th className="sticky top-0 bg-muted/80 backdrop-blur px-3 py-2 text-right">Check-in</th>
                       <th className="sticky top-0 bg-muted/80 backdrop-blur px-3 py-2">Flags</th>
                     </tr>
@@ -415,6 +546,9 @@ export function TransitReportModal({ open, onOpenChange }: Props) {
                           )}
                         >
                           {r.slipDays == null ? "—" : `${r.slipDays > 0 ? "+" : ""}${r.slipDays}d`}
+                        </td>
+                        <td className="px-3 py-1.5 text-right font-mono tabular-nums text-muted-foreground">
+                          {r.spreadDays == null ? "—" : `${r.spreadDays}d`}
                         </td>
                         <td className="px-3 py-1.5 text-right font-mono tabular-nums text-muted-foreground">
                           {r.dwellDays == null ? "—" : `${r.dwellDays}d`}
@@ -517,8 +651,15 @@ function monthStarts(tMin: number, tMax: number): { iso: string; label: string }
   while (d.getTime() <= tMax) {
     // Label from the UTC month directly — format() would render in the
     // browser's timezone and shift "Jun 1" back to "May" for US users.
-    out.push({ iso: d.toISOString().slice(0, 10), label: MONTH_LABELS[d.getUTCMonth()] });
+    // January carries the year so multi-year spans stay readable.
+    const m = d.getUTCMonth();
+    const label = m === 0 ? `Jan '${String(d.getUTCFullYear()).slice(2)}` : MONTH_LABELS[m];
+    out.push({ iso: d.toISOString().slice(0, 10), label });
     d.setUTCMonth(d.getUTCMonth() + 1);
   }
   return out;
+}
+
+function addDaysIso(iso: string, n: number): string {
+  return new Date(Date.parse(iso + "T00:00:00Z") + n * 86_400_000).toISOString().slice(0, 10);
 }
