@@ -36,7 +36,8 @@ import {
   type FreightLineItemWithProduct,
 } from "@/lib/hooks";
 import type { FreightShipment } from "@/types/database";
-import { averageSeaTransitDays } from "@/lib/freight/transit-time";
+import { buildTransitRows, windowStats } from "@/lib/freight/transit-report";
+import { TransitReportModal } from "@/components/freight/TransitReportModal";
 import { PrefillReportModal } from "@/components/freight/PrefillReportModal";
 import { useAuth } from "@/lib/auth-context";
 
@@ -60,6 +61,7 @@ export default function FreightDashboard() {
   // view; a freshly-loaded page shouldn't carry over a previous deep dive.
   const [revealedOlderCount, setRevealedOlderCount] = useState(0);
   const [prefillReportOpen, setPrefillReportOpen] = useState(false);
+  const [transitReportOpen, setTransitReportOpen] = useState(false);
 
   const { data: freight = [], isLoading } = useFreightShipments();
   const { data: freightLineItems = [] } = useFreightLineItems();
@@ -116,7 +118,10 @@ export default function FreightDashboard() {
     const cashAtRiskCost = highRiskItems.reduce((s, li) => s + (li.unit_cost ?? 0) * li.quantity, 0);
     const cashAtRiskRetail = highRiskItems.reduce((s, li) => s + (li.retail_value ?? 0) * li.quantity, 0);
 
-    const seaTransit = averageSeaTransitDays(freight);
+    // Median headlines the card (one customs-held shipment drags a
+    // 10-sample average by days); the average stays in the subtitle so
+    // card and report modal always agree on both numbers.
+    const seaTransit = windowStats(buildTransitRows(freight), 30);
 
     return { activeCount, seaCount, airCount, highRiskCount, cashAtRiskCost, cashAtRiskRetail, prefillPct, prefillTotal, seaTransit };
   }, [freight, freightLineItems]);
@@ -288,15 +293,16 @@ export default function FreightDashboard() {
           iconColor="text-red-400"
         />
         <StatCard
-          title="Avg Sea Transit"
-          value={stats.seaTransit.count > 0 ? `${stats.seaTransit.avgDays}d` : "—"}
+          title="Typical Sea Transit"
+          value={stats.seaTransit.n > 0 ? `${Math.round(stats.seaTransit.medianTransit)}d` : "—"}
           subtitle={
-            stats.seaTransit.count > 0
-              ? `${stats.seaTransit.count} arrival${stats.seaTransit.count === 1 ? "" : "s"} in last 30 days`
-              : "No sea arrivals in last 30 days"
+            stats.seaTransit.n > 0
+              ? `avg ${(Math.round(stats.seaTransit.avgTransit * 10) / 10).toLocaleString()}d · ${stats.seaTransit.n} arrivals in 30d · click for report`
+              : "No sea arrivals in last 30 days · click for report"
           }
           icon={Timer}
           iconColor="text-yellow-400"
+          onClick={() => setTransitReportOpen(true)}
         />
         <StatCard
           title="Pre-filled"
@@ -309,6 +315,7 @@ export default function FreightDashboard() {
       </div>
 
       <PrefillReportModal open={prefillReportOpen} onOpenChange={setPrefillReportOpen} />
+      <TransitReportModal open={transitReportOpen} onOpenChange={setTransitReportOpen} />
 
       <Tabs value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
         <TabsList>
