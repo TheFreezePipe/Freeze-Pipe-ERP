@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { fillPaceFromDailyTotals } from "@/lib/freight/prefill-report";
 import type { TaskLog, ProductSKU, Profile } from "@/types/database";
 
 export type TaskLogWithDetails = TaskLog & {
@@ -143,5 +144,35 @@ export function useMyRecentTaskLogs(employeeId: string | undefined, days = 8) {
       return data ?? [];
     },
     staleTime: 60 * 1000,
+  });
+}
+
+/**
+ * Fill-line pace for the Pre-filled report's crew-days conversion:
+ * median units per ACTIVE fill day over the trailing window. The median
+ * + active-day floor guardrails live in prefill-report.ts.
+ */
+export function useFillPace(days = 60) {
+  return useQuery({
+    queryKey: ["fill-pace", days],
+    queryFn: async () => {
+      const since = new Date(Date.now() - days * 86_400_000).toISOString();
+      const { data, error } = await supabase
+        .from("task_logs")
+        .select("quantity_processed, created_at")
+        .eq("task_type", "filling_capping")
+        .gte("created_at", since)
+        .limit(5000);
+      if (error) throw error;
+      const byDay = new Map<string, number>();
+      for (const t of data ?? []) {
+        const day = new Date(t.created_at as string).toLocaleDateString("en-CA", {
+          timeZone: "America/New_York",
+        });
+        byDay.set(day, (byDay.get(day) ?? 0) + ((t.quantity_processed as number) ?? 0));
+      }
+      return fillPaceFromDailyTotals([...byDay.values()]);
+    },
+    staleTime: 5 * 60_000,
   });
 }
