@@ -64,7 +64,16 @@ function RequireAuth({ children }: { children: ReactNode }) {
 
 /** Smart default redirect based on user role */
 function DefaultRedirect() {
-  const { role } = useAuth();
+  const { role, roleResolved } = useAuth();
+  // Wait for the real role — redirecting on the "user" fallback would send
+  // admins to the staff workspace whenever the profile loads a beat late.
+  if (!roleResolved) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
   if (role === "user") return <Navigate to="/manufacturing/workspace" replace />;
   if (role === "supplier") return <Navigate to="/supplier" replace />;
   return <Navigate to="/dashboard" replace />;

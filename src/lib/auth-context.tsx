@@ -17,6 +17,11 @@ interface AuthState {
   session: Session | null;
   loading: boolean;
   role: UserRole;
+  /** False while the signed-in user's profile row (and therefore their real
+   *  role) is still loading. Until it's true, `role` is the "user" fallback —
+   *  route guards must WAIT on this rather than redirect, or every admin
+   *  briefly reads as staff on login/refresh and gets bounced off their page. */
+  roleResolved: boolean;
   isAdmin: boolean;
   isManager: boolean;
   isUser: boolean;
@@ -59,6 +64,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(isDemoMode ? DEMO_PROFILE : null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(!isDemoMode);
+  // Which user id the current `profile` state answers for. Comparing this to
+  // user.id (rather than a boolean) keeps roleResolved TRUE through routine
+  // token-refresh refetches — flipping a boolean would flash every guarded
+  // page to a spinner once an hour — while still resolving false across an
+  // actual account switch.
+  const [profileFor, setProfileFor] = useState<string | null>(null);
 
   async function fetchProfile(userId: string) {
     const { data } = await supabase
@@ -69,6 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Generated profiles row includes nullable timestamps and a wider role type;
     // cast through unknown to land on the hand-rolled Profile shape the app uses.
     setProfile(data as unknown as Profile | null);
+    setProfileFor(userId);
   }
 
   useEffect(() => {
@@ -123,9 +135,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function signOut() {
     await supabase.auth.signOut();
     setProfile(null);
+    setProfileFor(null);
   }
 
   const role: UserRole = (profile?.role as UserRole) ?? "user";
+  const roleResolved = isDemoMode || !user || profileFor === user.id;
   // profile.supplier_id is added by migration 020. Cast through unknown because
   // the Profile type may not yet be regenerated against the new schema.
   const supplierId: string | null =
@@ -143,6 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         session,
         loading,
         role,
+        roleResolved,
         isAdmin: role === "admin",
         isManager: role === "manager",
         isUser: role === "user",

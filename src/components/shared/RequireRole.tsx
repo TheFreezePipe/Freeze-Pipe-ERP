@@ -16,7 +16,18 @@ interface RequireRoleProps {
  * - admin / manager    → /dashboard
  */
 export function RequireRole({ allowed, children }: RequireRoleProps) {
-  const { role } = useAuth();
+  const { role, roleResolved } = useAuth();
+
+  // Until the profile loads, `role` is the "user" fallback — redirecting on
+  // it bounced every admin from /dashboard to the staff workspace on each
+  // login/refresh. Hold with a spinner until the real role is known.
+  if (!roleResolved) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
 
   if (allowed.includes(role)) {
     return <>{children}</>;
