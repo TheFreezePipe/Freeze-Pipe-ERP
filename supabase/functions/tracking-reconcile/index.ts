@@ -773,7 +773,13 @@ async function fetchDhl(trackingNumber: string): Promise<TrackingUpdate | null> 
   if (!ship) return notReceivedNow();
 
   const statusCode: string | undefined = ship.status?.statusCode;
-  const statusText = String(ship.status?.description ?? ship.status?.status ?? "");
+  // The status object can lag the event stream on delivery day — include the
+  // newest event's text in delivery-run detection (events arrive oldest-first).
+  const newestEvent = ship.events?.[ship.events.length - 1];
+  const statusText = [
+    ship.status?.description ?? ship.status?.status ?? "",
+    newestEvent?.description ?? "",
+  ].join(" ");
   const status: TrackingStatus = mapDhlStatus(statusCode, statusText);
 
   // ETA: prefer the point estimate, fall back to the far end of a time-frame.
@@ -797,13 +803,23 @@ async function fetchDhl(trackingNumber: string): Promise<TrackingUpdate | null> 
 
 // DHL Unified Tracking statusCode enum: pre-transit | transit | delivered |
 // failure | unknown. There's no dedicated "out for delivery" code, so detect
-// it from the latest status text when present.
+// it from the status/event text. DHL's phrasing varies by product line —
+// Express says "out with the courier for delivery", eCommerce says "being
+// delivered" / "delivery in progress" — none of which matched the original
+// /out for delivery/ regex, so DHL shipments never flipped on the truck day
+// (owner report, 2026-08-17).
+const DHL_DELIVERY_RUN = /out for delivery|with (the )?courier for delivery|being delivered|delivery in progress|on vehicle for delivery/i;
+
 function mapDhlStatus(code: string | undefined, description: string): TrackingStatus {
   switch (code) {
     case "delivered":
       return "delivered";
     case "transit":
-      return /out for delivery/i.test(description) ? "out_for_delivery" : "in_transit";
+      if (DHL_DELIVERY_RUN.test(description)) return "out_for_delivery";
+      // Log unmatched transit text so new DHL phrasings surface in the edge
+      // logs instead of silently rendering as generic in-transit.
+      if (description.trim()) console.log(`DHL transit text (no delivery-run match): "${description.slice(0, 120)}"`);
+      return "in_transit";
     case "pre-transit":
     case "failure":
     case "unknown":
