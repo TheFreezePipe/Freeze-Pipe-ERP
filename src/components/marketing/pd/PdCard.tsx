@@ -1,6 +1,6 @@
 /**
  * Product Development board — the card face. Exactly: drop band, name +
- * owner initials, next action, chip row (factory · target+risk dot · aging ·
+ * next action, chip row (factory · target+risk dot · aging ·
  * first flag). Nothing else lives on the face; everything else is in the sheet.
  */
 import type { DragEvent } from "react";
@@ -12,12 +12,6 @@ import { cn } from "@/lib/utils";
 
 /** DB rows type `stage`/`category` as plain strings; the pure helpers want the unions. */
 const asPdCard = (p: PdProject): PdCardLike => p as unknown as PdCardLike;
-
-function ownerInitials(fullName: string | null | undefined): string {
-  if (!fullName) return "?";
-  const parts = fullName.trim().split(/\s+/).filter(Boolean);
-  return parts.slice(0, 2).map((w) => w[0]!.toUpperCase()).join("") || "?";
-}
 
 const DOT_CLASS = { g: "bg-green-500", a: "bg-amber-500", r: "bg-red-500" } as const;
 
@@ -71,19 +65,9 @@ export function PdCard({ project, todayIso, selected, dragging, onOpen, onDragSt
         dragging && "opacity-40",
       )}
     >
-      <div className="flex items-start gap-2">
-        <p className="min-w-0 flex-1 truncate text-sm font-medium leading-5" title={project.name}>
-          {project.name}
-        </p>
-        {project.owner && (
-          <span
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground"
-            title={project.owner.full_name ?? undefined}
-          >
-            {ownerInitials(project.owner.full_name)}
-          </span>
-        )}
-      </div>
+      <p className="min-w-0 truncate text-sm font-medium leading-5" title={project.name}>
+        {project.name}
+      </p>
 
       {project.next_action && (
         <p className="mt-0.5 truncate text-xs text-muted-foreground" title={project.next_action}>

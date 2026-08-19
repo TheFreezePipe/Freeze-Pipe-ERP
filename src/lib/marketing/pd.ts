@@ -122,7 +122,6 @@ export function gateMissing(card: PdCardLike, to: PdStage): string[] {
     case "prototype_sent": // Phase 2 adds the sample-received rule
       break;
     case "ready_to_begin":
-      if (!card.owner_id) m.push("owner");
       if (!card.display_category) m.push("display_category");
       if (blank(card.hypothesis)) m.push("hypothesis");
       if (!card.target_launch_date) m.push("target_launch_date");
@@ -130,7 +129,6 @@ export function gateMissing(card: PdCardLike, to: PdStage): string[] {
     case "china_working":
       if (!card.supplier_id) m.push("supplier_id");
       if (card.target_unit_cost == null) m.push("target_unit_cost");
-      if (card.msrp == null) m.push("msrp");
       if (!card.spec_sent_at) m.push("spec_sent_at");
       break;
     case "ready_for_confirmation":

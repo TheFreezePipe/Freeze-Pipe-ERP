@@ -34,7 +34,6 @@ import {
   usePdProjectNotes,
   type PdProjectWithRefs,
 } from "@/lib/hooks/use-pd";
-import { useProfiles } from "@/lib/hooks/use-profiles";
 import { useSuppliers } from "@/lib/hooks/use-suppliers";
 import { useProducts } from "@/lib/hooks/use-products";
 import { CostBasisEditor, EditableValue, FieldRow, MarginLine, SectionTitle, type EditableOption } from "./PdFields";
@@ -107,7 +106,6 @@ type BodyProps = Omit<PdCardSheetProps, "open" | "onOpenChange" | "project"> & {
 function SheetBody({ project: p, onRequestMove, onRequestArchive, todayIso }: BodyProps) {
   const { isAdmin } = useAuth();
   const { save, pending } = usePdFieldSave(p.id);
-  const { data: profiles = [] } = useProfiles();
   const { data: suppliers = [] } = useSuppliers({ activeOnly: true });
   const { data: products = [] } = useProducts();
 
@@ -122,13 +120,6 @@ function SheetBody({ project: p, onRequestMove, onRequestArchive, todayIso }: Bo
   const branded = brandedSpecRequired(card);
   const [costsOpen, setCostsOpen] = useState(false);
 
-  const ownerOptions = useMemo<EditableOption[]>(
-    () =>
-      profiles
-        .filter((pr) => pr.is_active && !pr.supplier_id)
-        .map((pr) => ({ value: pr.id, label: pr.full_name || pr.email })),
-    [profiles],
-  );
   const supplierOptions = useMemo<EditableOption[]>(
     () => suppliers.map((s) => ({ value: s.id, label: s.name })),
     [suppliers],
@@ -165,20 +156,6 @@ function SheetBody({ project: p, onRequestMove, onRequestArchive, todayIso }: Bo
               className="text-lg font-semibold"
             />
             <Badge variant="outline">{PD_STAGE_LABEL[stage]}</Badge>
-          </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <span className="inline-flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">Owner</span>
-              <EditableValue
-                kind="select"
-                clearable
-                options={ownerOptions}
-                value={p.owner_id}
-                missing={missing.has("owner_id")}
-                onCommit={(v) => void save({ owner_id: str(v) })}
-                display={p.owner ? p.owner.full_name || "—" : undefined}
-              />
-            </span>
           </div>
         </div>
 

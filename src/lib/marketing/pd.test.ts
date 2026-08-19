@@ -73,20 +73,18 @@ describe("workback", () => {
 });
 
 describe("gateMissing mirrors fn_pd_gate_missing", () => {
-  it("good_ideas → ready_to_begin wants owner, category, hypothesis, target", () => {
+  it("good_ideas → ready_to_begin wants category, hypothesis, target", () => {
     expect(gateMissing(card(), "ready_to_begin")).toEqual([
-      "owner",
       "display_category",
       "hypothesis",
       "target_launch_date",
     ]);
   });
 
-  it("→ china_working wants factory, target cost, MSRP, spec sent", () => {
+  it("→ china_working wants factory, target cost, spec sent (MSRP waits for RFC)", () => {
     expect(gateMissing(card(), "china_working")).toEqual([
       "supplier_id",
       "target_unit_cost",
-      "msrp",
       "spec_sent_at",
     ]);
   });
