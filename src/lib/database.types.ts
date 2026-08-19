@@ -1885,6 +1885,7 @@ export type Database = {
           created_by: string | null
           display_category: string | null
           drop_tag: string | null
+          golden_sample_id: string | null
           hypothesis: string | null
           id: string
           insert_cards: string | null
@@ -1926,6 +1927,7 @@ export type Database = {
           created_by?: string | null
           display_category?: string | null
           drop_tag?: string | null
+          golden_sample_id?: string | null
           hypothesis?: string | null
           id?: string
           insert_cards?: string | null
@@ -1967,6 +1969,7 @@ export type Database = {
           created_by?: string | null
           display_category?: string | null
           drop_tag?: string | null
+          golden_sample_id?: string | null
           hypothesis?: string | null
           id?: string
           insert_cards?: string | null
@@ -2023,6 +2026,13 @@ export type Database = {
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_pd_projects_golden_sample_id_fkey"
+            columns: ["golden_sample_id"]
+            isOneToOne: false
+            referencedRelation: "mkt_pd_samples"
             referencedColumns: ["id"]
           },
           {
@@ -2086,6 +2096,136 @@ export type Database = {
             columns: ["supplier_id"]
             isOneToOne: false
             referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mkt_pd_sample_photos: {
+        Row: {
+          caption: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          sample_id: string
+          sort_order: number
+          storage_path: string
+        }
+        Insert: {
+          caption?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          sample_id: string
+          sort_order?: number
+          storage_path: string
+        }
+        Update: {
+          caption?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          sample_id?: string
+          sort_order?: number
+          storage_path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mkt_pd_sample_photos_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_pd_sample_photos_sample_id_fkey"
+            columns: ["sample_id"]
+            isOneToOne: false
+            referencedRelation: "mkt_pd_samples"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mkt_pd_samples: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          factory_acknowledged_at: string | null
+          factory_eta: string | null
+          feedback_sent_at: string | null
+          id: string
+          is_golden: boolean
+          project_id: string
+          received_at: string | null
+          requested_at: string
+          round_no: number
+          sample_type: string
+          tracking_no: string | null
+          updated_at: string
+          verdict: string | null
+          verdict_at: string | null
+          verdict_by: string | null
+          verdict_notes: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          factory_acknowledged_at?: string | null
+          factory_eta?: string | null
+          feedback_sent_at?: string | null
+          id?: string
+          is_golden?: boolean
+          project_id: string
+          received_at?: string | null
+          requested_at?: string
+          round_no: number
+          sample_type?: string
+          tracking_no?: string | null
+          updated_at?: string
+          verdict?: string | null
+          verdict_at?: string | null
+          verdict_by?: string | null
+          verdict_notes?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          factory_acknowledged_at?: string | null
+          factory_eta?: string | null
+          feedback_sent_at?: string | null
+          id?: string
+          is_golden?: boolean
+          project_id?: string
+          received_at?: string | null
+          requested_at?: string
+          round_no?: number
+          sample_type?: string
+          tracking_no?: string | null
+          updated_at?: string
+          verdict?: string | null
+          verdict_at?: string | null
+          verdict_by?: string | null
+          verdict_notes?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mkt_pd_samples_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_pd_samples_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "mkt_pd_projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_pd_samples_verdict_by_fkey"
+            columns: ["verdict_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -4615,6 +4755,10 @@ export type Database = {
       rpc_pd_reorder: {
         Args: { p_project_id: string; p_sort_index: number }
         Returns: undefined
+      }
+      rpc_pd_sample_save: {
+        Args: { p_project_id: string; p_sample: Json }
+        Returns: Json
       }
       rpc_promote_user_to_supplier: {
         Args: { p_supplier_id: string; p_target_user_id: string }

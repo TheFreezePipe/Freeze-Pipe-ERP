@@ -8,7 +8,7 @@
 import { toast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
 import { computeListD2C, type ListD2CResult } from "@/lib/inventory-math";
-import type { PdCardLike, PdStage } from "@/lib/marketing/pd";
+import type { PdCardLike, PdStage, PdVerdict } from "@/lib/marketing/pd";
 import { useUpdatePdProject, type PdProjectUpdate, type PdProjectWithRefs } from "@/lib/hooks/use-pd";
 import type { SKUEconomics } from "@/types/database";
 
@@ -57,11 +57,29 @@ export const NONE = "__none__";
 // ---------------------------------------------------------------------------
 
 export function toCardLike(p: PdProjectWithRefs): PdCardLike {
+  const newest = p.samples?.[0];
   return {
     ...p,
     stage: p.stage as PdStage,
     category: p.category === "fillable" || p.category === "non_fillable" ? p.category : null,
+    last_sample: newest
+      ? {
+          round_no: newest.round_no,
+          received_at: newest.received_at,
+          verdict: (newest.verdict as PdVerdict | null) ?? null,
+          factory_acknowledged_at: newest.factory_acknowledged_at,
+          photo_count: newest.photos?.length ?? 0,
+        }
+      : null,
   };
+}
+
+/** Newest photo across all rounds (board-card cover), or null. */
+export function coverPhotoPath(p: PdProjectWithRefs): string | null {
+  for (const s of p.samples ?? []) {
+    if (s.photos.length > 0) return s.photos[0].storage_path;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -69,8 +87,16 @@ export function toCardLike(p: PdProjectWithRefs): PdCardLike {
 // ---------------------------------------------------------------------------
 
 export const COST_KEYS = [
-  { key: "sea_freight_cost_per_unit", label: "Sea freight / unit", kind: "money" },
-  { key: "air_freight_cost_per_unit", label: "Air freight / unit", kind: "money" },
+  {
+    key: "sea_freight_cost_per_unit",
+    label: "Sea freight / unit",
+    kind: "money",
+  },
+  {
+    key: "air_freight_cost_per_unit",
+    label: "Air freight / unit",
+    kind: "money",
+  },
   { key: "pct_sea", label: "Sea %", kind: "number" },
   { key: "pct_air", label: "Air %", kind: "number" },
   { key: "glycerin_cost_us", label: "Glycerin", kind: "money" },
@@ -184,7 +210,11 @@ export function usePdFieldSave(projectId: string) {
     update.mutateAsync({ id: projectId, patch }).then(
       () => true,
       (e: unknown) => {
-        toast({ title: "Save failed", description: describeError(e), variant: "destructive" });
+        toast({
+          title: "Save failed",
+          description: describeError(e),
+          variant: "destructive",
+        });
         return false;
       },
     );

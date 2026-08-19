@@ -72,6 +72,42 @@ export interface PdCardLike {
   sku_code: string | null;
   linked_sku_id: string | null;
   linked_factory_order_id: string | null;
+  /** Newest sample round (Phase 2); undefined/null when no rounds exist. */
+  last_sample?: PdSampleLike | null;
+}
+
+export const PD_VERDICTS = ["approved", "approved_with_changes", "revise", "rejected"] as const;
+export type PdVerdict = (typeof PD_VERDICTS)[number];
+export const PD_VERDICT_LABEL: Record<PdVerdict, string> = {
+  approved: "Approved",
+  approved_with_changes: "Approved w/ changes",
+  revise: "Revise",
+  rejected: "Rejected",
+};
+
+export const PD_SAMPLE_TYPES = ["prototype", "pre_production", "first_off"] as const;
+export type PdSampleType = (typeof PD_SAMPLE_TYPES)[number];
+export const PD_SAMPLE_TYPE_LABEL: Record<PdSampleType, string> = {
+  prototype: "Prototype",
+  pre_production: "Pre-production",
+  first_off: "First off",
+};
+
+/** The slice of a sample round the gate needs (mirrors fn_pd_gate_missing's last_rd). */
+export interface PdSampleLike {
+  round_no: number;
+  received_at: string | null;
+  verdict: PdVerdict | null;
+  factory_acknowledged_at: string | null;
+  photo_count: number;
+}
+
+/** Does the newest round satisfy the RFC verdict rule? */
+export function sampleVerdictOk(s: PdSampleLike | null | undefined): boolean {
+  if (!s || !s.verdict) return false;
+  if (s.verdict === "approved") return true;
+  if (s.verdict === "approved_with_changes") return !!s.factory_acknowledged_at;
+  return false;
 }
 
 export const SPEC_FIELDS = ["packaging", "logo_placement", "koozie", "insert_cards"] as const;
@@ -103,6 +139,9 @@ export const PD_FIELD_LABEL: Record<string, string> = {
   sku_code: "SKU code",
   product_created: "Product created",
   factory_order: "Factory order",
+  sample_received: "Sample in hand",
+  sample_verdict: "Sample approved",
+  sample_photo: "Sample photo",
 };
 
 const blank = (v: string | null | undefined) => !v || v.trim() === "";
@@ -117,7 +156,9 @@ export function gateMissing(card: PdCardLike, to: PdStage): string[] {
     case "purgatory":
     case "good_ideas":
     case "halted":
-    case "prototype_sent": // Phase 2 adds the sample-received rule
+      break;
+    case "prototype_sent":
+      if (!card.last_sample?.received_at) m.push("sample_received");
       break;
     case "ready_to_begin":
       if (!card.display_category) m.push("display_category");
@@ -138,6 +179,8 @@ export function gateMissing(card: PdCardLike, to: PdStage): string[] {
         if (blank(card.koozie)) m.push("koozie");
         if (blank(card.insert_cards)) m.push("insert_cards");
       }
+      if (!sampleVerdictOk(card.last_sample)) m.push("sample_verdict");
+      if (!card.last_sample || card.last_sample.photo_count === 0) m.push("sample_photo");
       if (card.msrp == null) m.push("msrp");
       if (!card.category) m.push("category");
       if (card.carton_qty == null) m.push("carton_qty");
@@ -185,7 +228,9 @@ export interface DeadlineRow {
 /** The deadline chain for a card, with per-row state; null when no target date. */
 export function deadlineChain(card: PdCardLike, todayIso: string): DeadlineRow[] | null {
   if (!card.target_launch_date) return null;
-  const ch: WorkbackChain = workback(card.target_launch_date, { sampleLoopDays: SAMPLE_LOOP_DAYS });
+  const ch: WorkbackChain = workback(card.target_launch_date, {
+    sampleLoopDays: SAMPLE_LOOP_DAYS,
+  });
   const row = (key: DeadlineRow["key"], label: string, date: string, done: boolean): DeadlineRow => ({
     key,
     label,
@@ -204,7 +249,10 @@ export function deadlineChain(card: PdCardLike, todayIso: string): DeadlineRow[]
     row("launch", "Launch", ch.launch, false),
   ];
   if (!orderDone) {
-    rows[1].air = { date: ch.orderByAir, days: daysBetween(todayIso, ch.orderByAir) };
+    rows[1].air = {
+      date: ch.orderByAir,
+      days: daysBetween(todayIso, ch.orderByAir),
+    };
   }
   return rows;
 }
@@ -222,11 +270,7 @@ export function riskDot(card: PdCardLike, todayIso: string): RiskDot {
 }
 
 /** Card-face flags (owner: flag on the card, nothing in the 8am email). */
-export function cardFlags(
-  card: PdCardLike,
-  todayIso: string,
-  opts: { hasFactoryOrderLine?: boolean } = {},
-): string[] {
+export function cardFlags(card: PdCardLike, todayIso: string, opts: { hasFactoryOrderLine?: boolean } = {}): string[] {
   const out: string[] = [];
   if (card.stage === "ordered" || card.stage === "halted" || card.stage === "purgatory") return out;
   const n = nextDeadline(deadlineChain(card, todayIso));

@@ -37,6 +37,7 @@ import {
 import { useSuppliers } from "@/lib/hooks/use-suppliers";
 import { useProducts } from "@/lib/hooks/use-products";
 import { CostBasisEditor, EditableValue, FieldRow, MarginLine, SectionTitle, type EditableOption } from "./PdFields";
+import { PdSamplesBlock } from "./PdSamples";
 import { fmtDate, relDays, toCardLike, usePdFieldSave } from "./pd-field-utils";
 
 export interface PdCardSheetProps {
@@ -424,6 +425,9 @@ function SheetBody({ project: p, onRequestMove, onRequestArchive, todayIso }: Bo
           </div>
         </div>
       </div>
+
+      {/* Samples (Phase 2) */}
+      <PdSamplesBlock project={p} missing={missing} todayIso={todayIso} />
 
       {/* Margin + cost basis */}
       <div className="space-y-2">

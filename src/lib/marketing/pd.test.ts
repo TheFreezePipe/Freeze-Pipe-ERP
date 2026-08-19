@@ -10,7 +10,9 @@ import {
   brandedSpecRequired,
   marginTone,
   nextStage,
+  sampleVerdictOk,
   type PdCardLike,
+  type PdSampleLike,
 } from "./pd";
 
 const TODAY = "2026-08-19";
@@ -38,6 +40,15 @@ const card = (over: Partial<PdCardLike> = {}): PdCardLike => ({
   sku_code: null,
   linked_sku_id: null,
   linked_factory_order_id: null,
+  ...over,
+});
+
+const round = (over: Partial<PdSampleLike> = {}): PdSampleLike => ({
+  round_no: 1,
+  received_at: "2026-08-15",
+  verdict: null,
+  factory_acknowledged_at: null,
+  photo_count: 0,
   ...over,
 });
 
@@ -87,7 +98,13 @@ describe("gateMissing mirrors fn_pd_gate_missing", () => {
     ]);
   });
 
-  it("→ ready_for_confirmation: full spec + margin basis + product for a branded category", () => {
+  it("→ prototype_sent needs a round in hand", () => {
+    expect(gateMissing(card(), "prototype_sent")).toEqual(["sample_received"]);
+    expect(gateMissing(card({ last_sample: round({ received_at: null }) }), "prototype_sent")).toEqual(["sample_received"]);
+    expect(gateMissing(card({ last_sample: round() }), "prototype_sent")).toEqual([]);
+  });
+
+  it("→ ready_for_confirmation: full spec + sample evidence + margin basis + product for a branded category", () => {
     const m = gateMissing(card({ display_category: "Bongs" }), "ready_for_confirmation");
     expect(m).toEqual([
       "quoted_unit_cost",
@@ -97,6 +114,8 @@ describe("gateMissing mirrors fn_pd_gate_missing", () => {
       "logo_placement",
       "koozie",
       "insert_cards",
+      "sample_verdict",
+      "sample_photo",
       "msrp",
       "category",
       "carton_qty",
@@ -122,8 +141,21 @@ describe("gateMissing mirrors fn_pd_gate_missing", () => {
       packaging: "poly", logo_placement: "none", koozie: "No", insert_cards: "fill guide",
       msrp: 34.95, category: "fillable", carton_qty: 50, cost_basis_confirmed: true,
       sku_code: "34-DNA-AMB", linked_sku_id: "sku-1",
+      last_sample: round({ verdict: "approved", photo_count: 2 }),
     });
     expect(gateMissing(full, "ready_for_confirmation")).toEqual([]);
+  });
+
+  it("sample verdict rule: approved, or approved-with-changes once the factory acks; photo on the newest round", () => {
+    expect(sampleVerdictOk(null)).toBe(false);
+    expect(sampleVerdictOk(round({ verdict: null }))).toBe(false);
+    expect(sampleVerdictOk(round({ verdict: "revise" }))).toBe(false);
+    expect(sampleVerdictOk(round({ verdict: "approved" }))).toBe(true);
+    expect(sampleVerdictOk(round({ verdict: "approved_with_changes" }))).toBe(false);
+    expect(sampleVerdictOk(round({ verdict: "approved_with_changes", factory_acknowledged_at: "2026-08-19" }))).toBe(true);
+    const m = gateMissing(card({ last_sample: round({ verdict: "approved", photo_count: 0 }) }), "ready_for_confirmation");
+    expect(m).not.toContain("sample_verdict");
+    expect(m).toContain("sample_photo");
   });
 
   it("→ ordered needs the product and a factory order", () => {

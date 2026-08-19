@@ -5,15 +5,19 @@
  */
 import type { DragEvent } from "react";
 import { format, parseISO } from "date-fns";
-import { aging, cardFlags, riskDot, type PdCardLike } from "@/lib/marketing/pd";
+import { Star } from "lucide-react";
+import { aging, cardFlags, riskDot } from "@/lib/marketing/pd";
 import { dropTagColor } from "@/lib/marketing/drop-colors";
-import type { PdProject, PdProjectWithRefs } from "@/lib/hooks/use-pd";
+import type { PdProjectWithRefs } from "@/lib/hooks/use-pd";
 import { cn } from "@/lib/utils";
+import { coverPhotoPath, toCardLike } from "./pd-field-utils";
+import { usePdPhotoUrl } from "./pd-photo-context";
 
-/** DB rows type `stage`/`category` as plain strings; the pure helpers want the unions. */
-const asPdCard = (p: PdProject): PdCardLike => p as unknown as PdCardLike;
-
-const DOT_CLASS = { g: "bg-green-500", a: "bg-amber-500", r: "bg-red-500" } as const;
+const DOT_CLASS = {
+  g: "bg-green-500",
+  a: "bg-amber-500",
+  r: "bg-red-500",
+} as const;
 
 function fmtShort(iso: string): string {
   try {
@@ -36,11 +40,14 @@ export interface PdCardProps {
 }
 
 export function PdCard({ project, todayIso, selected, dragging, onOpen, onDragStart, onDragEnd, onDragOver, onDrop }: PdCardProps) {
-  const card = asPdCard(project);
+  const card = toCardLike(project);
   const age = aging(card, todayIso);
   const dot = project.target_launch_date ? riskDot(card, todayIso) : null;
   const flags = cardFlags(card, todayIso);
   const factory = project.supplier?.code ?? null;
+  const newest = project.samples[0] ?? null;
+  const golden = project.samples.some((s) => s.is_golden);
+  const coverUrl = usePdPhotoUrl(coverPhotoPath(project));
 
   return (
     <div
@@ -58,26 +65,47 @@ export function PdCard({ project, todayIso, selected, dragging, onOpen, onDragSt
       onDragEnd={onDragEnd}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      style={project.drop_tag ? { borderLeftWidth: 3, borderLeftColor: dropTagColor(project.drop_tag) } : undefined}
+      style={
+        project.drop_tag
+          ? {
+              borderLeftWidth: 3,
+              borderLeftColor: dropTagColor(project.drop_tag),
+            }
+          : undefined
+      }
       className={cn(
         "group cursor-pointer rounded-md border border-border bg-card px-2.5 py-2 text-left shadow-sm transition-colors hover:border-foreground/30",
         selected && "border-primary ring-1 ring-primary",
         dragging && "opacity-40",
       )}
     >
-      <p className="min-w-0 truncate text-sm font-medium leading-5" title={project.name}>
-        {project.name}
-      </p>
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="min-w-0 truncate text-sm font-medium leading-5" title={project.name}>
+            {project.name}
+          </p>
+          {project.next_action && (
+            <p className="mt-0.5 truncate text-xs text-muted-foreground" title={project.next_action}>
+              {project.next_action}
+            </p>
+          )}
+        </div>
+        {coverUrl && <img src={coverUrl} alt="" loading="lazy" className="h-10 w-10 shrink-0 rounded object-cover" draggable={false} />}
+      </div>
 
-      {project.next_action && (
-        <p className="mt-0.5 truncate text-xs text-muted-foreground" title={project.next_action}>
-          {project.next_action}
-        </p>
-      )}
-
-      {(factory || project.target_launch_date || age.expected != null || flags.length > 0) && (
+      {(factory || newest || project.target_launch_date || age.expected != null || flags.length > 0) && (
         <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[10px] leading-4">
           {factory && <span className="rounded border border-border px-1 text-muted-foreground">{factory}</span>}
+          {newest && (
+            <span
+              className={cn(
+                "inline-flex items-center gap-0.5 rounded border px-1 tabular-nums",
+                golden ? "border-amber-500/40 text-amber-400" : "border-border text-muted-foreground",
+              )}
+            >
+              {golden && <Star className="h-2.5 w-2.5 fill-current" />}R{newest.round_no}
+            </span>
+          )}
           {project.target_launch_date && (
             <span className="inline-flex items-center gap-1 rounded border border-border px-1 tabular-nums text-muted-foreground">
               {dot && <span className={cn("h-1.5 w-1.5 rounded-full", DOT_CLASS[dot])} />}

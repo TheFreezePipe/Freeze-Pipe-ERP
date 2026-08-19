@@ -11,15 +11,17 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PdCardSheet, PdMoveSheet } from "@/components/marketing/pd";
 import { PdCard } from "@/components/marketing/pd/PdCard";
+import { PdPhotoUrlContext } from "@/components/marketing/pd/pd-photo-context";
+import { coverPhotoPath, toCardLike } from "@/components/marketing/pd/pd-field-utils";
 import {
   usePdBoard,
   useCreatePdProject,
   useMovePdProject,
   useReorderPdProject,
-  type PdProject,
+  usePdPhotoUrls,
   type PdProjectWithRefs,
 } from "@/lib/hooks/use-pd";
-import { PD_LANES, PD_STAGES, PD_STAGE_LABEL, needsReview, riskDot, type PdCardLike, type PdStage } from "@/lib/marketing/pd";
+import { PD_LANES, PD_STAGES, PD_STAGE_LABEL, needsReview, riskDot, type PdStage } from "@/lib/marketing/pd";
 import { useAuth } from "@/lib/auth-context";
 import { useUrlFilter } from "@/lib/use-url-filter";
 import { useToast } from "@/hooks/use-toast";
@@ -73,8 +75,7 @@ function stageOf(p: PdProjectWithRefs): PdStage {
   return p.stage as PdStage;
 }
 
-/** DB rows type `stage`/`category` as plain strings; the pure helpers want the unions. */
-const asPdCard = (p: PdProject): PdCardLike & PdProject => p as unknown as PdCardLike & PdProject;
+const EMPTY_URLS: Record<string, string> = {};
 
 // ── Small presentational pieces ─────────────────────────────────────────────
 function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
@@ -309,6 +310,10 @@ export default function ProductDevelopment() {
     [board],
   );
 
+  // Card covers: one batched signed-URL call for every card that has a photo.
+  const coverPaths = useMemo(() => board.map(coverPhotoPath).filter((x): x is string => !!x), [board]);
+  const { data: photoUrls = EMPTY_URLS } = usePdPhotoUrls(coverPaths);
+
   const q = query.trim().toLowerCase();
   const visible = useMemo(
     () =>
@@ -318,7 +323,7 @@ export default function ProductDevelopment() {
         if (filters.factories.length && (!p.supplier?.code || !filters.factories.includes(p.supplier.code))) return false;
         if (filters.categories.length && (!p.display_category || !filters.categories.includes(p.display_category))) return false;
         if (filters.mine && (!uid || p.owner_id !== uid)) return false;
-        if (filters.review && !needsReview(asPdCard(p), todayIso)) return false;
+        if (filters.review && !needsReview({ ...toCardLike(p), last_reviewed_at: p.last_reviewed_at, created_at: p.created_at }, todayIso)) return false;
         return true;
       }),
     [board, q, filters, uid, todayIso],
@@ -343,7 +348,7 @@ export default function ProductDevelopment() {
       if (s === "purgatory") parked++;
       if (!IN_FLIGHT.includes(s)) continue;
       inFlight++;
-      const dot = p.target_launch_date ? riskDot(asPdCard(p), todayIso) : null;
+      const dot = p.target_launch_date ? riskDot(toCardLike(p), todayIso) : null;
       if (dot === "g") g++;
       else if (dot === "a") a++;
       else if (dot === "r") r++;
@@ -501,66 +506,68 @@ export default function ProductDevelopment() {
         <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">Loading…</div>
       ) : (
         <div className="overflow-x-auto pb-2">
-          <div className="grid min-w-[1100px] items-start gap-2" style={{ gridTemplateColumns }}>
-            {rails.purgatory ? (
-              <Lane
-                {...laneProps}
-                stage="purgatory"
-                cards={purgatoryCards}
-                over={overStage === "purgatory"}
-                collapsedBody={false}
-                showFactoryCounts={false}
-                onHeaderClick={() => setRails((r) => ({ ...r, purgatory: false }))}
-              />
-            ) : (
-              <Rail
-                stage="purgatory"
-                count={purgatoryCards.length}
-                drag={drag}
-                over={overStage === "purgatory"}
-                onClick={() => setRails((r) => ({ ...r, purgatory: true }))}
-                onDragOverLane={setOverStage}
-                onDrop={handleDrop}
-              />
-            )}
-
-            {PD_LANES.map((stage) => {
-              const cards = byStage.get(stage) ?? [];
-              return (
+          <PdPhotoUrlContext.Provider value={photoUrls}>
+            <div className="grid min-w-[1100px] items-start gap-2" style={{ gridTemplateColumns }}>
+              {rails.purgatory ? (
                 <Lane
-                  key={stage}
                   {...laneProps}
-                  stage={stage}
-                  cards={cards}
-                  over={overStage === stage}
-                  collapsedBody={!!q && cards.length === 0}
-                  showFactoryCounts={FACTORY_COUNT_LANES.includes(stage)}
+                  stage="purgatory"
+                  cards={purgatoryCards}
+                  over={overStage === "purgatory"}
+                  collapsedBody={false}
+                  showFactoryCounts={false}
+                  onHeaderClick={() => setRails((r) => ({ ...r, purgatory: false }))}
                 />
-              );
-            })}
+              ) : (
+                <Rail
+                  stage="purgatory"
+                  count={purgatoryCards.length}
+                  drag={drag}
+                  over={overStage === "purgatory"}
+                  onClick={() => setRails((r) => ({ ...r, purgatory: true }))}
+                  onDragOverLane={setOverStage}
+                  onDrop={handleDrop}
+                />
+              )}
 
-            {rails.halted ? (
-              <Lane
-                {...laneProps}
-                stage="halted"
-                cards={haltedCards}
-                over={overStage === "halted"}
-                collapsedBody={false}
-                showFactoryCounts={false}
-                onHeaderClick={() => setRails((r) => ({ ...r, halted: false }))}
-              />
-            ) : (
-              <Rail
-                stage="halted"
-                count={haltedCards.length}
-                drag={drag}
-                over={overStage === "halted"}
-                onClick={() => setRails((r) => ({ ...r, halted: true }))}
-                onDragOverLane={setOverStage}
-                onDrop={handleDrop}
-              />
-            )}
-          </div>
+              {PD_LANES.map((stage) => {
+                const cards = byStage.get(stage) ?? [];
+                return (
+                  <Lane
+                    key={stage}
+                    {...laneProps}
+                    stage={stage}
+                    cards={cards}
+                    over={overStage === stage}
+                    collapsedBody={!!q && cards.length === 0}
+                    showFactoryCounts={FACTORY_COUNT_LANES.includes(stage)}
+                  />
+                );
+              })}
+
+              {rails.halted ? (
+                <Lane
+                  {...laneProps}
+                  stage="halted"
+                  cards={haltedCards}
+                  over={overStage === "halted"}
+                  collapsedBody={false}
+                  showFactoryCounts={false}
+                  onHeaderClick={() => setRails((r) => ({ ...r, halted: false }))}
+                />
+              ) : (
+                <Rail
+                  stage="halted"
+                  count={haltedCards.length}
+                  drag={drag}
+                  over={overStage === "halted"}
+                  onClick={() => setRails((r) => ({ ...r, halted: true }))}
+                  onDragOverLane={setOverStage}
+                  onDrop={handleDrop}
+                />
+              )}
+            </div>
+          </PdPhotoUrlContext.Provider>
         </div>
       )}
 
