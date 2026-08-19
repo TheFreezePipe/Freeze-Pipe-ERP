@@ -130,7 +130,7 @@ export function EditableValue({
           className,
         )}
       >
-        <span className="truncate">{display ?? renderValue(kind, value, options)}</span>
+        <span className="break-words">{display ?? renderValue(kind, value, options)}</span>
         {!disabled && <Pencil className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-60" />}
       </button>
     );
@@ -146,7 +146,7 @@ export function EditableValue({
           if (!o) cancel();
         }}
       >
-        <SelectTrigger className={cn("h-7 w-auto min-w-[8rem] text-xs", inputClassName)} autoFocus>
+        <SelectTrigger className={cn("h-7 w-full min-w-[8rem] text-xs", inputClassName)} autoFocus>
           <SelectValue placeholder="—" />
         </SelectTrigger>
         <SelectContent>
@@ -207,11 +207,16 @@ export function EditableValue({
 }
 
 /** Label + value row used by every block in the card sheet. */
+/**
+ * Label / value row. A fixed label column and a flexible value column — the
+ * value gets every pixel the label doesn't use and wraps rather than
+ * truncating, so "Studio" never renders as "Stu…".
+ */
 export function FieldRow({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
   return (
-    <div className={cn("flex items-center justify-between gap-3 py-1", className)}>
-      <span className="shrink-0 text-xs text-muted-foreground">{label}</span>
-      <div className="min-w-0 text-sm">{children}</div>
+    <div className={cn("grid grid-cols-[7.5rem_minmax(0,1fr)] items-baseline gap-x-3 py-1", className)}>
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <div className="min-w-0 text-right text-sm">{children}</div>
     </div>
   );
 }

@@ -94,7 +94,7 @@ export function PdCardSheet({
 }: PdCardSheetProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-2xl">
+      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-3xl">
         {project && (
           <SheetBody
             key={project.id}
@@ -309,7 +309,7 @@ function SheetBody({ project: p, onRequestMove, onRequestKill, onRequestArchive,
       </div>
 
       {/* Product / Spec */}
-      <div className="grid grid-cols-2 gap-x-8">
+      <div className="grid gap-x-10 gap-y-2 md:grid-cols-2">
         <div>
           <SectionTitle>Product</SectionTitle>
           <FieldRow label="Category">
@@ -436,7 +436,7 @@ function SheetBody({ project: p, onRequestMove, onRequestKill, onRequestArchive,
       {/* Factory */}
       <div>
         <SectionTitle>Factory</SectionTitle>
-        <div className="grid grid-cols-2 gap-x-8">
+        <div className="grid gap-x-10 gap-y-2 md:grid-cols-2">
           <div>
             <FieldRow label="Factory">
               <EditableValue
