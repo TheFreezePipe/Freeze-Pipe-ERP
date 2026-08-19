@@ -1,7 +1,7 @@
 /**
  * Product Development — card sheet. Every field is click-to-edit (silent
- * save, toast on error); stage decisions (Advance / Recycle / Kill /
- * Archive) are admin-only and hand off to the Move sheet via callbacks.
+ * save, toast on error); Advance (and Archive, Purgatory-only) are admin-only
+ * and hand off to the Move sheet; recycle/kill are the board's drag gestures.
  * Gate preview comes from gateMissing (pd.ts) and paints missing values red.
  */
 import { useMemo, useState } from "react";
@@ -11,12 +11,6 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
@@ -24,7 +18,6 @@ import { useAuth } from "@/lib/auth-context";
 import { DISPLAY_CATEGORIES } from "@/lib/constants";
 import {
   PD_FIELD_LABEL,
-  PD_LANES,
   PD_STAGE_LABEL,
   brandedSpecRequired,
   cardFlags,
@@ -52,7 +45,8 @@ export interface PdCardSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onRequestMove: (to: PdStage, mode: "advance" | "recycle") => void;
-  onRequestKill: () => void;
+  /** Kept for the board contract; the sheet no longer renders a Kill button (drag to Halted). */
+  onRequestKill?: () => void;
   onRequestArchive: () => void;
   todayIso: string;
 }
@@ -88,7 +82,6 @@ export function PdCardSheet({
   open,
   onOpenChange,
   onRequestMove,
-  onRequestKill,
   onRequestArchive,
   todayIso,
 }: PdCardSheetProps) {
@@ -100,7 +93,6 @@ export function PdCardSheet({
             key={project.id}
             project={project}
             onRequestMove={onRequestMove}
-            onRequestKill={onRequestKill}
             onRequestArchive={onRequestArchive}
             todayIso={todayIso}
           />
@@ -112,7 +104,7 @@ export function PdCardSheet({
 
 type BodyProps = Omit<PdCardSheetProps, "open" | "onOpenChange" | "project"> & { project: PdProjectWithRefs };
 
-function SheetBody({ project: p, onRequestMove, onRequestKill, onRequestArchive, todayIso }: BodyProps) {
+function SheetBody({ project: p, onRequestMove, onRequestArchive, todayIso }: BodyProps) {
   const { isAdmin } = useAuth();
   const { save, pending } = usePdFieldSave(p.id);
   const { data: profiles = [] } = useProfiles();
@@ -149,10 +141,6 @@ function SheetBody({ project: p, onRequestMove, onRequestKill, onRequestArchive,
     [products],
   );
 
-  const recycleLanes: PdStage[] = PD_LANES.includes(stage)
-    ? [...PD_LANES.slice(0, PD_LANES.indexOf(stage)), "purgatory"]
-    : [...PD_LANES];
-  const showKill = stage !== "purgatory" && stage !== "halted";
   const showArchive = stage === "purgatory";
 
   const str = (v: string | number | null) => (v == null ? null : String(v));
@@ -191,18 +179,12 @@ function SheetBody({ project: p, onRequestMove, onRequestKill, onRequestArchive,
                 display={p.owner ? p.owner.full_name || "—" : undefined}
               />
             </span>
-            <span className="inline-flex min-w-0 items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">Next</span>
-              <EditableValue
-                kind="text"
-                maxLength={60}
-                value={p.next_action}
-                onCommit={(v) => void save({ next_action: str(v) })}
-              />
-            </span>
           </div>
         </div>
 
+        {/* Decisions: Advance lives here; recycle/kill are the board's drag
+            gestures (drop on an earlier lane / the Halted rail). Archive is
+            Purgatory-only and has no lane to drag to, so it stays. */}
         {isAdmin && (
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
             {next && (
@@ -216,28 +198,6 @@ function SheetBody({ project: p, onRequestMove, onRequestKill, onRequestArchive,
                 {PD_STAGE_LABEL[next]}
               </Button>
             )}
-            {recycleLanes.length > 0 && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="outline">
-                    Recycle
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {recycleLanes.map((lane) => (
-                    <DropdownMenuItem key={lane} onSelect={() => onRequestMove(lane, "recycle")}>
-                      {PD_STAGE_LABEL[lane]}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-            {showKill && (
-              <Button size="sm" variant="destructive" onClick={onRequestKill}>
-                Kill
-              </Button>
-            )}
             {showArchive && (
               <Button size="sm" variant="outline" onClick={onRequestArchive}>
                 Archive
@@ -247,7 +207,7 @@ function SheetBody({ project: p, onRequestMove, onRequestKill, onRequestArchive,
         )}
       </div>
 
-      {/* Hypothesis + flags */}
+      {/* Hypothesis + next action + flags */}
       <div className="space-y-1.5">
         <EditableValue
           kind="textarea"
@@ -255,6 +215,15 @@ function SheetBody({ project: p, onRequestMove, onRequestKill, onRequestArchive,
           missing={missing.has("hypothesis")}
           onCommit={(v) => void save({ hypothesis: str(v) })}
           className="w-full whitespace-pre-wrap"
+        />
+        {/* The card face's one-line "what's this waiting on"; edited here, shown on the board. */}
+        <EditableValue
+          kind="text"
+          maxLength={60}
+          value={p.next_action}
+          display={p.next_action ? `→ ${p.next_action}` : undefined}
+          onCommit={(v) => void save({ next_action: str(v) })}
+          className="text-sm text-muted-foreground"
         />
         {flags.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
