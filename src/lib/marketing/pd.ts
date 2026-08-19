@@ -58,7 +58,6 @@ export interface PdCardLike {
   hypothesis: string | null;
   target_launch_date: string | null;
   supplier_id: string | null;
-  target_unit_cost: number | null;
   msrp: number | null;
   spec_sent_at: string | null;
   quoted_unit_cost: number | null;
@@ -89,7 +88,6 @@ export const PD_FIELD_LABEL: Record<string, string> = {
   hypothesis: "Hypothesis",
   target_launch_date: "Target launch",
   supplier_id: "Factory",
-  target_unit_cost: "Target cost",
   msrp: "MSRP",
   spec_sent_at: "Spec sent",
   quoted_unit_cost: "Quoted cost",
@@ -128,7 +126,6 @@ export function gateMissing(card: PdCardLike, to: PdStage): string[] {
       break;
     case "china_working":
       if (!card.supplier_id) m.push("supplier_id");
-      if (card.target_unit_cost == null) m.push("target_unit_cost");
       if (!card.spec_sent_at) m.push("spec_sent_at");
       break;
     case "ready_for_confirmation":

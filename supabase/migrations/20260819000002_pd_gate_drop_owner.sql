@@ -1,7 +1,8 @@
 -- Owner review 2026-08-19: (1) an Owner field is noise for a three-person PD
 -- team — drop it from the Good Ideas → Ready to Begin gate (column stays;
 -- created_by still records who made the card); (2) MSRP is NOT a prerequisite
--- for China Working — it is decided at Ready for Confirmation with the margin.
+-- for China Working — it is decided at Ready for Confirmation with the margin;
+-- (3) target cost removed altogether (the quote is the number that matters).
 -- Mirrors src/lib/marketing/pd.ts.
 CREATE OR REPLACE FUNCTION public.fn_pd_gate_missing(p_project_id uuid, p_to_stage text)
 RETURNS text[]
@@ -26,7 +27,6 @@ BEGIN
       IF p.target_launch_date IS NULL THEN missing := array_append(missing, 'target_launch_date'); END IF;
     WHEN 'china_working' THEN
       IF p.supplier_id IS NULL THEN missing := array_append(missing, 'supplier_id'); END IF;
-      IF p.target_unit_cost IS NULL THEN missing := array_append(missing, 'target_unit_cost'); END IF;
       IF p.spec_sent_at IS NULL THEN missing := array_append(missing, 'spec_sent_at'); END IF;
     WHEN 'prototype_sent' THEN
       NULL;

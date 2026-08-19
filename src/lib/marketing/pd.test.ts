@@ -24,7 +24,6 @@ const card = (over: Partial<PdCardLike> = {}): PdCardLike => ({
   hypothesis: null,
   target_launch_date: null,
   supplier_id: null,
-  target_unit_cost: null,
   msrp: null,
   spec_sent_at: null,
   quoted_unit_cost: null,
@@ -81,10 +80,9 @@ describe("gateMissing mirrors fn_pd_gate_missing", () => {
     ]);
   });
 
-  it("→ china_working wants factory, target cost, spec sent (MSRP waits for RFC)", () => {
+  it("→ china_working wants factory + spec sent", () => {
     expect(gateMissing(card(), "china_working")).toEqual([
       "supplier_id",
-      "target_unit_cost",
       "spec_sent_at",
     ]);
   });

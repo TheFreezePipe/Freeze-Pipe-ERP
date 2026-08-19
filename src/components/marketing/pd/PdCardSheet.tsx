@@ -395,14 +395,6 @@ function SheetBody({ project: p, onRequestMove, onRequestArchive, todayIso }: Bo
                 display={p.supplier ? p.supplier.name : undefined}
               />
             </FieldRow>
-            <FieldRow label="Target cost">
-              <EditableValue
-                kind="money"
-                value={p.target_unit_cost}
-                missing={missing.has("target_unit_cost")}
-                onCommit={(v) => void save({ target_unit_cost: num(v) })}
-              />
-            </FieldRow>
             <FieldRow label="Quoted cost">
               <EditableValue
                 kind="money"
