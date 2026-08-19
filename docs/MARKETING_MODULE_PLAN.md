@@ -234,6 +234,149 @@ When a PD card reaches **Ordered**:
 
 This gives every product a full **genealogy**: idea → stages → order → freight → launch → first sales. That genealogy is exactly the training data the launch-estimate learner uses (§4).
 
+#### 2.4.1 Phase D design — LOCKED with owner 2026-08-18 (supersedes §0.10 mechanics where they differ)
+
+Research basis: Stage-Gate/Accolade/Productboard gate practice, Businessmap/Linear/Jira
+kanban mechanics, Anvyl/Backbone/Delogue hardware-NPD-with-China-factories, Linear/Basecamp
+small-team PM UX; skeptic-synthesized, then reconciled with owner answers.
+
+**Board.** Six working lanes (Good Ideas · Ready to Begin · China Working · Prototype Sent ·
+Ready for Confirmation · Ordered); Purgatory = collapsed left rail, Halted = collapsed right
+rail (both expand to a lane on click). Plain counts in headers — **no WIP limits** (owner:
+factories are hungry and cannot be over-burdened). Card face, exactly: cover thumb (latest
+sample photo or nothing) · name · owner · 40-char next_action · chips: factory · target date
+w/ risk dot · aging pill "12d / 21d" (days in stage vs stage expected days) · "Round N" ·
+**flag** when a deadline condition trips (see below). Mine toggle (Waiting on you · deadline
+inside 14d · sample in hand no verdict · over expected days) and Review toggle (untouched
+Purgatory 90d+, over 2× expected, deadline passed, FO canceled). Drag opens the same Move
+sheet as the keyboard: forward = advance, backward = recycle (reason required), onto Halted
+= kill (reason required); Purgatory→Good Ideas commits instantly. **No hold state** (cut).
+Manual archive only — nothing moves on a timer.
+
+**Deadline chain (the heart of the card; owner: exact launch date from day one).** Every card
+may carry `target_launch_date`; when set, the system computes and shows time-remaining to
+each: launch → **arrive by** (launch − arrival buffer, default 12d, owner window 10–14) →
+**ship from factory by** (arrival − sea transit, default 35d = median from the Sea Transit
+report) → **order by** (ship-by − manufacturing 30d; owner 2026-08-19: "manufacturing ~30d,
+transit ~35d" — NOT the combined 75 used by Launches.tsx today) → **spec to factory by**
+(order-by − expected days of China Working + Prototype Sent). Beneath the chain, the **air
+fallback**: latest order-by if flown (air transit ~15d). One shared helper
+`src/lib/marketing/workback.ts` (split LEAD_DAYS=75 in Launches.tsx into MFG + transit) feeds
+card, calendar, Launches page. Risk dot keys off the NEXT deadline. Cards without a date show
+no chain — nothing invented.
+
+**Card = progressive product record (owner: reuse existing fields, maximize completeness).**
+The commercial block IS the product_skus + sku_economics field set filled in across stages:
+display_category (reused as intended_category), fillable/non_fillable, target retail, carton
+qty, then economics — raw cost from the quote, freight/glycerin/labor/packing seeded from a
+**comparable SKU's real sku_economics row**. Margin chip uses the SKU Economics page's exact
+landed-cost math — **real numbers only, no guesstimate percentages**. "Create the product" at
+Ready for Confirmation = promote already-complete fields into product_skus + sku_economics
+(inactive until arrival). **Sample fees out of scope** (cut from cards, gates, sunk cost).
+
+**Gates (computed from typed fields by fn_pd_gate_missing; missing fields render red and
+disappear as filled; no checklists).** Purgatory→Good Ideas: none. Good Ideas→Ready to Begin:
+owner, display_category, hypothesis, target_launch_date. Ready to Begin→China Working:
+supplier, target cost, target retail, spec_sent_at (round 1 auto-created). China Working→
+Prototype Sent: current round received_at (auto-move). Prototype Sent→Ready for Confirmation:
+latest round verdict approved / approved-with-changes (+ factory ack), ≥1 photo, quoted cost,
+MOQ, lead days, **and the Spec block** (owner 2026-08-19): `packaging` for every product;
+`logo_placement`, `koozie` (bool + color), `insert_cards` for every product EXCEPT
+display_category = 'Accessories' (waived entirely — fields not rendered). Spec fields are
+editable from Ready to Begin on (they travel with the spec sheet when known) but only
+HARD-GATE here, at the move into Ready for Confirmation. Ready for Confirmation→Ordered:
+**SKU code assigned + product created**, then
+**DETECTED, not clicked** — a trigger on factory_order_items watches for the first order line
+carrying that SKU and auto-moves the card to Ordered (links FO, snapshots promise, stamps
+ordered_at). Placing the PO the normal way IS the handoff. FO cancellation → card surfaces in
+Review as "FO canceled", never silently moved.
+
+**Deciders.** All stage moves, kills, and Ready-for-Confirmation promotion: **admin only** (owner:
+"only admins for now"); managers/staff open cards, add notes, log sample rounds/photos. One
+config flag to widen later.
+
+**Samples.** mkt_pd_samples rounds (round_no, requested_at, factory_eta, received_at, verdict
+approved/approved_with_changes/revise/rejected + notes, feedback_sent_at, factory_acknowledged_at)
++ mkt_pd_sample_photos in a private Storage bucket `pd-samples` (first Storage use in the app;
+client-side resize, signed URLs). Revise/rejected verdict auto-writes recycle → China Working
+and opens round N+1. Approved pre-production round = golden sample (badge; FO reference).
+
+**Handoffs.** Entering Ready for Confirmation drafts mkt_launches (+ planned-name member,
+pd_project_id) → appears in Launches with existing readiness/order-by chips and as a dashed
+"Planned" pill on the calendar; killed while still planned-only → launch deleted in-transaction.
+Ordered (auto) links mkt_launch_skus.sku_id/factory_order_id and stores promise jsonb.
+
+**Outcomes (owner: review step cut — keep the data).** No verdict/lesson ritual. Every ordered
+card shows a read-only outcomes block the moment numbers exist: expected vs actual first-30d
+units (nightly job already fills mkt_launch_skus.actual_first_30d_units), launch slip vs promise,
+quoted vs realized FO unit cost. Genealogy chip row: Launch → SKU → FO → Freight → first-30d.
+
+**Flag (owner: card flag yes, 8am email no).** Card-face flag + Review list entry when: order-by
+inside 14d with no FO line on the SKU · sample in hand 7d+ without verdict · any chain deadline
+passed. Nothing leaves the board; no email, no notifications.
+
+**Cuts (confirmed).** Hold state; WIP limits; sample fees; review ritual; checklist templates,
+scorecards, swimlanes, saved views, subtasks/threads/@mentions, notifications, funnel/CFD
+dashboards, milestone table (work-back is computed), tooling as FO line (schema forbids).
+
+**Data model delta.** mkt_pd_projects, mkt_pd_stage_events (append-only, outcome enum advance/
+recycle/kill/revive/archive, reason CHECK), mkt_pd_samples, mkt_pd_sample_photos, mkt_pd_notes,
+mkt_pd_stage_config (expected_days per stage); mkt_launches.pd_project_id; bucket pd-samples;
+views v_mkt_pd_board (+ chain + risk + missing_for_next) and v_mkt_pd_stage_stats; RPCs
+fn_pd_gate_missing, rpc_pd_move, rpc_pd_kill, rpc_pd_archive, rpc_pd_reorder, rpc_pd_sample_save,
+rpc_pd_promote_product, plus the factory_order_items trigger for Ordered detection.
+product_skus / factory_orders schemas unchanged.
+
+**Final pre-build decisions (owner 2026-08-19).**
+- *New idea:* "+ New idea" asks for a name only and lands the card in **Good Ideas** (owner =
+  creator). Purgatory is a demotion, not a starting lane.
+- *Studio drops:* one card per product, always (per-product gates, sample rounds, SKU code).
+  An optional **drop tag** groups cards; grouped cards share a **color band** on the board,
+  and at Ready for Confirmation the group drafts ONE mkt_launches row (kind studio_drop) with
+  one member per card, instead of one launch per card. Ungrouped cards draft a single launch.
+- *Visibility:* admin + manager see the board; no staff access for now ("may update later").
+- *Promotion is FORCED, not reminded:* moving a card into Ready for Confirmation requires
+  creating the SKU **through the existing SKU Costs create flow** (the New SKU dialog from
+  src/pages/economics/SKUList.tsx, pre-filled from the card: SKU code, name, category
+  fillable/non_fillable, display_category, retail, carton qty) — the dialog is opened BY the
+  Move sheet and the move completes only when product_skus + the sku_economics row exist.
+  The card then displays the real SKU and deep-links to /economics/:id. This replaces the
+  "link to PD card?" safety chip: the SKU cannot exist without the card, so the
+  Ordered-detection trigger always has its match.
+- *MSRP + confirmed costs are a gate at Ready for Confirmation (owner 2026-08-19): margin
+  is decided BEFORE anything is ordered.* Required to enter RFC: `msrp` (the card's target
+  retail becomes the committed MSRP — same field, relabeled at this stage; it seeds
+  product_skus.retail_price), `quoted_unit_cost` (the factory quote), and a complete
+  cost basis for the landed-margin estimate: sea freight/unit, glycerin + labor (fillable
+  only), packing material + labor, shipping, card fees — seeded from the comparable SKU's
+  sku_economics row and **confirmed** (each seeded value is shown as "from <SKU>" until the
+  mover accepts or overrides it; unconfirmed seeds block the gate). The margin chip calls
+  `computeListD2C` from src/lib/inventory-math.ts — the SKU Costs page's own function —
+  never a reimplementation, so the number on the card equals the number on the SKU's
+  economics page the day it exists. On promotion, the confirmed values write the new
+  sku_economics row (nancy/yx raw cost from the quote by supplier, freight, glycerin, labor,
+  packing, shipping, cc fees), so the SKU lands with complete economics. The Move sheet for
+  this one transition is therefore three steps: spec fields → MSRP + cost confirmation
+  (margin shown live) → create SKU via the SKU Costs dialog. Everywhere else Move is one click.
+  Margin floor: no hard block, but the chip reads amber/red against configurable thresholds
+  (default amber < 50%, red < 40% contribution) so a thin-margin order is a visible choice.
+
+**Navigation (owner 2026-08-19: sidebar, accepting the density).** Fifth item in the sidebar
+Marketing group — Calendar · Sales · Launches · Broadcasts · **Product Development** — route
+`/marketing/product-development`, visible admin + manager like its siblings; a **count badge**
+on the item = size of the Review list (flags), so the row tells you something at a glance.
+Cross-links: Launches rows drafted from a card carry a "from PD" chip → card; calendar
+"Planned" pill → card; card genealogy row → launch / SKU / FO. Deep link
+`?card=<id>` opens the board with that sheet open. NOT on the Dashboard, NOT in the 8am email.
+
+**Phasing.** 1 — board as PM tool (lanes, cards, gates, deadline chain, notes, flag; Ordered
+links an existing SKU/FO manually) · 2 — samples + photos + verdict auto-moves · 3 — product
+promotion at RFC, FO-detection trigger, draft launch + calendar pills, shared workback helper,
+outcomes block. Owner seeds cards by hand from the spreadsheet.
+
+**Prototype:** reviewed + iterated with owner 2026-08-19 (v4) —
+https://claude.ai/code/artifact/4309514b-4062-4f93-b5f2-854f45ebd1fa
+
 ### 2.5 Forecasting / learning layer
 
 **`fc_predictions`** — the **prediction ledger** (freeze every estimate at the moment it's made; this is what makes the system *learn*).

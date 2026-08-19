@@ -35,6 +35,7 @@ import SalesList from "@/pages/marketing/SalesList";
 import SalesDetail from "@/pages/marketing/SalesDetail";
 import Launches from "@/pages/marketing/Launches";
 import Broadcasts from "@/pages/marketing/Broadcasts";
+import ProductDevelopment from "@/pages/marketing/ProductDevelopment";
 import SettingsPage from "@/pages/settings/Settings";
 import SupplierDashboard from "@/pages/supplier/SupplierDashboard";
 import FactoryOrdersList from "@/pages/supplier/FactoryOrdersList";
@@ -233,6 +234,11 @@ export default function App() {
               <Route path="/marketing/broadcasts" element={
                 <RequireRole allowed={["admin", "manager"]}>
                   <Broadcasts />
+                </RequireRole>
+              } />
+              <Route path="/marketing/product-development" element={
+                <RequireRole allowed={["admin", "manager"]}>
+                  <ProductDevelopment />
                 </RequireRole>
               } />
 

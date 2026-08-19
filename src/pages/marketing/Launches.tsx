@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { Plus, Rocket, Pencil, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,9 +11,7 @@ import { launchPhase, LAUNCH_PHASE_COLOR, LAUNCH_PHASE_LABEL, isPastKey, dayKeyO
 import { toast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
 import { format, parseISO, addDays } from "date-fns";
-
-/** Factory lead time used to back-compute the last safe order date. */
-const LEAD_DAYS = 75;
+import { orderByFromReadyBy } from "@/lib/marketing/workback";
 
 function fmt(d: string | null): string {
   if (!d) return "—";
@@ -175,7 +174,19 @@ export default function Launches() {
                   return (
                   <tr key={l.id} className="border-t border-border/40 hover:bg-muted/20">
                     <td className="px-4 py-3">
-                      <p className="font-medium">{l.name}</p>
+                      <p className="font-medium">
+                        {l.name}
+                        {/* Drafted from a Product Development card — link back to it. */}
+                        {l.pd_project_id && (
+                          <Link
+                            to={`/marketing/product-development?card=${l.pd_project_id}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="ml-2 rounded border border-primary/40 px-1.5 py-0.5 text-[10px] font-normal text-primary hover:bg-primary/10"
+                          >
+                            from PD
+                          </Link>
+                        )}
+                      </p>
                       {memberLabels.length > 0 && (
                         <p className="mt-0.5 truncate text-xs text-muted-foreground" title={memberLabels.join(", ")}>
                           {l.skus.length} {l.skus.length === 1 ? "product" : "products"} · {memberLabels.join(", ")}
@@ -219,7 +230,8 @@ export default function Launches() {
                           })()}
                           {/* Order window derived from ready-by − lead time */}
                           {phase === "upcoming" && l.inventory_ready_by && (() => {
-                            const orderBy = format(addDays(parseISO(l.inventory_ready_by), -LEAD_DAYS), "yyyy-MM-dd");
+                            // Shared work-back helper (manufacturing + sea transit) — same math the PD board uses.
+                            const orderBy = orderByFromReadyBy(l.inventory_ready_by);
                             const passed = todayKey > orderBy;
                             const anyDry = realMembers.some((m) => (onHandBySku.get(m.sku_id!) ?? 0) <= 0 && !incomingBySku.has(m.sku_id!));
                             if (passed && anyDry) {

@@ -1611,6 +1611,7 @@ export type Database = {
           notes: string | null
           ops_confirmed_at: string | null
           ops_confirmed_by: string | null
+          pd_project_id: string | null
           preorder: boolean
           updated_at: string
         }
@@ -1626,6 +1627,7 @@ export type Database = {
           notes?: string | null
           ops_confirmed_at?: string | null
           ops_confirmed_by?: string | null
+          pd_project_id?: string | null
           preorder?: boolean
           updated_at?: string
         }
@@ -1641,6 +1643,7 @@ export type Database = {
           notes?: string | null
           ops_confirmed_at?: string | null
           ops_confirmed_by?: string | null
+          pd_project_id?: string | null
           preorder?: boolean
           updated_at?: string
         }
@@ -1657,6 +1660,13 @@ export type Database = {
             columns: ["ops_confirmed_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_launches_pd_project_id_fkey"
+            columns: ["pd_project_id"]
+            isOneToOne: false
+            referencedRelation: "mkt_pd_projects"
             referencedColumns: ["id"]
           },
         ]
@@ -1816,6 +1826,338 @@ export type Database = {
             columns: ["sale_id"]
             isOneToOne: false
             referencedRelation: "mkt_sales"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mkt_pd_notes: {
+        Row: {
+          body: string
+          created_at: string
+          created_by: string | null
+          id: string
+          occurred_on: string
+          project_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          occurred_on?: string
+          project_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          occurred_on?: string
+          project_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mkt_pd_notes_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_pd_notes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "mkt_pd_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mkt_pd_projects: {
+        Row: {
+          archive_reason: string | null
+          archived_at: string | null
+          carton_qty: number | null
+          category: string | null
+          comparable_sku_id: string | null
+          cost_basis: Json | null
+          cost_basis_confirmed: boolean
+          created_at: string
+          created_by: string | null
+          display_category: string | null
+          drop_tag: string | null
+          hypothesis: string | null
+          id: string
+          insert_cards: string | null
+          koozie: string | null
+          last_reviewed_at: string | null
+          linked_factory_order_id: string | null
+          linked_launch_id: string | null
+          linked_sku_id: string | null
+          logo_placement: string | null
+          moq_qty: number | null
+          msrp: number | null
+          name: string
+          next_action: string | null
+          ordered_at: string | null
+          owner_id: string | null
+          packaging: string | null
+          promise: Json | null
+          quoted_lead_days: number | null
+          quoted_unit_cost: number | null
+          sku_code: string | null
+          sort_index: number
+          spec_sent_at: string | null
+          stage: string
+          stage_entered_at: string
+          supplier_id: string | null
+          target_launch_date: string | null
+          target_unit_cost: number | null
+          updated_at: string
+        }
+        Insert: {
+          archive_reason?: string | null
+          archived_at?: string | null
+          carton_qty?: number | null
+          category?: string | null
+          comparable_sku_id?: string | null
+          cost_basis?: Json | null
+          cost_basis_confirmed?: boolean
+          created_at?: string
+          created_by?: string | null
+          display_category?: string | null
+          drop_tag?: string | null
+          hypothesis?: string | null
+          id?: string
+          insert_cards?: string | null
+          koozie?: string | null
+          last_reviewed_at?: string | null
+          linked_factory_order_id?: string | null
+          linked_launch_id?: string | null
+          linked_sku_id?: string | null
+          logo_placement?: string | null
+          moq_qty?: number | null
+          msrp?: number | null
+          name: string
+          next_action?: string | null
+          ordered_at?: string | null
+          owner_id?: string | null
+          packaging?: string | null
+          promise?: Json | null
+          quoted_lead_days?: number | null
+          quoted_unit_cost?: number | null
+          sku_code?: string | null
+          sort_index?: number
+          spec_sent_at?: string | null
+          stage?: string
+          stage_entered_at?: string
+          supplier_id?: string | null
+          target_launch_date?: string | null
+          target_unit_cost?: number | null
+          updated_at?: string
+        }
+        Update: {
+          archive_reason?: string | null
+          archived_at?: string | null
+          carton_qty?: number | null
+          category?: string | null
+          comparable_sku_id?: string | null
+          cost_basis?: Json | null
+          cost_basis_confirmed?: boolean
+          created_at?: string
+          created_by?: string | null
+          display_category?: string | null
+          drop_tag?: string | null
+          hypothesis?: string | null
+          id?: string
+          insert_cards?: string | null
+          koozie?: string | null
+          last_reviewed_at?: string | null
+          linked_factory_order_id?: string | null
+          linked_launch_id?: string | null
+          linked_sku_id?: string | null
+          logo_placement?: string | null
+          moq_qty?: number | null
+          msrp?: number | null
+          name?: string
+          next_action?: string | null
+          ordered_at?: string | null
+          owner_id?: string | null
+          packaging?: string | null
+          promise?: Json | null
+          quoted_lead_days?: number | null
+          quoted_unit_cost?: number | null
+          sku_code?: string | null
+          sort_index?: number
+          spec_sent_at?: string | null
+          stage?: string
+          stage_entered_at?: string
+          supplier_id?: string | null
+          target_launch_date?: string | null
+          target_unit_cost?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mkt_pd_projects_comparable_sku_id_fkey"
+            columns: ["comparable_sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_pd_projects_comparable_sku_id_fkey"
+            columns: ["comparable_sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus_active"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_pd_projects_comparable_sku_id_fkey"
+            columns: ["comparable_sku_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_pd_projects_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_pd_projects_linked_factory_order_id_fkey"
+            columns: ["linked_factory_order_id"]
+            isOneToOne: false
+            referencedRelation: "factory_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_pd_projects_linked_factory_order_id_fkey"
+            columns: ["linked_factory_order_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_factory_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_pd_projects_linked_launch_id_fkey"
+            columns: ["linked_launch_id"]
+            isOneToOne: true
+            referencedRelation: "mkt_launches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_pd_projects_linked_sku_id_fkey"
+            columns: ["linked_sku_id"]
+            isOneToOne: true
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_pd_projects_linked_sku_id_fkey"
+            columns: ["linked_sku_id"]
+            isOneToOne: true
+            referencedRelation: "product_skus_active"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_pd_projects_linked_sku_id_fkey"
+            columns: ["linked_sku_id"]
+            isOneToOne: true
+            referencedRelation: "supplier_portal_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_pd_projects_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_pd_projects_stage_fkey"
+            columns: ["stage"]
+            isOneToOne: false
+            referencedRelation: "mkt_pd_stage_config"
+            referencedColumns: ["stage"]
+          },
+          {
+            foreignKeyName: "mkt_pd_projects_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mkt_pd_stage_config: {
+        Row: {
+          expected_days: number | null
+          label: string
+          sort_order: number
+          stage: string
+        }
+        Insert: {
+          expected_days?: number | null
+          label: string
+          sort_order: number
+          stage: string
+        }
+        Update: {
+          expected_days?: number | null
+          label?: string
+          sort_order?: number
+          stage?: string
+        }
+        Relationships: []
+      }
+      mkt_pd_stage_events: {
+        Row: {
+          decided_at: string
+          decided_by: string | null
+          from_stage: string | null
+          id: string
+          meta: Json | null
+          outcome: string
+          project_id: string
+          reason: string | null
+          to_stage: string | null
+        }
+        Insert: {
+          decided_at?: string
+          decided_by?: string | null
+          from_stage?: string | null
+          id?: string
+          meta?: Json | null
+          outcome: string
+          project_id: string
+          reason?: string | null
+          to_stage?: string | null
+        }
+        Update: {
+          decided_at?: string
+          decided_by?: string | null
+          from_stage?: string | null
+          id?: string
+          meta?: Json | null
+          outcome?: string
+          project_id?: string
+          reason?: string | null
+          to_stage?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mkt_pd_stage_events_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_pd_stage_events_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "mkt_pd_projects"
             referencedColumns: ["id"]
           },
         ]
@@ -4063,6 +4405,11 @@ export type Database = {
       }
       fire_daily_report: { Args: never; Returns: undefined }
       fire_youtube_summary: { Args: never; Returns: undefined }
+      fn_pd_gate_missing: {
+        Args: { p_project_id: string; p_to_stage: string }
+        Returns: string[]
+      }
+      jwt_is_admin: { Args: never; Returns: boolean }
       jwt_is_internal: { Args: never; Returns: boolean }
       jwt_supplier_id: { Args: never; Returns: string }
       jwt_supplier_scope: { Args: never; Returns: string[] }
@@ -4239,6 +4586,35 @@ export type Database = {
           material_id: string
           units_consumed: number
         }[]
+      }
+      rpc_pd_archive: {
+        Args: { p_project_id: string; p_reason: string }
+        Returns: Json
+      }
+      rpc_pd_kill: {
+        Args: { p_project_id: string; p_reason: string }
+        Returns: Json
+      }
+      rpc_pd_link_factory_order: {
+        Args: { p_factory_order_id: string; p_project_id: string }
+        Returns: Json
+      }
+      rpc_pd_move: {
+        Args: {
+          p_override?: Json
+          p_project_id: string
+          p_reason?: string
+          p_to_stage: string
+        }
+        Returns: Json
+      }
+      rpc_pd_promote_product: {
+        Args: { p_product: Json; p_project_id: string }
+        Returns: Json
+      }
+      rpc_pd_reorder: {
+        Args: { p_project_id: string; p_sort_index: number }
+        Returns: undefined
       }
       rpc_promote_user_to_supplier: {
         Args: { p_supplier_id: string; p_target_user_id: string }

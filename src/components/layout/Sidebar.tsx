@@ -25,6 +25,7 @@ import {
   Megaphone,
 } from "lucide-react";
 import { useState } from "react";
+import { PdReviewBadge } from "@/components/marketing/pd/PdReviewBadge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -34,6 +35,8 @@ interface NavItem {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   roles: UserRole[];
+  /** Optional live count rendered at the right of the label (e.g. PD Review list). */
+  badge?: React.ComponentType;
 }
 
 interface NavGroup {
@@ -80,6 +83,7 @@ const navGroups: NavGroup[] = [
       { to: "/marketing/sales", label: "Sales", icon: Tag, roles: ["admin", "manager"] },
       { to: "/marketing/launches", label: "Launches", icon: Rocket, roles: ["admin", "manager"] },
       { to: "/marketing/broadcasts", label: "Broadcasts", icon: Megaphone, roles: ["admin", "manager"] },
+      { to: "/marketing/product-development", label: "Product Development", icon: Beaker, roles: ["admin", "manager"], badge: PdReviewBadge },
     ],
   },
   {
@@ -216,6 +220,7 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse, onNavClick
                   >
                     <item.icon className="h-4 w-4 shrink-0" />
                     {!collapsed && <span className="truncate">{item.label}</span>}
+                    {!collapsed && item.badge && <item.badge />}
                   </NavLink>
                 ))}
             </div>
