@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectTrigger,
@@ -68,7 +67,6 @@ export function LaunchFormDialog({ open, onOpenChange, launch, defaultDate, date
   const [kind, setKind] = useState<string>("launch");
   const [launchDate, setLaunchDate] = useState("");
   const [readyBy, setReadyBy] = useState("");
-  const [preorder, setPreorder] = useState(false);
   const [notes, setNotes] = useState("");
   const [members, setMembers] = useState<MemberRow[]>([emptyMember()]);
 
@@ -78,7 +76,6 @@ export function LaunchFormDialog({ open, onOpenChange, launch, defaultDate, date
     setKind(launch?.kind ?? "launch");
     setLaunchDate(dateInput(launch?.launch_date ?? null) || (defaultDate ?? ""));
     setReadyBy(dateInput(launch?.inventory_ready_by ?? null));
-    setPreorder(launch?.preorder ?? false);
     setNotes(launch?.notes ?? "");
     const rows = (launch?.skus ?? [])
       .slice()
@@ -124,7 +121,6 @@ export function LaunchFormDialog({ open, onOpenChange, launch, defaultDate, date
       kind,
       launch_date: launchDate || null,
       inventory_ready_by: readyBy || null,
-      preorder,
       notes: notes.trim() || null,
     };
     try {
@@ -181,11 +177,6 @@ export function LaunchFormDialog({ open, onOpenChange, launch, defaultDate, date
           {datesLocked && (
             <p className="-mt-2 text-[11px] text-amber-400/80">🔒 This launch date has passed — its dates are locked.</p>
           )}
-
-          <div className="flex items-center gap-3">
-            <Switch checked={preorder} onCheckedChange={setPreorder} id="preorder" />
-            <Label htmlFor="preorder" className="cursor-pointer">Pre-order</Label>
-          </div>
 
           {/* Member products */}
           <div className="space-y-2">
