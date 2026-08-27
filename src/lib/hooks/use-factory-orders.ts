@@ -82,7 +82,14 @@ export function useCreateFactoryOrder() {
       }
       return order;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["factory-orders"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["factory-orders"] });
+      // Ordering a pre-launch SKU activates it (trg_activate_sku_on_order).
+      // Stock Levels reads is_active through useInventory's embedded product
+      // join, so both caches must refetch for the SKU to appear immediately.
+      qc.invalidateQueries({ queryKey: ["products"] });
+      qc.invalidateQueries({ queryKey: ["inventory"] });
+    },
   });
 }
 

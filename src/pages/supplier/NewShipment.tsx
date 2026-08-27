@@ -74,10 +74,13 @@ function useVisibleSKUs() {
   return useQuery({
     queryKey: ["supplier", "skus-with-category"],
     queryFn: async () => {
+      // Not-archived rather than active: ordering normally activates a
+      // pre-launch SKU, but a shipment can be logged before its order —
+      // keep pre-launch SKUs pickable.
       const { data, error } = await supabase
         .from("product_skus")
         .select("id, sku, product_name, category")
-        .eq("is_active", true)
+        .is("archived_at", null)
         .order("sku");
       if (error) throw error;
       return (data ?? []) as Array<{

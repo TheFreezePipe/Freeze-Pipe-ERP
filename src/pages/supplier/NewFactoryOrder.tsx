@@ -17,10 +17,13 @@ function useVisibleSKUs() {
   return useQuery({
     queryKey: ["supplier", "skus"],
     queryFn: async () => {
+      // Not-archived rather than active: pre-launch SKUs (PD-promoted)
+      // must be orderable by the factory that quoted them; the first order
+      // line activates the SKU (trg_activate_sku_on_order).
       const { data, error } = await supabase
         .from("product_skus")
         .select("id, sku, product_name, category")
-        .eq("is_active", true)
+        .is("archived_at", null)
         .order("sku");
       if (error) throw error;
       return data as Array<{ id: string; sku: string; product_name: string; category: string }>;

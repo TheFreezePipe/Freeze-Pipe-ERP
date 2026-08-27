@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
 import { addDays, format, parseISO } from "date-fns";
 import { detectCarrier } from "@/lib/freight/detect-carrier";
+import { isPreLaunch } from "@/lib/product-lifecycle";
+import { PreLaunchBadge } from "@/components/shared/PreLaunchBadge";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -235,7 +237,10 @@ export default function FreightNew() {
   );
 
   const availableSKUs = useMemo(() => {
-    const active = products.filter(p => p.is_active);
+    // Active catalog + pre-launch SKUs. Ordering normally activates a
+    // pre-launch SKU (trg_activate_sku_on_order), but freight lines are
+    // sometimes logged without a factory order — keep them pickable.
+    const active = products.filter(p => p.is_active || isPreLaunch(p));
     return active.slice().sort((a, b) => {
       const aUnits = openFactoryUnitsBySKU.get(a.id) ?? 0;
       const bUnits = openFactoryUnitsBySKU.get(b.id) ?? 0;
@@ -1019,6 +1024,7 @@ export default function FreightNew() {
                                       <Badge variant="outline" className="ml-2 text-[9px]">
                                         {p.category === "fillable" ? "Fill" : "Non-Fill"}
                                       </Badge>
+                                      {isPreLaunch(p) && <PreLaunchBadge className="ml-2" />}
                                       {openUnits > 0 && (
                                         <Badge variant="outline" className="ml-1 text-[9px] border-yellow-400/50 text-yellow-400">
                                           {openUnits} on order

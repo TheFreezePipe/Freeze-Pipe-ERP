@@ -18,7 +18,8 @@ import {
   useCreateProduct,
   useForecastDemandMap,
 } from "@/lib/hooks";
-import type { ProductSKU } from "@/types/database";
+import { productLifecycle } from "@/lib/product-lifecycle";
+import { PreLaunchBadge } from "@/components/shared/PreLaunchBadge";
 import { useTableSort, applySort, SortableTh } from "@/components/shared/table-sort";
 
 const emptyForm = {
@@ -54,7 +55,8 @@ export default function SKUList() {
 
   // Filter state. Search hits SKU + product name; selects narrow by
   // display_category and ABC classification. "Show archived" surfaces
-  // SKUs that have archived_at set OR is_active=false.
+  // SKUs with archived_at set; pre-launch SKUs (PD-promoted, not yet
+  // activated) always show.
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [abcFilter, setAbcFilter] = useState<string>("all");
@@ -62,10 +64,7 @@ export default function SKUList() {
 
   const filteredProducts = useMemo(() => {
     const filtered = products.filter((product) => {
-      const archivedAt = (product as ProductSKU & { archived_at?: string | null })
-        .archived_at;
-      const isArchived = !!archivedAt || !product.is_active;
-      if (isArchived && !showArchived) return false;
+      if (productLifecycle(product) === "archived" && !showArchived) return false;
 
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
@@ -131,8 +130,7 @@ export default function SKUList() {
         d2c && (product.retail_price ?? 0) > 0 ? (product.retail_price ?? 0) - d2c.totalD2C : null;
       const monthlyContribution =
         marginPerUnit !== null && demand > 0 ? marginPerUnit * demand : null;
-      const archivedAt = (product as ProductSKU & { archived_at?: string | null }).archived_at;
-      const isArchived = !!archivedAt || !product.is_active;
+      const lifecycle = productLifecycle(product);
       // Discount Lens simulation — exact economics at the promo price
       // (the credit-card fee rescales with the charged price inside the
       // helper; all other cost buckets are price-independent).
@@ -140,7 +138,7 @@ export default function SKUList() {
         lens && econ && d2c && (product.retail_price ?? 0) > 0
           ? applyDiscountToListD2C(d2c, econ, product.retail_price ?? 0, lens.pct, lens.dollar)
           : null;
-      return { product, econ, d2c, demand, marginPerUnit, monthlyContribution, isArchived, sim };
+      return { product, econ, d2c, demand, marginPerUnit, monthlyContribution, lifecycle, sim };
     });
   }, [filteredProducts, economicsById, primaryCostBySkuId, forecastMap, lens]);
 
@@ -397,12 +395,12 @@ export default function SKUList() {
               </tr>
             </thead>
             <tbody>
-              {sortedRows.map(({ product, econ, d2c, demand, marginPerUnit, monthlyContribution, isArchived, sim }) => {
+              {sortedRows.map(({ product, econ, d2c, demand, marginPerUnit, monthlyContribution, lifecycle, sim }) => {
                 return (
                   <tr
                     key={product.id}
                     className={`border-b border-border/50 hover:bg-muted/50 cursor-pointer ${
-                      isArchived ? "opacity-60" : ""
+                      lifecycle === "archived" ? "opacity-60" : ""
                     }${sim && sim.marginPerUnit < 0 ? " bg-red-500/5" : ""}`}
                     onClick={() => navigate(`/economics/${product.id}`)}
                   >
@@ -411,11 +409,12 @@ export default function SKUList() {
                         <div>
                           <div className="flex items-center gap-2">
                             <p className="font-medium">{product.sku}</p>
-                            {isArchived && (
+                            {lifecycle === "archived" && (
                               <Badge variant="outline" className="border-red-500/50 text-red-400 text-[10px]">
                                 archived
                               </Badge>
                             )}
+                            {lifecycle === "pre_launch" && <PreLaunchBadge />}
                           </div>
                           <p className="text-xs text-muted-foreground">{product.product_name}</p>
                         </div>

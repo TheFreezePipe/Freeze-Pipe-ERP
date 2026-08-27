@@ -121,6 +121,9 @@ export function useUpdateProduct() {
       // Prefix invalidation hits both per-id and "all" economics keys.
       qc.invalidateQueries({ queryKey: ["sku-economics"] });
       qc.invalidateQueries({ queryKey: ["sku-supplier-costs"] });
+      //   - `is_active` (the pre-launch Activate button) gates Stock Levels
+      //     through useInventory's embedded product join, not ["products"].
+      qc.invalidateQueries({ queryKey: ["inventory"] });
     },
   });
 }

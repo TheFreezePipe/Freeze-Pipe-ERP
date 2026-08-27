@@ -35,6 +35,8 @@ import {
   useDeleteSkuMaterialConsumption,
 } from "@/lib/hooks";
 import { DEFAULT_CC_FEE_RATE } from "@/lib/inventory-math";
+import { productLifecycle } from "@/lib/product-lifecycle";
+import { PreLaunchBadge } from "@/components/shared/PreLaunchBadge";
 
 const COLORS = ["hsl(205,94%,56%)", "hsl(142,71%,45%)", "hsl(31,97%,56%)", "hsl(270,67%,56%)"];
 
@@ -932,8 +934,24 @@ export default function SKUDetail() {
                 <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
               </button>
             )}
-            {(!!(product as unknown as { archived_at?: string | null }).archived_at || !product.is_active) && (
+            {productLifecycle(product) === "archived" && (
               <Badge variant="outline" className="border-red-500/50 text-red-400">Archived</Badge>
+            )}
+            {productLifecycle(product) === "pre_launch" && (
+              <>
+                <PreLaunchBadge />
+                {isAdmin && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 text-xs"
+                    disabled={updateProduct.isPending}
+                    onClick={() => updateProduct.mutate({ id: product.id, updates: { is_active: true } })}
+                  >
+                    Activate
+                  </Button>
+                )}
+              </>
             )}
           </div>
           {/* Product name — inline editable (admin only). */}

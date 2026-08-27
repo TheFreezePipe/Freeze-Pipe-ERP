@@ -19,6 +19,8 @@ import {
 } from "@/components/ui/select";
 import { Plus, Trash2, Sparkles, AlertTriangle, Megaphone } from "lucide-react";
 import { useUpcomingMarketingBySku, describeSkuSignals } from "@/lib/hooks/use-marketing-signals";
+import { isPreLaunch } from "@/lib/product-lifecycle";
+import { PreLaunchBadge } from "@/components/shared/PreLaunchBadge";
 import {
   buildInTransitMap,
   buildOnOrderMap,
@@ -165,14 +167,17 @@ export function NewFactoryOrderDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const activeProducts = useMemo(
-    () => products.filter((p) => p.is_active).sort((a, b) => a.sku.localeCompare(b.sku)),
+  // Active catalog plus pre-launch SKUs (PD-promoted, not yet activated) —
+  // placing the first factory order is exactly what pre-launch is for, and
+  // doing so activates the SKU (trg_activate_sku_on_order).
+  const orderableProducts = useMemo(
+    () => products.filter((p) => p.is_active || isPreLaunch(p)).sort((a, b) => a.sku.localeCompare(b.sku)),
     [products],
   );
 
   const availableProducts = useMemo(
-    () => activeProducts.filter((p) => !items.some((i) => i.sku_id === p.id)),
-    [activeProducts, items],
+    () => orderableProducts.filter((p) => !items.some((i) => i.sku_id === p.id)),
+    [orderableProducts, items],
   );
 
   // Shared cost + days-of-stock math — identical to the Stock Levels order
@@ -222,7 +227,7 @@ export function NewFactoryOrderDialog({
     const budgetNum = parseFloat(budget) || 0;
     if (budgetNum <= 0) return;
 
-    const candidates = activeProducts
+    const candidates = orderableProducts
       .map((p) => {
         const demand = getEffectiveDemand(p.id, p.monthly_demand, forecastMap);
         const dailyDemand = demand / 30;
@@ -488,6 +493,7 @@ export function NewFactoryOrderDialog({
                       <SelectItem key={p.id} value={p.id}>
                         <span className="font-mono text-xs">{p.sku}</span>
                         <span className="ml-2">{p.product_name}</span>
+                        {isPreLaunch(p) && <PreLaunchBadge className="ml-2" />}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -532,6 +538,7 @@ export function NewFactoryOrderDialog({
                           <td className="px-3 py-2">
                             <div className="font-medium flex items-center gap-1.5">
                               {p.sku}
+                              {isPreLaunch(p) && <PreLaunchBadge />}
                               {mktSignals.has(item.sku_id) && (
                                 <span className="inline-flex shrink-0" title={describeSkuSignals(mktSignals.get(item.sku_id)!)}>
                                   <Megaphone className="h-3 w-3 text-pink-400" />

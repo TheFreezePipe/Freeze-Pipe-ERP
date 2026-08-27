@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth-context";
 import { describeError } from "@/lib/supabase-error";
+import { isPreLaunch } from "@/lib/product-lifecycle";
 
 import { FACTORY_ORDER_STATUS_COLORS as STATUS_COLOR } from "@/lib/status-colors";
 
@@ -878,13 +879,17 @@ export default function FactoryOrderDetail() {
                               </SelectTrigger>
                               <SelectContent>
                                 {allProducts
-                                  .filter((p) => p.is_active)
+                                  .filter((p) => p.is_active || isPreLaunch(p))
                                   .map((p) => (
                                     <SelectItem key={p.id} value={p.id}>
                                       <span className="font-mono text-xs">{p.sku}</span>
                                       <span className="ml-2 text-muted-foreground">
                                         {p.product_name}
                                       </span>
+                                      {/* Inline text, not the Badge: Radix clones SelectItem
+                                          children into the closed trigger, where a Badge div
+                                          gets clipped by its line-clamp. */}
+                                      {isPreLaunch(p) && <span className="ml-2 text-[10px] text-violet-400">pre-launch</span>}
                                     </SelectItem>
                                   ))}
                               </SelectContent>
