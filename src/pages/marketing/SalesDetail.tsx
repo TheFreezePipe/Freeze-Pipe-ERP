@@ -13,7 +13,7 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import { SaleFormDialog } from "@/components/marketing/SaleFormDialog";
 import { OfferFormDialog } from "@/components/marketing/OfferFormDialog";
-import { describeOffer, salePhase, PHASE_COLOR, isPastKey, dayKeyOf } from "@/lib/marketing-format";
+import { describeOffer, salePhase, PHASE_COLOR, PHASE_LABEL, isPastKey, dayKeyOf } from "@/lib/marketing-format";
 import { toast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
 import { format, parseISO } from "date-fns";
@@ -184,7 +184,7 @@ export default function SalesDetail() {
         {(() => {
           const p = salePhase(sale.starts_at, sale.ends_at, todayKey, sale.early_access_starts_at);
           return p ? (
-            <span className={`rounded px-2 py-0.5 text-xs capitalize ${PHASE_COLOR[p]}`}>{p}</span>
+            <span className={`rounded px-2 py-0.5 text-xs ${PHASE_COLOR[p]}`}>{PHASE_LABEL[p]}</span>
           ) : null;
         })()}
       </div>

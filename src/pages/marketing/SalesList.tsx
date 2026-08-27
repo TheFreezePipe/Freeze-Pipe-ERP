@@ -8,7 +8,7 @@ import { useSetSaleApproval } from "@/lib/hooks/use-marketing-signals";
 import { ConfirmCell } from "@/components/marketing/ConfirmCell";
 import { useAuth } from "@/lib/auth-context";
 import { SaleFormDialog } from "@/components/marketing/SaleFormDialog";
-import { salePhase, PHASE_COLOR, isPastKey, dayKeyOf } from "@/lib/marketing-format";
+import { salePhase, PHASE_COLOR, PHASE_LABEL, isPastKey, dayKeyOf } from "@/lib/marketing-format";
 import { format, parseISO } from "date-fns";
 
 function fmt(d: string | null): string {
@@ -107,7 +107,7 @@ export default function SalesList() {
                       {(() => {
                         const p = salePhase(s.starts_at, s.ends_at, todayKey, s.early_access_starts_at);
                         return p ? (
-                          <span className={`rounded px-2 py-0.5 text-xs capitalize ${PHASE_COLOR[p]}`}>{p}</span>
+                          <span className={`rounded px-2 py-0.5 text-xs ${PHASE_COLOR[p]}`}>{PHASE_LABEL[p]}</span>
                         ) : (
                           <span className="text-xs text-muted-foreground/60">no dates</span>
                         );
