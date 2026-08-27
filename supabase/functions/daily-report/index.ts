@@ -68,8 +68,9 @@ interface ReceivingRow {
   carrier_last_movement?: string | null;
 }
 interface LowRow { sku: string; product_name: string; wh_units: number; monthly_demand: number; dos_days: number; in_transit: number; next_eta: string | null; }
-interface MktSale { name: string; starts_at: string; ends_at: string; approval: string; sku_count: number; }
-interface MktLaunch { name: string; kind: string; launch_date: string; approval: string; sku_count: number; }
+// early_access is optional: absent on an older deployed rpc_daily_report.
+interface MktSale { name: string; starts_at: string; ends_at: string; approval: string; sku_count: number; early_access?: string | null; }
+interface MktLaunch { name: string; kind: string; launch_date: string; approval: string; sku_count: number; early_access?: string | null; }
 interface MktBroadcast { name: string; channel: string; scheduled_at: string; }
 interface MktAwaiting { type: string; name: string; date: string; }
 interface MarketingData { sales: MktSale[]; launches: MktLaunch[]; broadcasts: MktBroadcast[]; awaiting_confirmation: MktAwaiting[]; }
@@ -249,12 +250,15 @@ function renderMarketing(d: ReportData): string {
       : ` <span style="color:${AMBER};font-size:11px;">· ${esc(approval)} — not ops-confirmed</span>`;
   const line = (body: string) =>
     `<div style="font-family:${FONT};font-size:13px;color:${SEC};margin-top:5px;">${body}</div>`;
+  // Violet "EA <date>" ahead of the public dates when early access is set.
+  const eaChip = (ea: string | null | undefined) =>
+    ea ? `<span style="color:#a78bfa;">EA ${fmtDate(ea, { month: "short", day: "numeric" })}</span> · ` : "";
   let out = sectionLabel("Marketing · next 14 days");
   for (const s of m.sales) {
-    out += line(`<span style="color:${WHITE};font-weight:700;">SALE</span> ${esc(s.name)} <span style="color:${TER};">· ${fmtDate(s.starts_at, { month: "short", day: "numeric" })}–${fmtDate(s.ends_at, { month: "short", day: "numeric" })} · ${num(s.sku_count)} SKUs</span>${approvalChip(s.approval)}`);
+    out += line(`<span style="color:${WHITE};font-weight:700;">SALE</span> ${esc(s.name)} <span style="color:${TER};">· ${eaChip(s.early_access)}${fmtDate(s.starts_at, { month: "short", day: "numeric" })}–${fmtDate(s.ends_at, { month: "short", day: "numeric" })} · ${num(s.sku_count)} SKUs</span>${approvalChip(s.approval)}`);
   }
   for (const l of m.launches) {
-    out += line(`<span style="color:${BLUE};font-weight:700;">LAUNCH</span> ${esc(l.name)} <span style="color:${TER};">· ${fmtDate(l.launch_date, { month: "short", day: "numeric" })} · ${num(l.sku_count)} SKU${l.sku_count === 1 ? "" : "s"}</span>${approvalChip(l.approval)}`);
+    out += line(`<span style="color:${BLUE};font-weight:700;">LAUNCH</span> ${esc(l.name)} <span style="color:${TER};">· ${eaChip(l.early_access)}${fmtDate(l.launch_date, { month: "short", day: "numeric" })} · ${num(l.sku_count)} SKU${l.sku_count === 1 ? "" : "s"}</span>${approvalChip(l.approval)}`);
   }
   for (const b of m.broadcasts) {
     out += line(`<span style="color:${GREEN};font-weight:700;">${esc(b.channel).toUpperCase()}</span> ${esc(b.name)} <span style="color:${TER};">· ${fmtDate(b.scheduled_at, { month: "short", day: "numeric" })}</span>`);
