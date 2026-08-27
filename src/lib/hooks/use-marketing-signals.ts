@@ -52,9 +52,13 @@ export function useUpcomingMarketingBySku(horizonDays = 60) {
       // ~7-8pm ET the evening before (when `now` crosses 00:00 UTC).
       const todayStart = new Date().toISOString().slice(0, 10);
       const horizonDate = new Date(Date.now() + horizonDays * DAY_MS).toISOString().slice(0, 10);
+      // Sitewide offers expand to the whole catalog — a megaphone on every
+      // row says nothing (owner, 2026-08-27). Only SKU-targeting scopes
+      // (category / sku_set) surface as per-SKU signals.
       const { data, error } = await supabase
         .from("mkt_offer_sku_expansion")
         .select("sku_id, sale_id, sale_name, starts_at, ends_at, approval_status, effective_discount_pct, uplift_pct")
+        .neq("scope", "sitewide")
         .gte("ends_at", todayStart)
         .lte("starts_at", `${horizonDate}T23:59:59Z`);
       if (error) throw error;
