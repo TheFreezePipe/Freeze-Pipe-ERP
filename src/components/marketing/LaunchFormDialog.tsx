@@ -66,6 +66,7 @@ export function LaunchFormDialog({ open, onOpenChange, launch, defaultDate, date
   const [name, setName] = useState("");
   const [kind, setKind] = useState<string>("launch");
   const [launchDate, setLaunchDate] = useState("");
+  const [earlyAccess, setEarlyAccess] = useState("");
   const [readyBy, setReadyBy] = useState("");
   const [notes, setNotes] = useState("");
   const [members, setMembers] = useState<MemberRow[]>([emptyMember()]);
@@ -75,6 +76,7 @@ export function LaunchFormDialog({ open, onOpenChange, launch, defaultDate, date
     setName(launch?.name ?? "");
     setKind(launch?.kind ?? "launch");
     setLaunchDate(dateInput(launch?.launch_date ?? null) || (defaultDate ?? ""));
+    setEarlyAccess(dateInput(launch?.early_access_date ?? null));
     setReadyBy(dateInput(launch?.inventory_ready_by ?? null));
     setNotes(launch?.notes ?? "");
     const rows = (launch?.skus ?? [])
@@ -120,6 +122,7 @@ export function LaunchFormDialog({ open, onOpenChange, launch, defaultDate, date
       name: name.trim(),
       kind,
       launch_date: launchDate || null,
+      early_access_date: earlyAccess || null,
       inventory_ready_by: readyBy || null,
       notes: notes.trim() || null,
     };
@@ -164,7 +167,11 @@ export function LaunchFormDialog({ open, onOpenChange, launch, defaultDate, date
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
+            <div className="space-y-1.5">
+              <Label>Early access <span className="text-xs text-muted-foreground font-normal">optional</span></Label>
+              <Input type="date" value={earlyAccess} max={launchDate || undefined} onChange={(e) => setEarlyAccess(e.target.value)} disabled={datesLocked} />
+            </div>
             <div className="space-y-1.5">
               <Label>Launch date</Label>
               <Input type="date" value={launchDate} onChange={(e) => setLaunchDate(e.target.value)} disabled={datesLocked} />

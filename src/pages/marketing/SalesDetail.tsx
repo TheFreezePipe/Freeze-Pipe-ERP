@@ -182,7 +182,7 @@ export default function SalesDetail() {
         </Button>
         <h1 className="text-2xl font-bold">{sale.name}</h1>
         {(() => {
-          const p = salePhase(sale.starts_at, sale.ends_at, todayKey);
+          const p = salePhase(sale.starts_at, sale.ends_at, todayKey, sale.early_access_starts_at);
           return p ? (
             <span className={`rounded px-2 py-0.5 text-xs capitalize ${PHASE_COLOR[p]}`}>{p}</span>
           ) : null;

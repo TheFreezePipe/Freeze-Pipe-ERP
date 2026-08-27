@@ -222,3 +222,21 @@ describe("launchPhase (date + inventory)", () => {
     expect(launchPhase(null, today, false)).toBeNull();
   });
 });
+
+describe("early access phases", () => {
+  it("sale enters early_access between EA and public start", () => {
+    expect(salePhase("2026-09-01", "2026-09-07", "2026-08-29", "2026-08-30")).toBe("upcoming");
+    expect(salePhase("2026-09-01", "2026-09-07", "2026-08-30", "2026-08-30")).toBe("early_access");
+    expect(salePhase("2026-09-01", "2026-09-07", "2026-09-01", "2026-08-30")).toBe("live");
+    expect(salePhase("2026-09-01", "2026-09-07", "2026-09-08", "2026-08-30")).toBe("ended");
+    // no EA date → unchanged behavior
+    expect(salePhase("2026-09-01", "2026-09-07", "2026-08-30")).toBe("upcoming");
+  });
+
+  it("launch enters early_access between EA and launch day", () => {
+    expect(launchPhase("2026-09-05", "2026-09-02", false, "2026-09-03")).toBe("upcoming");
+    expect(launchPhase("2026-09-05", "2026-09-03", false, "2026-09-03")).toBe("early_access");
+    expect(launchPhase("2026-09-05", "2026-09-05", false, "2026-09-03")).toBe("launched");
+    expect(launchPhase("2026-09-05", "2026-09-06", true, "2026-09-03")).toBe("sold_out");
+  });
+});

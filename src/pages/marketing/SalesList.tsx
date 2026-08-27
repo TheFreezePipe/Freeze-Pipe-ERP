@@ -19,6 +19,10 @@ function fmt(d: string | null): string {
     return d;
   }
 }
+function fmtDay(d: string): string {
+  try { return format(parseISO(d), "MMM d"); } catch { return d; }
+}
+
 function range(s: string | null, e: string | null): string {
   if (!s && !e) return "No dates set";
   return `${fmt(s)} → ${fmt(e)}`;
@@ -91,10 +95,17 @@ export default function SalesList() {
                     onClick={() => navigate(`/marketing/sales/${s.id}`)}
                   >
                     <td className="px-4 py-3 font-medium">{s.name}</td>
-                    <td className="px-4 py-3 tabular-nums text-muted-foreground">{range(s.starts_at, s.ends_at)}</td>
+                    <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                      {s.early_access_starts_at && (
+                        <span className="mr-1.5 rounded border border-violet-500/40 px-1 text-[10px] text-violet-400">
+                          EA {fmtDay(s.early_access_starts_at)}
+                        </span>
+                      )}
+                      {range(s.starts_at, s.ends_at)}
+                    </td>
                     <td className="px-4 py-3">
                       {(() => {
-                        const p = salePhase(s.starts_at, s.ends_at, todayKey);
+                        const p = salePhase(s.starts_at, s.ends_at, todayKey, s.early_access_starts_at);
                         return p ? (
                           <span className={`rounded px-2 py-0.5 text-xs capitalize ${PHASE_COLOR[p]}`}>{p}</span>
                         ) : (

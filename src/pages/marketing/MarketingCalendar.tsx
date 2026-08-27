@@ -212,6 +212,16 @@ export default function MarketingCalendar() {
         const end = dayKeyOf(s.ends_at) ?? start;
         if (end < start) continue;
         const past = isPastKey(start, todayKey);
+        // Early-access days render as their own pills ahead of the public span.
+        const ea = dayKeyOf(s.early_access_starts_at);
+        if (ea && ea < start) {
+          let ek = ea;
+          let eguard = 0;
+          while (ek < start && eguard++ < 30) {
+            push(ek, { id: s.id, type: "sale", label: `EA · ${s.name}`, anchorKey: start, originKey: ek, past, approval: s.approval_status });
+            ek = shiftDayKey(ek, 1);
+          }
+        }
         let k = start;
         let guard = 0;
         while (k <= end && guard++ < 400) {
@@ -224,6 +234,10 @@ export default function MarketingCalendar() {
       for (const l of launches) {
         const k = dayKeyOf(l.launch_date);
         if (!k) continue;
+        const lea = dayKeyOf(l.early_access_date);
+        if (lea && lea < k) {
+          push(lea, { id: l.id, type: "launch", label: `EA · ${l.name}`, anchorKey: k, originKey: lea, past: isPastKey(lea, todayKey), approval: l.approval_status });
+        }
         push(k, { id: l.id, type: "launch", label: l.name, anchorKey: k, originKey: k, past: isPastKey(k, todayKey), approval: l.approval_status });
       }
     }
@@ -284,7 +298,7 @@ export default function MarketingCalendar() {
         if (st >= week0 && st <= rangeEnd) anchor = st;
         else if (st < week0 && en >= todayKey) anchor = todayKey; // ongoing → current week
         if (!anchor) continue;
-        const p = salePhase(st, en, todayKey);
+        const p = salePhase(st, en, todayKey, s.early_access_starts_at);
         rows.push({
           type: "sale", id: s.id, anchor, startKey: st, endKey: en !== st ? en : null, name: s.name, channel: null,
           phaseLabel: p ? PHASE_LABEL[p] : null, phaseCls: p ? PHASE_COLOR[p] : null,
@@ -297,7 +311,7 @@ export default function MarketingCalendar() {
         const k = dayKeyOf(l.launch_date);
         if (!k || k < week0 || k > rangeEnd) continue;
         // No live inventory on this page → sold-out isn't derived here (shows Upcoming/Launched).
-        const p = launchPhase(k, todayKey, false);
+        const p = launchPhase(k, todayKey, false, l.early_access_date);
         rows.push({
           type: "launch", id: l.id, anchor: k, startKey: k, endKey: null, name: l.name, channel: null,
           phaseLabel: p ? LAUNCH_PHASE_LABEL[p] : null, phaseCls: p ? LAUNCH_PHASE_COLOR[p] : null,

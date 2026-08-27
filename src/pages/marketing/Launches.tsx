@@ -149,7 +149,7 @@ export default function Launches() {
     const soldCount = realMembers.filter((m) => (onHandBySku.get(m.sku_id!) ?? 0) <= 0).length;
     const total = realMembers.length;
     const allSold = total > 0 && soldCount === total;
-    const phase = launchPhase(l.launch_date, todayKey, allSold);
+    const phase = launchPhase(l.launch_date, todayKey, allSold, l.early_access_date);
     return (
       <tr className="border-t border-border/40 hover:bg-muted/20">
         <td className="px-4 py-3">
@@ -173,6 +173,9 @@ export default function Launches() {
         </td>
         <td className="px-4 py-3 tabular-nums">
           {fmt(l.launch_date)}
+          {l.early_access_date && (
+            <p className="text-[10px] text-violet-400">EA {fmt(l.early_access_date)}</p>
+          )}
           {l.inventory_ready_by && (
             <p className="text-[10px] text-muted-foreground">ready by {fmt(l.inventory_ready_by)}</p>
           )}

@@ -37,6 +37,7 @@ export function SaleFormDialog({ open, onOpenChange, sale, defaultDate, datesLoc
   const [name, setName] = useState("");
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
+  const [earlyAccess, setEarlyAccess] = useState("");
   const [notes, setNotes] = useState("");
   const [annualRecurring, setAnnualRecurring] = useState(false);
 
@@ -45,6 +46,7 @@ export function SaleFormDialog({ open, onOpenChange, sale, defaultDate, datesLoc
       setName(sale?.name ?? "");
       setStartsAt(dateInput(sale?.starts_at ?? null) || (defaultDate ?? ""));
       setEndsAt(dateInput(sale?.ends_at ?? null) || (defaultDate ?? ""));
+      setEarlyAccess(dateInput(sale?.early_access_starts_at ?? null));
       setNotes(sale?.notes ?? "");
       setAnnualRecurring(sale?.annual_recurring ?? false);
     }
@@ -67,10 +69,15 @@ export function SaleFormDialog({ open, onOpenChange, sale, defaultDate, datesLoc
       toast({ title: "Invalid dates", description: "End date is before start date.", variant: "destructive" });
       return;
     }
+    if (earlyAccess && earlyAccess > startsAt) {
+      toast({ title: "Invalid dates", description: "Early access opens after the public start.", variant: "destructive" });
+      return;
+    }
     const payload = {
       name: name.trim(),
       starts_at: startsAt,
       ends_at: endsAt,
+      early_access_starts_at: earlyAccess || null,
       notes: notes.trim() || null,
       annual_recurring: annualRecurring,
     };
@@ -103,7 +110,11 @@ export function SaleFormDialog({ open, onOpenChange, sale, defaultDate, datesLoc
             <Label>Name</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Valentine's Day Sale" />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
+            <div className="space-y-1.5">
+              <Label>Early access <span className="text-xs text-muted-foreground font-normal">optional</span></Label>
+              <Input type="date" value={earlyAccess} max={startsAt || undefined} onChange={(e) => setEarlyAccess(e.target.value)} disabled={datesLocked} />
+            </div>
             <div className="space-y-1.5">
               <Label>Start date</Label>
               <Input type="date" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} disabled={datesLocked} />

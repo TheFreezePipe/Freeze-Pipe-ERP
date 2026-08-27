@@ -1606,6 +1606,7 @@ export type Database = {
           id: string
           inventory_ready_by: string | null
           kind: string
+          early_access_date: string | null
           launch_date: string | null
           name: string
           notes: string | null
@@ -1622,6 +1623,7 @@ export type Database = {
           id?: string
           inventory_ready_by?: string | null
           kind?: string
+          early_access_date?: string | null
           launch_date?: string | null
           name: string
           notes?: string | null
@@ -1638,6 +1640,7 @@ export type Database = {
           id?: string
           inventory_ready_by?: string | null
           kind?: string
+          early_access_date?: string | null
           launch_date?: string | null
           name?: string
           notes?: string | null
@@ -2377,6 +2380,7 @@ export type Database = {
           approval_status: string
           created_at: string
           created_by: string | null
+          early_access_starts_at: string | null
           ends_at: string | null
           external_ref: string | null
           id: string
@@ -2393,6 +2397,7 @@ export type Database = {
           approval_status?: string
           created_at?: string
           created_by?: string | null
+          early_access_starts_at?: string | null
           ends_at?: string | null
           external_ref?: string | null
           id?: string
@@ -2409,6 +2414,7 @@ export type Database = {
           approval_status?: string
           created_at?: string
           created_by?: string | null
+          early_access_starts_at?: string | null
           ends_at?: string | null
           external_ref?: string | null
           id?: string
@@ -3746,6 +3752,7 @@ export type Database = {
           approval_status: string | null
           dollar_off: number | null
           effective_discount_pct: number | null
+          early_access_starts_at: string | null
           ends_at: string | null
           expected_orders: number | null
           get_qty: number | null

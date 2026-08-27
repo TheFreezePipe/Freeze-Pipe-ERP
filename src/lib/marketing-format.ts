@@ -63,29 +63,34 @@ export function describeOffer(
  * never stored — so it can't drift. Unconfirmed/canceled sales aren't parked;
  * they're deleted. Returns null when no start date is set yet.
  */
-export type SalePhase = "upcoming" | "live" | "ended";
+export type SalePhase = "upcoming" | "early_access" | "live" | "ended";
 
 export function salePhase(
   startsAt: string | null,
   endsAt: string | null,
   todayKey: string,
+  earlyAccessStartsAt?: string | null,
 ): SalePhase | null {
   const s = dayKeyOf(startsAt);
   if (!s) return null;
   const e = dayKeyOf(endsAt) ?? s;
-  if (todayKey < s) return "upcoming";
+  const ea = dayKeyOf(earlyAccessStartsAt ?? null);
   if (todayKey > e) return "ended";
-  return "live";
+  if (todayKey >= s) return "live";
+  if (ea && todayKey >= ea) return "early_access";
+  return "upcoming";
 }
 
 export const PHASE_COLOR: Record<SalePhase, string> = {
   upcoming: "bg-blue-500/10 text-blue-400",
+  early_access: "bg-violet-500/10 text-violet-400",
   live: "bg-green-500/10 text-green-400",
   ended: "bg-muted/40 text-muted-foreground",
 };
 
 export const PHASE_LABEL: Record<SalePhase, string> = {
   upcoming: "Upcoming",
+  early_access: "Early access",
   live: "Live",
   ended: "Ended",
 };
@@ -98,27 +103,33 @@ export const PHASE_LABEL: Record<SalePhase, string> = {
  *              by the caller, read live from inventory)
  * Returns null when no launch date is set yet.
  */
-export type LaunchPhase = "upcoming" | "launched" | "sold_out";
+export type LaunchPhase = "upcoming" | "early_access" | "launched" | "sold_out";
 
 export function launchPhase(
   launchDate: string | null,
   todayKey: string,
   soldOut: boolean,
+  earlyAccessDate?: string | null,
 ): LaunchPhase | null {
   const d = dayKeyOf(launchDate);
   if (!d) return null;
-  if (todayKey < d) return "upcoming";
+  if (todayKey < d) {
+    const ea = dayKeyOf(earlyAccessDate ?? null);
+    return ea && todayKey >= ea ? "early_access" : "upcoming";
+  }
   return soldOut ? "sold_out" : "launched";
 }
 
 export const LAUNCH_PHASE_COLOR: Record<LaunchPhase, string> = {
   upcoming: "bg-blue-500/10 text-blue-400",
+  early_access: "bg-violet-500/10 text-violet-400",
   launched: "bg-green-500/10 text-green-400",
   sold_out: "bg-amber-500/10 text-amber-400",
 };
 
 export const LAUNCH_PHASE_LABEL: Record<LaunchPhase, string> = {
   upcoming: "Upcoming",
+  early_access: "Early access",
   launched: "Launched",
   sold_out: "Sold out",
 };
