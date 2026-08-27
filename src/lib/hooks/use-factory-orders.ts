@@ -89,6 +89,8 @@ export function useCreateFactoryOrder() {
       // join, so both caches must refetch for the SKU to appear immediately.
       qc.invalidateQueries({ queryKey: ["products"] });
       qc.invalidateQueries({ queryKey: ["inventory"] });
+      // ...and trg_pd_detect_order may move an RFC card to Ordered.
+      qc.invalidateQueries({ queryKey: ["pd-board"] });
     },
   });
 }
