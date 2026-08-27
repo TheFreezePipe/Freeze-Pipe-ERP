@@ -12,7 +12,9 @@ import { supabase } from "@/lib/supabase";
  *
  * Approval mutations implement the draft → proposed → confirmed track on
  * sales and launches; 'confirmed' stamps who/when (and is what will later
- * gate an event's uplift into the forecast overlay — Phase C).
+ * gate an event's uplift into the forecast overlay — Phase C). The UI is
+ * binary (confirmed or not — see ConfirmCell); 'proposed' survives in the
+ * type only so legacy rows still parse.
  */
 
 export type ApprovalStatus = "draft" | "proposed" | "confirmed";
@@ -126,11 +128,11 @@ export function describeSkuSignals(sig: SkuMarketingSignals): string {
   const parts: string[] = [];
   for (const s of sig.sales) {
     const depth = s.effective_discount_pct != null ? ` (${s.effective_discount_pct}% off)` : "";
-    const pending = s.approval_status !== "confirmed" ? " [not ops-confirmed]" : "";
+    const pending = s.approval_status !== "confirmed" ? " [unconfirmed]" : "";
     parts.push(`SALE ${s.sale_name} ${d(s.starts_at)}–${d(s.ends_at)}${depth}${pending}`);
   }
   for (const l of sig.launches) {
-    const pending = l.approval_status !== "confirmed" ? " [not ops-confirmed]" : "";
+    const pending = l.approval_status !== "confirmed" ? " [unconfirmed]" : "";
     parts.push(`LAUNCH ${l.name} on ${d(l.launch_date + "T12:00:00Z")}${pending}`);
   }
   return parts.join("  ·  ");

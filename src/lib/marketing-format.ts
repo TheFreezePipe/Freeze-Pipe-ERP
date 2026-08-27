@@ -124,35 +124,32 @@ export const EVENT_TYPE_COLOR = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// Approval track (draft → proposed → confirmed) — orthogonal to the derived
-// temporal phase. Unconfirmed sales/launches render dashed + muted so the team
-// sees what's brewing without mistaking it for an ops-confirmed plan.
+// Confirmation — binary, orthogonal to the derived temporal phase (owner
+// decision 2026-08-27: the draft → proposed → confirmed ceremony collapsed to
+// confirmed-or-not; legacy "proposed" rows normalize to unconfirmed).
+// Unconfirmed sales/launches render dashed + muted so the team sees what's
+// brewing without mistaking it for a committed plan.
 // ---------------------------------------------------------------------------
 
-export type ApprovalStatus = "draft" | "proposed" | "confirmed";
+export type ApprovalStatus = "draft" | "confirmed";
 
-/** Coerce a raw DB string to a known approval status (unknown → "draft"). */
+/** Coerce a raw DB string to the binary model (anything not confirmed → "draft"). */
 export function normalizeApproval(status: string | null | undefined): ApprovalStatus {
-  return status === "proposed" || status === "confirmed" ? status : "draft";
+  return status === "confirmed" ? "confirmed" : "draft";
 }
 
 /** Tooltip for an unconfirmed sale/launch; null when confirmed (no tooltip). */
 export function approvalTooltip(status: string | null | undefined): string | null {
-  const s = normalizeApproval(status);
-  if (s === "draft") return "draft — not ops-confirmed";
-  if (s === "proposed") return "proposed — awaiting ops confirmation";
-  return null;
+  return normalizeApproval(status) === "confirmed" ? null : "not confirmed yet";
 }
 
 export const APPROVAL_LABEL: Record<ApprovalStatus, string> = {
-  draft: "Draft",
-  proposed: "Proposed",
+  draft: "Unconfirmed",
   confirmed: "Confirmed",
 };
 
 export const APPROVAL_COLOR: Record<ApprovalStatus, string> = {
   draft: "border border-dashed border-muted-foreground/40 bg-muted/40 text-muted-foreground",
-  proposed: "border border-dashed border-amber-400/40 bg-amber-500/10 text-amber-400",
   confirmed: "bg-green-500/10 text-green-400",
 };
 

@@ -167,19 +167,19 @@ describe("retailHolidaysForYear (pure UTC date math)", () => {
   });
 });
 
-describe("approval helpers", () => {
-  it("normalizes unknown/null statuses to draft", () => {
+describe("approval helpers (binary: confirmed or not)", () => {
+  it("normalizes everything but confirmed to draft — legacy proposed included", () => {
     expect(normalizeApproval("confirmed")).toBe("confirmed");
-    expect(normalizeApproval("proposed")).toBe("proposed");
+    expect(normalizeApproval("proposed")).toBe("draft");
     expect(normalizeApproval("draft")).toBe("draft");
     expect(normalizeApproval("whatever")).toBe("draft");
     expect(normalizeApproval(null)).toBe("draft");
     expect(normalizeApproval(undefined)).toBe("draft");
   });
 
-  it("tooltips only for unconfirmed statuses", () => {
-    expect(approvalTooltip("draft")).toBe("draft — not ops-confirmed");
-    expect(approvalTooltip("proposed")).toBe("proposed — awaiting ops confirmation");
+  it("tooltip only when unconfirmed", () => {
+    expect(approvalTooltip("draft")).toBe("not confirmed yet");
+    expect(approvalTooltip("proposed")).toBe("not confirmed yet");
     expect(approvalTooltip("confirmed")).toBeNull();
   });
 });
