@@ -269,6 +269,8 @@ export function useRecordFreightReceipt() {
       qc.invalidateQueries({ queryKey: ["freight-line-items"] });
       qc.invalidateQueries({ queryKey: ["inventory"] });
       qc.invalidateQueries({ queryKey: ["freight-carton-groups", shipmentId] });
+      // trg_pd_archive_on_arrival may retire an Ordered PD card on first receipt.
+      qc.invalidateQueries({ queryKey: ["pd-board"] });
     },
   });
 }
