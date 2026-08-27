@@ -34,8 +34,15 @@ export function describeOffer(
   const parts: string[] = [];
   if (o.percent_off != null) parts.push(`${trimNum(o.percent_off)}% off`);
   if (o.dollar_off != null) parts.push(`$${trimNum(o.dollar_off)} off`);
-  if (o.buy_qty != null && o.get_qty != null) parts.push(`buy ${o.buy_qty} get ${o.get_qty}`);
-  if (o.free_item_sku_id) parts.push(`free ${freeItemName ?? "item"}`);
+  if (o.free_item_sku_id && o.buy_qty != null) {
+    // Qualifier-triggered gift — one mechanic, one sentence. (buy_qty
+    // without a free item stays the plain same-item BOGO below.)
+    const n = o.get_qty ?? 1;
+    parts.push(`buy any ${o.buy_qty}, get ${n > 1 ? `${n}× ` : ""}${freeItemName ?? "item"} free`);
+  } else {
+    if (o.buy_qty != null && o.get_qty != null) parts.push(`buy ${o.buy_qty} get ${o.get_qty}`);
+    if (o.free_item_sku_id) parts.push(`free ${freeItemName ?? "item"}`);
+  }
 
   let deal = parts.join(" + ") || "Offer";
   deal = deal.charAt(0).toUpperCase() + deal.slice(1);

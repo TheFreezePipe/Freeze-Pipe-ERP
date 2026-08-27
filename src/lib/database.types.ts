@@ -1739,6 +1739,7 @@ export type Database = {
           created_at: string
           dollar_off: number | null
           effective_discount_pct: number | null
+          expected_orders: number | null
           expected_uplift_pct: number | null
           external_ref: string | null
           free_item_sku_id: string | null
@@ -1759,6 +1760,7 @@ export type Database = {
           created_at?: string
           dollar_off?: number | null
           effective_discount_pct?: number | null
+          expected_orders?: number | null
           expected_uplift_pct?: number | null
           external_ref?: string | null
           free_item_sku_id?: string | null
@@ -1779,6 +1781,7 @@ export type Database = {
           created_at?: string
           dollar_off?: number | null
           effective_discount_pct?: number | null
+          expected_orders?: number | null
           expected_uplift_pct?: number | null
           external_ref?: string | null
           free_item_sku_id?: string | null
@@ -3744,8 +3747,11 @@ export type Database = {
           dollar_off: number | null
           effective_discount_pct: number | null
           ends_at: string | null
+          expected_orders: number | null
+          get_qty: number | null
           offer_id: string | null
           percent_off: number | null
+          role: string | null
           sale_id: string | null
           sale_name: string | null
           scope: string | null

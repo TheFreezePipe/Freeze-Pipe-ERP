@@ -64,6 +64,7 @@ export function OfferFormDialog({ open, onOpenChange, saleId, offer }: Props) {
   const [getQty, setGetQty] = useState("");
   const [expectedUplift, setExpectedUplift] = useState("");
   const [effectiveDiscount, setEffectiveDiscount] = useState("");
+  const [expectedOrders, setExpectedOrders] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -80,6 +81,7 @@ export function OfferFormDialog({ open, onOpenChange, saleId, offer }: Props) {
     setGetQty(offer?.get_qty != null ? String(offer.get_qty) : "");
     setExpectedUplift(offer?.expected_uplift_pct != null ? String(offer.expected_uplift_pct) : "");
     setEffectiveDiscount(offer?.effective_discount_pct != null ? String(offer.effective_discount_pct) : "");
+    setExpectedOrders(offer?.expected_orders != null ? String(offer.expected_orders) : "");
   }, [open, offer]);
 
   const productById = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
@@ -116,6 +118,7 @@ export function OfferFormDialog({ open, onOpenChange, saleId, offer }: Props) {
       // discount depth defaults to % off when left blank.
       expected_uplift_pct: numOrNull(expectedUplift),
       effective_discount_pct: numOrNull(effectiveDiscount) ?? numOrNull(percentOff),
+      expected_orders: numOrNull(expectedOrders),
     };
     try {
       let offerId = offer?.id;
@@ -242,6 +245,17 @@ export function OfferFormDialog({ open, onOpenChange, saleId, offer }: Props) {
                 ))}
               </SelectContent>
             </Select>
+            {/* Qualifier-triggered gift — the sentence IS the control. Blank
+                buy qty = an unconditional / threshold-gated gift, as before. */}
+            {freeItem !== NONE && (
+              <div className="flex flex-wrap items-center gap-2 pt-1 text-sm">
+                <span>Buy any</span>
+                <Input type="number" min={1} value={buyQty} onChange={(e) => setBuyQty(e.target.value)} placeholder="—" className="h-8 w-16 text-center" />
+                <span>of the SKUs above → get</span>
+                <Input type="number" min={1} value={getQty} onChange={(e) => setGetQty(e.target.value)} placeholder="1" className="h-8 w-16 text-center" />
+                <span>free</span>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-3 gap-4">
@@ -249,21 +263,25 @@ export function OfferFormDialog({ open, onOpenChange, saleId, offer }: Props) {
               <Label>Min order $</Label>
               <Input type="number" min={0} value={minOrder} onChange={(e) => setMinOrder(e.target.value)} placeholder="threshold" />
             </div>
-            <div className="space-y-1.5">
-              <Label>Buy qty</Label>
-              <Input type="number" min={1} value={buyQty} onChange={(e) => setBuyQty(e.target.value)} placeholder="BOGO" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Get qty</Label>
-              <Input type="number" min={1} value={getQty} onChange={(e) => setGetQty(e.target.value)} placeholder="BOGO" />
-            </div>
+            {freeItem === NONE && (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Buy qty</Label>
+                  <Input type="number" min={1} value={buyQty} onChange={(e) => setBuyQty(e.target.value)} placeholder="BOGO" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Get qty</Label>
+                  <Input type="number" min={1} value={getQty} onChange={(e) => setGetQty(e.target.value)} placeholder="BOGO" />
+                </div>
+              </>
+            )}
           </div>
 
           {/* Planning inputs — feed the promo-aware forecast. Kept visually
               secondary to the offer mechanics above. */}
           <div className="rounded-md border border-amber-500/20 bg-amber-500/[0.03] p-3">
             <p className="mb-2 text-xs font-medium text-amber-400/90">Forecast planning</p>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div className="space-y-1.5">
                 <Label className="text-xs">Expected sales lift %</Label>
                 <Input
@@ -292,6 +310,22 @@ export function OfferFormDialog({ open, onOpenChange, saleId, offer }: Props) {
                 />
                 <p className="text-[10px] text-muted-foreground">
                   Real depth for elasticity — set for $-off / bundle offers. Defaults to % off.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">
+                  Expected orders{" "}
+                  <span className="font-normal text-muted-foreground">optional</span>
+                </Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={expectedOrders}
+                  onChange={(e) => setExpectedOrders(e.target.value)}
+                  placeholder="e.g. 400"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Orders expected to redeem. Sizes the free item's giveaway on ordering screens.
                 </p>
               </div>
             </div>

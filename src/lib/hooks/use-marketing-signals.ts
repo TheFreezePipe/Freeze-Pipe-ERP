@@ -27,6 +27,10 @@ export interface SkuSaleSignal {
   approval_status: ApprovalStatus;
   effective_discount_pct: number | null;
   uplift_pct: number | null;
+  /** 'member' = qualifier/discounted SKU; 'gift' = the offer's free item. */
+  role: "member" | "gift";
+  /** Gift rows: expected giveaway units (expected_orders × get_qty), when planned. */
+  expected_gift_units: number | null;
 }
 export interface SkuLaunchSignal {
   launch_id: string;
@@ -54,11 +58,14 @@ export function useUpcomingMarketingBySku(horizonDays = 60) {
       const horizonDate = new Date(Date.now() + horizonDays * DAY_MS).toISOString().slice(0, 10);
       // Sitewide offers expand to the whole catalog — a megaphone on every
       // row says nothing (owner, 2026-08-27). Only SKU-targeting scopes
-      // (category / sku_set) surface as per-SKU signals.
+      // (category / sku_set) surface as per-SKU signals — EXCEPT gift rows,
+      // which are one specific SKU whatever the qualifier scope is.
       const { data, error } = await supabase
         .from("mkt_offer_sku_expansion")
-        .select("sku_id, sale_id, sale_name, starts_at, ends_at, approval_status, effective_discount_pct, uplift_pct")
-        .neq("scope", "sitewide")
+        .select(
+          "sku_id, sale_id, sale_name, starts_at, ends_at, approval_status, effective_discount_pct, uplift_pct, role, get_qty, expected_orders",
+        )
+        .or("role.eq.gift,scope.neq.sitewide")
         .gte("ends_at", todayStart)
         .lte("starts_at", `${horizonDate}T23:59:59Z`);
       if (error) throw error;
@@ -98,17 +105,24 @@ export function useUpcomingMarketingBySku(horizonDays = 60) {
       if (!r.sku_id || !r.sale_id || !r.sale_name || !r.starts_at || !r.ends_at) continue;
       const e = entry(r.sku_id);
       // One sale can reach a SKU via several offers — dedupe per sale.
-      if (!e.sales.some((s) => s.sale_id === r.sale_id)) {
-        e.sales.push({
-          sale_id: r.sale_id,
-          sale_name: r.sale_name,
-          starts_at: r.starts_at,
-          ends_at: r.ends_at,
-          approval_status: (r.approval_status ?? "draft") as ApprovalStatus,
-          effective_discount_pct: r.effective_discount_pct,
-          uplift_pct: r.uplift_pct,
-        });
-      }
+      // A gift row wins over a member row (the drain matters more).
+      const existing = e.sales.find((s) => s.sale_id === r.sale_id);
+      const role = (r.role ?? "member") as "member" | "gift";
+      if (existing && !(role === "gift" && existing.role === "member")) continue;
+      const signal: SkuSaleSignal = {
+        sale_id: r.sale_id,
+        sale_name: r.sale_name,
+        starts_at: r.starts_at,
+        ends_at: r.ends_at,
+        approval_status: (r.approval_status ?? "draft") as ApprovalStatus,
+        effective_discount_pct: r.effective_discount_pct,
+        uplift_pct: r.uplift_pct,
+        role,
+        expected_gift_units:
+          role === "gift" && r.expected_orders != null ? r.expected_orders * (r.get_qty ?? 1) : null,
+      };
+      if (existing) e.sales[e.sales.indexOf(existing)] = signal;
+      else e.sales.push(signal);
     }
     for (const r of launchRows ?? []) {
       if (!r.sku_id || !r.launch) continue;
@@ -131,9 +145,16 @@ export function describeSkuSignals(sig: SkuMarketingSignals): string {
     new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
   const parts: string[] = [];
   for (const s of sig.sales) {
-    const depth = s.effective_discount_pct != null ? ` (${s.effective_discount_pct}% off)` : "";
     const pending = s.approval_status !== "confirmed" ? " [unconfirmed]" : "";
-    parts.push(`SALE ${s.sale_name} ${d(s.starts_at)}–${d(s.ends_at)}${depth}${pending}`);
+    if (s.role === "gift") {
+      // This SKU is being GIVEN AWAY — the drain estimate is the number
+      // order sizing needs, not a discount depth.
+      const units = s.expected_gift_units != null ? ` (~${s.expected_gift_units} units given away)` : "";
+      parts.push(`GIFT in ${s.sale_name} ${d(s.starts_at)}–${d(s.ends_at)}${units}${pending}`);
+    } else {
+      const depth = s.effective_discount_pct != null ? ` (${s.effective_discount_pct}% off)` : "";
+      parts.push(`SALE ${s.sale_name} ${d(s.starts_at)}–${d(s.ends_at)}${depth}${pending}`);
+    }
   }
   for (const l of sig.launches) {
     const pending = l.approval_status !== "confirmed" ? " [unconfirmed]" : "";

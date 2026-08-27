@@ -65,6 +65,27 @@ describe("describeOffer", () => {
     expect(r.target).toBe("Select SKUs");
   });
 
+  it("qualifier-triggered gift reads as one sentence", () => {
+    const r = describeOffer(
+      offer({ buy_qty: 1, get_qty: 1, free_item_sku_id: "x", scope: "sku_set" }),
+      "Grinder",
+    );
+    expect(r.deal).toBe("Buy any 1, get Grinder free");
+    const two = describeOffer(
+      offer({ buy_qty: 2, get_qty: 2, free_item_sku_id: "x", scope: "sku_set" }),
+      "Sticker",
+    );
+    expect(two.deal).toBe("Buy any 2, get 2× Sticker free");
+  });
+
+  it("percent + qualifier gift composes", () => {
+    const r = describeOffer(
+      offer({ percent_off: 10, buy_qty: 1, free_item_sku_id: "x", scope: "sku_set" }),
+      "Grinder",
+    );
+    expect(r.deal).toBe("10% off + buy any 1, get Grinder free");
+  });
+
   it("falls back to 'Offer' when nothing is set", () => {
     expect(describeOffer(offer()).deal).toBe("Offer");
   });
