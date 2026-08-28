@@ -302,9 +302,6 @@ export default function FreightDetail() {
   const totalCostLineItems = lineItemsRaw.reduce((s, li) => s + (li.unit_cost ?? 0) * li.quantity, 0);
   const totalRetailValue = lineItemsRaw.reduce((s, li) => s + (li.retail_value ?? 0) * li.quantity, 0);
   const freightCost = shipment.freight_cost ?? 0;
-  const dutiesCost = shipment.duties_cost ?? 0;
-  const insuranceCost = shipment.insurance_cost ?? 0;
-  const totalLandedCost = freightCost + dutiesCost + insuranceCost;
 
   const trackingHref = getCarrierTrackingUrl(shipment.carrier_name, shipment.tracking_number);
   const showRefresh = shipment.status !== "delivered" && !!shipment.tracking_number;
@@ -583,11 +580,10 @@ export default function FreightDetail() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
-              <p className="text-xs text-muted-foreground">Total cost</p>
+              <p className="text-xs text-muted-foreground">Freight cost</p>
               <DollarSign className="h-4 w-4 text-yellow-400" />
             </div>
-            <p className="text-2xl font-bold tabular-nums mt-1">{fmtUsd(totalLandedCost)}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">freight + duties + insurance</p>
+            <p className="text-2xl font-bold tabular-nums mt-1">{fmtUsd(freightCost)}</p>
           </CardContent>
         </Card>
       </div>
@@ -620,13 +616,7 @@ export default function FreightDetail() {
                 <ChevronRight className="h-4 w-4 shrink-0" />
               )}
               <span className="tabular-nums text-left">
-                Freight <span className="font-medium text-foreground">{fmtUsd(freightCost)}</span>
-                {" · "}
-                Duties <span className="font-medium text-foreground">{fmtUsd(dutiesCost)}</span>
-                {" · "}
-                Insurance <span className="font-medium text-foreground">{fmtUsd(insuranceCost)}</span>
-                {" · "}
-                <span className="font-bold text-primary">Total {fmtUsd(totalLandedCost)}</span>
+                Freight <span className="font-bold text-primary">{fmtUsd(freightCost)}</span>
               </span>
             </button>
             {receivingActive && partiallyReceived && canEdit && (
@@ -686,18 +676,6 @@ export default function FreightDetail() {
               {costError && (
                 <p className="text-[11px] text-red-400 text-right -mt-1" title={costError}>{costError}</p>
               )}
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Duties</span>
-                <span className="tabular-nums">${dutiesCost.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Insurance</span>
-                <span className="tabular-nums">${insuranceCost.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between font-bold">
-                <span>Total</span>
-                <span className="tabular-nums text-primary">${totalLandedCost.toLocaleString()}</span>
-              </div>
               <Separator />
               <div className="flex justify-between text-xs text-muted-foreground">
                 <span>Product Cost (line items)</span>
