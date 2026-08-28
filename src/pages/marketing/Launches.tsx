@@ -42,27 +42,27 @@ function stockSignal(
 
   if (launchDay && realMembers.length > 0 && uncovered.length > 0) {
     return (
-      <span className="w-fit rounded border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-400"
+      <span className="w-fit whitespace-nowrap rounded border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-400"
         title={uncovered.map((m) => m.product?.sku ?? m.planned_name ?? "?").join(", ")}>
         ⚠ {uncovered.length} SKU{uncovered.length > 1 ? "s" : ""} not covered by launch
       </span>
     );
   }
   if (orderBy && todayKey > orderBy && dry.some((m) => !incomingBySku.has(m.sku_id!))) {
-    return <span className="w-fit rounded border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-400">order window passed ({fmt(orderBy)})</span>;
+    return <span className="w-fit whitespace-nowrap rounded border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-400">order window passed ({fmt(orderBy)})</span>;
   }
   if (orderBy && todayKey <= orderBy && format(addDays(new Date(), 14), "yyyy-MM-dd") >= orderBy) {
-    return <span className="w-fit rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400">order by {fmt(orderBy)}</span>;
+    return <span className="w-fit whitespace-nowrap rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400">order by {fmt(orderBy)}</span>;
   }
   if (launchDay && dry.length > 0) {
     const latest = dry.map((m) => incomingBySku.get(m.sku_id!)!).sort().pop()!;
-    return <span className="w-fit rounded border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] text-cyan-300">incoming by {fmt(latest)}</span>;
+    return <span className="w-fit whitespace-nowrap rounded border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] text-cyan-300">incoming by {fmt(latest)}</span>;
   }
   if (launchDay && realMembers.length > 0) {
-    return <span className="w-fit rounded border border-green-500/30 bg-green-500/10 px-1.5 py-0.5 text-[10px] text-green-400">stock on hand</span>;
+    return <span className="w-fit whitespace-nowrap rounded border border-green-500/30 bg-green-500/10 px-1.5 py-0.5 text-[10px] text-green-400">stock on hand</span>;
   }
   if (orderBy && todayKey <= orderBy) {
-    return <span className="w-fit rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">order by {fmt(orderBy)}</span>;
+    return <span className="w-fit whitespace-nowrap rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">order by {fmt(orderBy)}</span>;
   }
   return null;
 }
@@ -171,7 +171,7 @@ export default function Launches() {
             {memberLabels.length > 0 && <> · {memberLabels.join(", ")}</>}
           </p>
         </td>
-        <td className="px-4 py-3 tabular-nums">
+        <td className="whitespace-nowrap px-4 py-3 tabular-nums">
           {fmt(l.launch_date)}
           {l.early_access_date && (
             <p className="text-[10px] text-violet-400">EA {fmt(l.early_access_date)}</p>
@@ -185,7 +185,7 @@ export default function Launches() {
             <span className="text-xs text-muted-foreground/60">no date</span>
           ) : (
             <div className="flex flex-col gap-0.5">
-              <span className={`w-fit rounded px-2 py-0.5 text-xs ${LAUNCH_PHASE_COLOR[phase]}`}>{LAUNCH_PHASE_LABEL[phase]}</span>
+              <span className={`w-fit whitespace-nowrap rounded px-2 py-0.5 text-xs ${LAUNCH_PHASE_COLOR[phase]}`}>{LAUNCH_PHASE_LABEL[phase]}</span>
               {phase === "launched" && soldCount > 0 && (
                 <span className="text-[10px] text-amber-400/80">{soldCount} of {total} sold out</span>
               )}

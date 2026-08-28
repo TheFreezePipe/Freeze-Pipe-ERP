@@ -97,7 +97,7 @@ export default function SalesList() {
                     <td className="px-4 py-3 font-medium">{s.name}</td>
                     <td className="px-4 py-3 tabular-nums text-muted-foreground">
                       {s.early_access_starts_at && (
-                        <span className="mr-1.5 rounded border border-violet-500/40 px-1 text-[10px] text-violet-400">
+                        <span className="mr-1.5 whitespace-nowrap rounded border border-violet-500/40 px-1 text-[10px] text-violet-400">
                           EA {fmtDay(s.early_access_starts_at)}
                         </span>
                       )}
@@ -107,7 +107,7 @@ export default function SalesList() {
                       {(() => {
                         const p = salePhase(s.starts_at, s.ends_at, todayKey, s.early_access_starts_at);
                         return p ? (
-                          <span className={`rounded px-2 py-0.5 text-xs ${PHASE_COLOR[p]}`}>{PHASE_LABEL[p]}</span>
+                          <span className={`whitespace-nowrap rounded px-2 py-0.5 text-xs ${PHASE_COLOR[p]}`}>{PHASE_LABEL[p]}</span>
                         ) : (
                           <span className="text-xs text-muted-foreground/60">no dates</span>
                         );

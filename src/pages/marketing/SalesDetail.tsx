@@ -184,7 +184,7 @@ export default function SalesDetail() {
         {(() => {
           const p = salePhase(sale.starts_at, sale.ends_at, todayKey, sale.early_access_starts_at);
           return p ? (
-            <span className={`rounded px-2 py-0.5 text-xs ${PHASE_COLOR[p]}`}>{PHASE_LABEL[p]}</span>
+            <span className={`whitespace-nowrap rounded px-2 py-0.5 text-xs ${PHASE_COLOR[p]}`}>{PHASE_LABEL[p]}</span>
           ) : null;
         })()}
       </div>
