@@ -169,7 +169,10 @@ function RoundRow({ project, round: r, newest, missing, todayIso, urls, pending,
         <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground tabular-nums">
           {!open && r.received_at && <span>In hand {fmtDate(r.received_at)}</span>}
           {!open && verdict && (
-            <span className={cn("rounded-full border px-1.5", VERDICT_TONE[verdict])}>{PD_VERDICT_LABEL[verdict]}</span>
+            <span className={cn("rounded-full border px-1.5", VERDICT_TONE[verdict])}>
+              {PD_VERDICT_LABEL[verdict]}
+              {r.verdict_remote && " · remote"}
+            </span>
           )}
           {!newest && <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />}
         </span>
@@ -213,7 +216,7 @@ function RoundRow({ project, round: r, newest, missing, todayIso, urls, pending,
                   value={day(r.received_at)}
                   max={todayIso}
                   missing={missing.has("sample_received")}
-                  disabled={pending || !!verdict}
+                  disabled={pending || (!!verdict && !r.verdict_remote)}
                   onCommit={(v) => onPatch({ received_at: str(v) })}
                 />
               </FieldRow>
@@ -223,6 +226,7 @@ function RoundRow({ project, round: r, newest, missing, todayIso, urls, pending,
                 {verdict ? (
                   <span className={cn("rounded-full border px-1.5 text-xs", VERDICT_TONE[verdict])}>
                     {PD_VERDICT_LABEL[verdict]}
+                    {r.verdict_remote && " · remote"}
                   </span>
                 ) : (
                   <EditableValue
@@ -230,7 +234,7 @@ function RoundRow({ project, round: r, newest, missing, todayIso, urls, pending,
                     options={VERDICT_OPTIONS}
                     value={null}
                     missing={missing.has("sample_verdict")}
-                    disabled={pending || !r.received_at}
+                    disabled={pending}
                     onCommit={(v) => {
                       if (v) onPatch({ verdict: String(v) as PdVerdict });
                     }}
