@@ -73,6 +73,27 @@ export function toCardLike(p: PdProjectWithRefs): PdCardLike {
   };
 }
 
+export interface DropSummary {
+  tag: string;
+  count: number;
+  /** First member target launch date, if any. */
+  launch: string | null;
+}
+
+/** Distinct drops on the (unarchived) board with member counts. */
+export function dropSummaries(board: readonly PdProjectWithRefs[]): DropSummary[] {
+  const m = new Map<string, DropSummary>();
+  for (const p of board) {
+    const tag = p.drop_tag?.trim();
+    if (!tag) continue;
+    const cur = m.get(tag) ?? { tag, count: 0, launch: null };
+    cur.count += 1;
+    if (!cur.launch && p.target_launch_date) cur.launch = p.target_launch_date;
+    m.set(tag, cur);
+  }
+  return [...m.values()].sort((a, b) => a.tag.localeCompare(b.tag));
+}
+
 /** Newest photo across all rounds (board-card cover), or null. */
 export function coverPhotoPath(p: PdProjectWithRefs): string | null {
   for (const s of p.samples ?? []) {

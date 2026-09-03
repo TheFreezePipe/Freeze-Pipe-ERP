@@ -12,6 +12,7 @@ import type { PdProjectWithRefs } from "@/lib/hooks/use-pd";
 import { cn } from "@/lib/utils";
 import { coverPhotoPath, toCardLike } from "./pd-field-utils";
 import { usePdPhotoUrl } from "./pd-photo-context";
+import { PdDropPicker } from "./PdDropPicker";
 
 const DOT_CLASS = {
   g: "bg-green-500",
@@ -93,8 +94,8 @@ export function PdCard({ project, todayIso, selected, dragging, onOpen, onDragSt
         {coverUrl && <img src={coverUrl} alt="" loading="lazy" className="h-10 w-10 shrink-0 rounded object-cover" draggable={false} />}
       </div>
 
-      {(factory || newest || project.target_launch_date || age.expected != null || flags.length > 0) && (
-        <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[10px] leading-4">
+      <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[10px] leading-4">
+          <PdDropPicker project={project} />
           {factory && <span className="rounded border border-border px-1 text-muted-foreground">{factory}</span>}
           {newest && (
             <span
@@ -131,8 +132,7 @@ export function PdCard({ project, todayIso, selected, dragging, onOpen, onDragSt
               ⚑ {flags[0]}
             </span>
           )}
-        </div>
-      )}
+      </div>
     </div>
   );
 }

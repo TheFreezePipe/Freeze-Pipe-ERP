@@ -38,6 +38,7 @@ import { useSuppliers } from "@/lib/hooks/use-suppliers";
 import { useProducts } from "@/lib/hooks/use-products";
 import { CostBasisEditor, EditableValue, FieldRow, MarginLine, SectionTitle, type EditableOption } from "./PdFields";
 import { PdSamplesBlock } from "./PdSamples";
+import { PdDropPicker } from "./PdDropPicker";
 import { fmtDate, relDays, toCardLike, usePdFieldSave } from "./pd-field-utils";
 
 export interface PdCardSheetProps {
@@ -157,6 +158,7 @@ function SheetBody({ project: p, onRequestMove, onRequestArchive, todayIso }: Bo
               className="text-lg font-semibold"
             />
             <Badge variant="outline">{PD_STAGE_LABEL[stage]}</Badge>
+            <PdDropPicker project={p} size="sheet" />
           </div>
         </div>
 

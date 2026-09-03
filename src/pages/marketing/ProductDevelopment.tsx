@@ -12,7 +12,8 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { PdCardSheet, PdMoveSheet } from "@/components/marketing/pd";
 import { PdCard } from "@/components/marketing/pd/PdCard";
 import { PdPhotoUrlContext } from "@/components/marketing/pd/pd-photo-context";
-import { coverPhotoPath, toCardLike } from "@/components/marketing/pd/pd-field-utils";
+import { coverPhotoPath, dropSummaries, toCardLike } from "@/components/marketing/pd/pd-field-utils";
+import { dropTagColor } from "@/lib/marketing/drop-colors";
 import {
   usePdBoard,
   useCreatePdProject,
@@ -42,10 +43,12 @@ interface Filters {
   owners: string[];
   factories: string[];
   categories: string[];
+  /** Isolate one drop (drop_tag); null = all. */
+  drop: string | null;
   mine: boolean;
   review: boolean;
 }
-const EMPTY_FILTERS: Filters = { owners: [], factories: [], categories: [], mine: false, review: false };
+const EMPTY_FILTERS: Filters = { owners: [], factories: [], categories: [], drop: null, mine: false, review: false };
 
 function loadFilters(): Filters {
   try {
@@ -53,7 +56,7 @@ function loadFilters(): Filters {
     if (!raw) return EMPTY_FILTERS;
     const p = JSON.parse(raw) as Partial<Filters>;
     const arr = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
-    return { owners: arr(p.owners), factories: arr(p.factories), categories: arr(p.categories), mine: !!p.mine, review: !!p.review };
+    return { owners: arr(p.owners), factories: arr(p.factories), categories: arr(p.categories), drop: typeof p.drop === "string" ? p.drop : null, mine: !!p.mine, review: !!p.review };
   } catch {
     return EMPTY_FILTERS;
   }
@@ -309,6 +312,10 @@ export default function ProductDevelopment() {
     () => [...new Set(board.map((p) => p.display_category).filter((c): c is string => !!c))].sort(),
     [board],
   );
+  const drops = useMemo(() => dropSummaries(board), [board]);
+  // A drop that no longer exists on the board can't stay selected.
+  const activeDrop = filters.drop && drops.some((d) => d.tag === filters.drop) ? filters.drop : null;
+  const dropMembers = useMemo(() => (activeDrop ? board.filter((p) => p.drop_tag === activeDrop) : []), [board, activeDrop]);
 
   // Card covers: one batched signed-URL call for every card that has a photo.
   const coverPaths = useMemo(() => board.map(coverPhotoPath).filter((x): x is string => !!x), [board]);
@@ -323,10 +330,11 @@ export default function ProductDevelopment() {
         if (filters.factories.length && (!p.supplier?.code || !filters.factories.includes(p.supplier.code))) return false;
         if (filters.categories.length && (!p.display_category || !filters.categories.includes(p.display_category))) return false;
         if (filters.mine && (!uid || p.owner_id !== uid)) return false;
+        if (activeDrop && p.drop_tag !== activeDrop) return false;
         if (filters.review && !needsReview({ ...toCardLike(p), last_reviewed_at: p.last_reviewed_at, created_at: p.created_at }, todayIso)) return false;
         return true;
       }),
-    [board, q, filters, uid, todayIso],
+    [board, q, filters, uid, todayIso, activeDrop],
   );
 
   const byStage = useMemo(() => {
@@ -407,10 +415,13 @@ export default function ProductDevelopment() {
     setMove({ id, to: target, mode });
   }
 
+  // Isolating a drop opens the Halted rail when a sibling sits there — the
+  // whole drop stays visible ("3 of 4 ordered · 1 halted").
+  const haltedOpen = rails.halted || (!!activeDrop && (byStage.get("halted")?.length ?? 0) > 0);
   const gridTemplateColumns = [
     rails.purgatory ? "minmax(160px,1fr)" : "34px",
     "repeat(6, minmax(160px,1fr))",
-    rails.halted ? "minmax(160px,1fr)" : "34px",
+    haltedOpen ? "minmax(160px,1fr)" : "34px",
   ].join(" ");
 
   const laneProps = {
@@ -436,7 +447,16 @@ export default function ProductDevelopment() {
         <div className="flex items-baseline gap-3">
           <h1 className="text-2xl font-bold">Product Development</h1>
           <span className="rounded-full border border-border px-2.5 py-0.5 text-xs tabular-nums text-muted-foreground">
-            {counts.inFlight} in flight · {counts.parked} ideas parked
+            {activeDrop ? (
+              <>
+                {activeDrop} · {dropMembers.filter((p) => p.stage === "ordered").length} of {dropMembers.length} ordered
+                {dropMembers.some((p) => p.stage === "halted") && <> · {dropMembers.filter((p) => p.stage === "halted").length} halted</>}
+              </>
+            ) : (
+              <>
+                {counts.inFlight} in flight · {counts.parked} ideas parked
+              </>
+            )}
           </span>
         </div>
         <Button onClick={() => setNewOpen(true)}>
@@ -474,6 +494,16 @@ export default function ProductDevelopment() {
             {categories.map((c) => (
               <Chip key={c} active={filters.categories.includes(c)} onClick={() => updateFilters({ categories: toggleIn(filters.categories, c) })}>
                 {c}
+              </Chip>
+            ))}
+          </div>
+        )}
+        {drops.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1 border-l border-border pl-2">
+            {drops.map((d) => (
+              <Chip key={d.tag} active={activeDrop === d.tag} onClick={() => updateFilters({ drop: activeDrop === d.tag ? null : d.tag })}>
+                <span className="mr-1.5 inline-block h-2 w-2 rounded-full align-middle" style={{ background: dropTagColor(d.tag) }} />
+                {d.tag}
               </Chip>
             ))}
           </div>
@@ -545,7 +575,7 @@ export default function ProductDevelopment() {
                 );
               })}
 
-              {rails.halted ? (
+              {haltedOpen ? (
                 <Lane
                   {...laneProps}
                   stage="halted"
