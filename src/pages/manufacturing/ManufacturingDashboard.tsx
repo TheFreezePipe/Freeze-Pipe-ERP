@@ -1,11 +1,13 @@
 import { StatCard } from "@/components/shared/StatCard";
-import { Factory, Package, PackageCheck, Clock } from "lucide-react";
+import { Factory, Package, PackageCheck, Clock, Rocket } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { computeManufacturingPriority } from "@/lib/inventory-math";
 import { getEffectiveDemand } from "@/lib/demand";
-import { useMemo } from "react";
+import { launchAwareDemand } from "@/lib/launch-demand";
+import { useUpcomingMarketingBySku } from "@/lib/hooks/use-marketing-signals";
+import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useInventory, useTaskLogs, useForecastDemandMap } from "@/lib/hooks";
 
@@ -13,6 +15,10 @@ export default function ManufacturingDashboard() {
   const { data: inventory = [], isLoading: inventoryLoading } = useInventory();
   const { data: taskLogs = [], isLoading: logsLoading } = useTaskLogs(200);
   const forecastMap = useForecastDemandMap();
+  // Upcoming launches per SKU: an unlaunched product has no sales history,
+  // so the launch stands in for its demand (see launchAwareDemand).
+  const mktSignals = useUpcomingMarketingBySku();
+  const [todayIso] = useState(() => new Date().toISOString().slice(0, 10));
 
   const stats = useMemo(() => {
     const raw = inventory.reduce((s, i) => s + (i.warehouse_raw ?? 0), 0);
@@ -51,18 +57,24 @@ export default function ManufacturingDashboard() {
         const product = inv.product;
         const prefilledRaw = inv.warehouse_prefilled_raw ?? 0;
         const total = (inv.warehouse_raw ?? 0) + prefilledRaw + (inv.warehouse_in_production ?? 0) + (inv.warehouse_finished ?? 0);
-        const priority = computeManufacturingPriority(
+        const ld = launchAwareDemand(
+          getEffectiveDemand(product.id, product.monthly_demand, forecastMap),
+          mktSignals.get(product.id)?.launches ?? [],
+          todayIso,
+        );
+        const base = computeManufacturingPriority(
           inv.warehouse_raw ?? 0,
           prefilledRaw,
           inv.warehouse_in_production ?? 0,
           inv.warehouse_finished ?? 0,
-          getEffectiveDemand(product.id, product.monthly_demand, forecastMap),
+          ld.demand,
           product.abc_classification,
         );
-        return { inv, product, total, priority };
+        const priority = { ...base, score: base.score * ld.boost };
+        return { inv, product, total, priority, demand: ld.demand, launch: ld.launch };
       })
       .sort((a, b) => b.priority.score - a.priority.score);
-  }, [inventory, forecastMap]);
+  }, [inventory, forecastMap, mktSignals, todayIso]);
 
   // DOS color tiers — green > 40d, yellow 20-40, red < 10d. Centralized
   // constants so adjusting the bands is a one-line change.
@@ -133,6 +145,7 @@ export default function ManufacturingDashboard() {
                     <li><strong>Demand pressure</strong> = daily demand &divide; finished units</li>
                     <li><strong>Unfilled ratio</strong> = unfilled &divide; total warehouse</li>
                     <li><strong>ABC weight</strong> = A: 1.5&times; &middot; B: 1.0&times; &middot; C: 0.5&times;</li>
+                    <li><strong>Launch</strong> = expected first-30d units stand in for demand; &times;1.25 inside 30d, &times;1.5 inside 14d</li>
                   </ul>
                 </TooltipContent>
               </Tooltip>
@@ -140,7 +153,7 @@ export default function ManufacturingDashboard() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {pipelineRows.map(({ inv, product, total, priority }, index) => {
+          {pipelineRows.map(({ inv, product, total, priority, demand, launch }, index) => {
             const prefilledRaw = inv.warehouse_prefilled_raw ?? 0;
             const rawPct = total > 0 ? ((inv.warehouse_raw ?? 0) / total) * 100 : 0;
             const prefilledPct = total > 0 ? (prefilledRaw / total) * 100 : 0;
@@ -160,6 +173,15 @@ export default function ManufacturingDashboard() {
                     <Badge variant="outline" className={cn("text-[9px] shrink-0", urgency.className)}>
                       {urgency.text}
                     </Badge>
+                    {launch && (
+                      <span
+                        className="inline-flex shrink-0 items-center gap-1 rounded border border-violet-500/40 px-1 text-[10px] text-violet-400 whitespace-nowrap"
+                        title={launch.name}
+                      >
+                        <Rocket className="h-2.5 w-2.5" />
+                        {launch.daysOut === 0 ? "launches today" : `launches in ${launch.daysOut}d`}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-3 shrink-0 text-xs">
                     <TooltipProvider>
@@ -170,7 +192,10 @@ export default function ManufacturingDashboard() {
                           </span>
                         </TooltipTrigger>
                         <TooltipContent className="text-xs">
-                          <p>{priority.finishedDOS} days of finished stock at {getEffectiveDemand(product.id, product.monthly_demand, forecastMap)}/mo demand</p>
+                          <p>
+                            {priority.finishedDOS} days of finished stock at {demand}/mo demand
+                            {launch && <> (from {launch.name})</>}
+                          </p>
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>

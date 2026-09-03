@@ -37,6 +37,8 @@ export interface SkuLaunchSignal {
   name: string;
   launch_date: string;
   approval_status: ApprovalStatus;
+  /** Planner estimate on the launch member — stands in for demand pre-launch. */
+  expected_first_30d_units: number | null;
 }
 export interface SkuMarketingSignals {
   sales: SkuSaleSignal[];
@@ -82,7 +84,7 @@ export function useUpcomingMarketingBySku(horizonDays = 60) {
       // !inner so the launch-date filter constrains the member rows.
       const { data, error } = await supabase
         .from("mkt_launch_skus")
-        .select("sku_id, launch:mkt_launches!inner(id, name, launch_date, approval_status)")
+        .select("sku_id, expected_first_30d_units, launch:mkt_launches!inner(id, name, launch_date, approval_status)")
         .not("sku_id", "is", null)
         .gte("launch.launch_date", today)
         .lte("launch.launch_date", horizon);
@@ -129,7 +131,13 @@ export function useUpcomingMarketingBySku(horizonDays = 60) {
       const l = r.launch as unknown as { id: string; name: string; launch_date: string; approval_status: ApprovalStatus };
       const e = entry(r.sku_id);
       if (!e.launches.some((x) => x.launch_id === l.id)) {
-        e.launches.push({ launch_id: l.id, name: l.name, launch_date: l.launch_date, approval_status: l.approval_status });
+        e.launches.push({
+          launch_id: l.id,
+          name: l.name,
+          launch_date: l.launch_date,
+          approval_status: l.approval_status,
+          expected_first_30d_units: r.expected_first_30d_units ?? null,
+        });
       }
     }
     return map;
