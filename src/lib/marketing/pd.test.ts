@@ -47,7 +47,6 @@ const round = (over: Partial<PdSampleLike> = {}): PdSampleLike => ({
   round_no: 1,
   received_at: "2026-08-15",
   verdict: null,
-  factory_acknowledged_at: null,
   photo_count: 0,
   ...over,
 });
@@ -146,13 +145,12 @@ describe("gateMissing mirrors fn_pd_gate_missing", () => {
     expect(gateMissing(full, "ready_for_confirmation")).toEqual([]);
   });
 
-  it("sample verdict rule: approved, or approved-with-changes once the factory acks; photo on the newest round", () => {
+  it("sample verdict rule: approved or approved-with-changes; photo on the newest round", () => {
     expect(sampleVerdictOk(null)).toBe(false);
     expect(sampleVerdictOk(round({ verdict: null }))).toBe(false);
     expect(sampleVerdictOk(round({ verdict: "revise" }))).toBe(false);
     expect(sampleVerdictOk(round({ verdict: "approved" }))).toBe(true);
-    expect(sampleVerdictOk(round({ verdict: "approved_with_changes" }))).toBe(false);
-    expect(sampleVerdictOk(round({ verdict: "approved_with_changes", factory_acknowledged_at: "2026-08-19" }))).toBe(true);
+    expect(sampleVerdictOk(round({ verdict: "approved_with_changes" }))).toBe(true);
     const m = gateMissing(card({ last_sample: round({ verdict: "approved", photo_count: 0 }) }), "ready_for_confirmation");
     expect(m).not.toContain("sample_verdict");
     expect(m).toContain("sample_photo");

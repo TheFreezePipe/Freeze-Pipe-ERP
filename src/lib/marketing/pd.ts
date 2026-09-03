@@ -34,7 +34,7 @@ export const PD_STAGE_LABEL: Record<PdStage, string> = {
   ready_to_begin: "Ready to Begin",
   china_working: "China Working",
   prototype_sent: "Prototype Sent",
-  ready_for_confirmation: "Ready for Confirmation",
+  ready_for_confirmation: "Confirmed, Ready to Order",
   ordered: "Ordered",
   halted: "Halted",
 };
@@ -98,16 +98,13 @@ export interface PdSampleLike {
   round_no: number;
   received_at: string | null;
   verdict: PdVerdict | null;
-  factory_acknowledged_at: string | null;
   photo_count: number;
 }
 
-/** Does the newest round satisfy the RFC verdict rule? */
+/** Does the newest round satisfy the confirmation verdict rule? (Approved or approved-with-changes; remote counts.) */
 export function sampleVerdictOk(s: PdSampleLike | null | undefined): boolean {
   if (!s || !s.verdict) return false;
-  if (s.verdict === "approved") return true;
-  if (s.verdict === "approved_with_changes") return !!s.factory_acknowledged_at;
-  return false;
+  return s.verdict === "approved" || s.verdict === "approved_with_changes";
 }
 
 export const SPEC_FIELDS = ["packaging", "logo_placement", "koozie", "insert_cards"] as const;

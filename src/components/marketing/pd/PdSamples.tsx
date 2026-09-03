@@ -260,16 +260,6 @@ function RoundRow({ project, round: r, newest, missing, todayIso, urls, pending,
                   onCommit={(v) => onPatch({ feedback_sent_at: str(v) })}
                 />
               </FieldRow>
-              <FieldRow label="Factory ack">
-                <EditableValue
-                  kind="date"
-                  value={day(r.factory_acknowledged_at)}
-                  max={todayIso}
-                  missing={missing.has("sample_verdict") && verdict === "approved_with_changes"}
-                  disabled={pending}
-                  onCommit={(v) => onPatch({ factory_acknowledged_at: str(v) })}
-                />
-              </FieldRow>
             </div>
           </div>
           <PhotoStrip project={project} round={r} urls={urls} missing={missing.has("sample_photo")} />

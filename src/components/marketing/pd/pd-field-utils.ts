@@ -67,7 +67,6 @@ export function toCardLike(p: PdProjectWithRefs): PdCardLike {
           round_no: newest.round_no,
           received_at: newest.received_at,
           verdict: (newest.verdict as PdVerdict | null) ?? null,
-          factory_acknowledged_at: newest.factory_acknowledged_at,
           photo_count: newest.photos?.length ?? 0,
         }
       : null,

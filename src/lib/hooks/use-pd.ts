@@ -307,7 +307,6 @@ export interface PdSamplePatch {
   tracking_no?: string | null;
   received_at?: string | null;
   feedback_sent_at?: string | null;
-  factory_acknowledged_at?: string | null;
   verdict?: "approved" | "approved_with_changes" | "revise" | "rejected";
   verdict_notes?: string | null;
 }
