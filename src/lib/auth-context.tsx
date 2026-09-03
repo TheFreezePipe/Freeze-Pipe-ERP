@@ -39,6 +39,9 @@ const AuthContext = createContext<AuthState | undefined>(undefined);
 // Centralized in src/lib/env.ts — also enforces "prod must have real credentials".
 import { isDemoMode } from "@/lib/env";
 
+const DEV_AUTOLOGIN_EMAIL = import.meta.env.VITE_DEV_AUTOLOGIN_EMAIL as string | undefined;
+const DEV_AUTOLOGIN_PASSWORD = import.meta.env.VITE_DEV_AUTOLOGIN_PASSWORD as string | undefined;
+
 // Demo profile for development. Generated Profile has many nullable fields
 // we don't care about in demo mode — spreading null into them is cleaner than
 // enumerating each one.
@@ -93,6 +96,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         fetchProfile(s.user.id);
       }
       setLoading(false);
+      // Dev-only auto sign-in for the "verify" Vite mode: a git-ignored env
+      // file names the UI-verification account so the preview pane renders
+      // real pages without a manual login. Vite strips this branch from
+      // production builds (import.meta.env.DEV is false there).
+      if (!s && import.meta.env.DEV && DEV_AUTOLOGIN_EMAIL && DEV_AUTOLOGIN_PASSWORD) {
+        void supabase.auth.signInWithPassword({ email: DEV_AUTOLOGIN_EMAIL, password: DEV_AUTOLOGIN_PASSWORD });
+      }
     });
 
     const {

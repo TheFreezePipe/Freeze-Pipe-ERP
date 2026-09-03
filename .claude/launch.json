@@ -4,8 +4,20 @@
     {
       "name": "Freeze Pipe ERP (Vite Dev)",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 5173
+    },
+    {
+      "name": "verify",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:verify"
+      ],
+      "port": 5174
     }
   ]
 }

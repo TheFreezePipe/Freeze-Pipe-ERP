@@ -93,7 +93,9 @@ export default function App() {
             }`}>
               {isDemoMode
                 ? "DEMO MODE — data is in-memory and will be lost on reload"
-                : `${APP_ENV.toUpperCase()} ENVIRONMENT — not production data`}
+                : import.meta.env.MODE === "verify"
+                  ? "VERIFY MODE — live production data, signed in as the UI-verification account"
+                  : `${APP_ENV.toUpperCase()} ENVIRONMENT — not production data`}
             </div>
           )}
           <Routes>
