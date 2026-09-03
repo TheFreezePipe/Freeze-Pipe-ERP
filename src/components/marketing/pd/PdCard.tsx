@@ -7,10 +7,10 @@ import type { DragEvent } from "react";
 import { format, parseISO } from "date-fns";
 import { Star } from "lucide-react";
 import { aging, cardFlags, riskDot } from "@/lib/marketing/pd";
-import { dropTagColor } from "@/lib/marketing/drop-colors";
+import { dropColorFor } from "@/lib/marketing/drop-colors";
 import type { PdProjectWithRefs } from "@/lib/hooks/use-pd";
 import { cn } from "@/lib/utils";
-import { coverPhotoPath, toCardLike } from "./pd-field-utils";
+import { coverPhotoPath, toCardLike, useDropColors } from "./pd-field-utils";
 import { usePdPhotoUrl } from "./pd-photo-context";
 import { PdDropPicker } from "./PdDropPicker";
 
@@ -49,6 +49,7 @@ export function PdCard({ project, todayIso, selected, dragging, onOpen, onDragSt
   const newest = project.samples[0] ?? null;
   const golden = project.samples.some((s) => s.is_golden);
   const coverUrl = usePdPhotoUrl(coverPhotoPath(project));
+  const dropColors = useDropColors();
 
   return (
     <div
@@ -70,7 +71,7 @@ export function PdCard({ project, todayIso, selected, dragging, onOpen, onDragSt
         project.drop_tag
           ? {
               borderLeftWidth: 3,
-              borderLeftColor: dropTagColor(project.drop_tag),
+              borderLeftColor: dropColorFor(dropColors, project.drop_tag),
             }
           : undefined
       }

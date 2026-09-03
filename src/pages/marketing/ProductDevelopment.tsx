@@ -13,7 +13,7 @@ import { PdCardSheet, PdMoveSheet } from "@/components/marketing/pd";
 import { PdCard } from "@/components/marketing/pd/PdCard";
 import { PdPhotoUrlContext } from "@/components/marketing/pd/pd-photo-context";
 import { coverPhotoPath, dropSummaries, toCardLike } from "@/components/marketing/pd/pd-field-utils";
-import { dropTagColor } from "@/lib/marketing/drop-colors";
+import { dropColorFor, dropColorMap } from "@/lib/marketing/drop-colors";
 import {
   usePdBoard,
   useCreatePdProject,
@@ -313,6 +313,7 @@ export default function ProductDevelopment() {
     [board],
   );
   const drops = useMemo(() => dropSummaries(board), [board]);
+  const dropColors = useMemo(() => dropColorMap(drops), [drops]);
   // A drop that no longer exists on the board can't stay selected.
   const activeDrop = filters.drop && drops.some((d) => d.tag === filters.drop) ? filters.drop : null;
   const dropMembers = useMemo(() => (activeDrop ? board.filter((p) => p.drop_tag === activeDrop) : []), [board, activeDrop]);
@@ -502,7 +503,7 @@ export default function ProductDevelopment() {
           <div className="flex flex-wrap items-center gap-1 border-l border-border pl-2">
             {drops.map((d) => (
               <Chip key={d.tag} active={activeDrop === d.tag} onClick={() => updateFilters({ drop: activeDrop === d.tag ? null : d.tag })}>
-                <span className="mr-1.5 inline-block h-2 w-2 rounded-full align-middle" style={{ background: dropTagColor(d.tag) }} />
+                <span className="mr-1.5 inline-block h-2 w-2 rounded-full align-middle" style={{ background: dropColorFor(dropColors, d.tag) }} />
                 {d.tag}
               </Chip>
             ))}

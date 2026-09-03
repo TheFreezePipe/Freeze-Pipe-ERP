@@ -9,7 +9,9 @@ import { toast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
 import { computeListD2C, type ListD2CResult } from "@/lib/inventory-math";
 import type { PdCardLike, PdStage, PdVerdict } from "@/lib/marketing/pd";
-import { useUpdatePdProject, type PdProjectUpdate, type PdProjectWithRefs } from "@/lib/hooks/use-pd";
+import { usePdBoard, useUpdatePdProject, type PdProjectUpdate, type PdProjectWithRefs } from "@/lib/hooks/use-pd";
+import { dropColorMap } from "@/lib/marketing/drop-colors";
+import { useMemo } from "react";
 import type { SKUEconomics } from "@/types/database";
 
 // ---------------------------------------------------------------------------
@@ -78,6 +80,8 @@ export interface DropSummary {
   count: number;
   /** First member target launch date, if any. */
   launch: string | null;
+  /** Oldest member created_at — decides color precedence. */
+  since: string;
 }
 
 /** Distinct drops on the (unarchived) board with member counts. */
@@ -86,12 +90,19 @@ export function dropSummaries(board: readonly PdProjectWithRefs[]): DropSummary[
   for (const p of board) {
     const tag = p.drop_tag?.trim();
     if (!tag) continue;
-    const cur = m.get(tag) ?? { tag, count: 0, launch: null };
+    const cur = m.get(tag) ?? { tag, count: 0, launch: null, since: p.created_at };
     cur.count += 1;
     if (!cur.launch && p.target_launch_date) cur.launch = p.target_launch_date;
+    if (p.created_at < cur.since) cur.since = p.created_at;
     m.set(tag, cur);
   }
   return [...m.values()].sort((a, b) => a.tag.localeCompare(b.tag));
+}
+
+/** tag -> color for the drops on the board (distinct for up to six). */
+export function useDropColors(): Map<string, string> {
+  const { data: board = [] } = usePdBoard();
+  return useMemo(() => dropColorMap(dropSummaries(board)), [board]);
 }
 
 /** Newest photo across all rounds (board-card cover), or null. */

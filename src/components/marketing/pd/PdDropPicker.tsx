@@ -12,9 +12,9 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
-import { dropTagColor } from "@/lib/marketing/drop-colors";
+import { dropColorFor } from "@/lib/marketing/drop-colors";
 import { usePdBoard, useUpdatePdProject, type PdProjectWithRefs } from "@/lib/hooks/use-pd";
-import { dropSummaries, fmtDate } from "./pd-field-utils";
+import { dropSummaries, fmtDate, useDropColors } from "./pd-field-utils";
 
 const stop = (e: MouseEvent | KeyboardEvent) => e.stopPropagation();
 
@@ -25,11 +25,12 @@ export function PdDropPicker({ project, size = "card" }: { project: PdProjectWit
   const [draft, setDraft] = useState("");
 
   const drops = useMemo(() => dropSummaries(board), [board]);
+  const dropColors = useDropColors();
   const q = draft.trim().toLowerCase();
   const matches = q ? drops.filter((d) => d.tag.toLowerCase().includes(q)) : drops;
   const exact = drops.find((d) => d.tag.toLowerCase() === q) ?? null;
   const tag = project.drop_tag?.trim() || null;
-  const color = tag ? dropTagColor(tag) : null;
+  const color = tag ? dropColorFor(dropColors, tag) : null;
 
   async function apply(next: string | null) {
     const canon = next ? (drops.find((d) => d.tag.toLowerCase() === next.toLowerCase())?.tag ?? next.trim()) : null;
@@ -96,7 +97,7 @@ export function PdDropPicker({ project, size = "card" }: { project: PdProjectWit
                 onClick={() => void apply(d.tag)}
                 className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
               >
-                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: dropTagColor(d.tag) }} />
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: dropColorFor(dropColors, d.tag) }} />
                 <span className="min-w-0 flex-1 truncate">{d.tag}</span>
                 <span className="text-[11px] tabular-nums text-muted-foreground">{d.count}</span>
               </button>
