@@ -33,6 +33,7 @@ import {
   useFreightShipments,
   useFreightLineItems,
   useConfirmFreightReceipt,
+  useAllCartonGroupTotals,
   type FreightLineItemWithProduct,
 } from "@/lib/hooks";
 import type { FreightShipment } from "@/types/database";
@@ -442,6 +443,11 @@ function ShipmentCard({
   const { isAdmin, isManager, user } = useAuth();
   const { toast } = useToast();
   const confirmReceipt = useConfirmFreightReceipt();
+  // Carton plan on file? Then check-in happens carton by carton on the
+  // shipment page — the one-click receive-all shortcut bypassed the carton
+  // system entirely (every receipt through Sep 8 was a unit posting).
+  const { data: cartonTotals } = useAllCartonGroupTotals();
+  const cartonPlan = cartonTotals?.get(shipment.id) ?? null;
   const totalUnits = lines.reduce((sum, l) => sum + (l.quantity ?? 0), 0);
   const totalCartons = shipment.total_cartons ?? 0;
   const totalCost = lines.reduce((s, l) => s + (l.unit_cost ?? 0) * (l.quantity ?? 0), 0);
@@ -526,13 +532,28 @@ function ShipmentCard({
                 <> on <span className="font-medium">{format(parseISO(shipment.actual_arrival_date), "MMM d, yyyy")}</span></>
               )}.{" "}
               <span className="text-green-300/80">
-                {(isAdmin || isManager)
-                  ? "Receive all remaining units to credit warehouse inventory."
-                  : "Awaiting admin or manager to confirm receipt."}
+                {cartonPlan
+                  ? `${(cartonPlan.cartons - cartonPlan.received).toLocaleString()} of ${cartonPlan.cartons.toLocaleString()} cartons to check in.`
+                  : (isAdmin || isManager)
+                    ? "Receive all remaining units to credit warehouse inventory."
+                    : "Awaiting admin or manager to confirm receipt."}
               </span>
             </span>
           </div>
-          {(isAdmin || isManager) && (
+          {cartonPlan ? (
+            <Button
+              size="sm"
+              variant="default"
+              className="bg-green-600 hover:bg-green-500 text-white shrink-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                activate();
+              }}
+            >
+              <PackageCheck className="mr-1.5 h-3.5 w-3.5" />
+              Check in cartons
+            </Button>
+          ) : (isAdmin || isManager) && (
             <Button
               size="sm"
               variant="default"
@@ -541,9 +562,8 @@ function ShipmentCard({
               disabled={confirmReceipt.isPending}
             >
               <PackageCheck className="mr-1.5 h-3.5 w-3.5" />
-              {/* Relabeled from "Confirm receipt": post-partial-receiving the
-                  RPC credits only the remaining unreceived units, so the
-                  action is "receive whatever's left", not a blanket confirm. */}
+              {/* Legacy shipments only (no carton plan): credits whatever
+                  is left in one go. */}
               {confirmReceipt.isPending ? "Receiving…" : "Receive all remaining"}
             </Button>
           )}

@@ -135,9 +135,9 @@ export function ShipmentManifest({
 
   const anyPending = record.isPending;
 
-  async function tapCarton(group: CartonGroupWithSkus, delta: 1 | -1) {
-    if (!user) return;
-    setPendingKey(`${group.id}:${delta > 0 ? "+1" : "-1"}`);
+  async function tapCarton(group: CartonGroupWithSkus, delta: number) {
+    if (!user || delta === 0) return;
+    setPendingKey(`${group.id}:${delta > 0 ? "+" + delta : "-1"}`);
     try {
       const result = await record.mutateAsync({
         shipmentId: shipment.id,
@@ -156,6 +156,31 @@ export function ShipmentManifest({
         description: describeError(err),
         variant: "destructive",
       });
+    } finally {
+      setPendingKey(null);
+    }
+  }
+
+  /** Every remaining carton on every group in one call — the fast path
+   *  for a shipment that arrived complete, still recorded carton by carton. */
+  async function checkInAllCartons() {
+    if (!user) return;
+    const entries = groups
+      .filter((g) => g.received_cartons < g.carton_qty)
+      .map((g) => ({ carton_group_id: g.id, cartons: g.carton_qty - g.received_cartons }));
+    if (entries.length === 0) return;
+    const n = entries.reduce((s, e) => s + e.cartons, 0);
+    setPendingKey("all");
+    try {
+      const result = await record.mutateAsync({ shipmentId: shipment.id, actorId: user.id, entries });
+      toast({
+        title: result.fully_received ? "All cartons checked in" : `Checked in ${n} cartons`,
+        description: result.fully_received
+          ? "Shipment fully received — inventory credited and receipt confirmed."
+          : undefined,
+      });
+    } catch (err) {
+      toast({ title: "Could not check in cartons", description: describeError(err), variant: "destructive" });
     } finally {
       setPendingKey(null);
     }
@@ -327,6 +352,17 @@ export function ShipmentManifest({
                 <p className="text-[13px] text-muted-foreground">{carrierDetail}</p>
               )}
             </div>
+            {canEdit && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="ml-auto shrink-0 border-green-500/40 text-green-400 hover:text-green-300"
+                onClick={checkInAllCartons}
+                disabled={anyPending}
+              >
+                {pendingKey === "all" ? "Checking in…" : `Check in all ${(totalCartons - receivedCartons).toLocaleString()} cartons`}
+              </Button>
+            )}
           </div>
         ) : bannerState === "calm" ? (
           <div className="rounded-lg border border-green-500/30 bg-green-500/10 p-4 flex items-center gap-4">
@@ -383,6 +419,17 @@ export function ShipmentManifest({
                 <p className="text-[13px] text-muted-foreground">{unitModeCarrierLine}</p>
               )}
             </div>
+            {cartonMode && !headlineDone && canEdit && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="ml-auto shrink-0 border-green-500/40 text-green-400 hover:text-green-300"
+                onClick={checkInAllCartons}
+                disabled={anyPending}
+              >
+                {pendingKey === "all" ? "Checking in…" : `Check in all ${(totalCartons - receivedCartons).toLocaleString()} cartons`}
+              </Button>
+            )}
           </div>
         )
       )}
@@ -508,6 +555,18 @@ export function ShipmentManifest({
                                       >
                                         <Plus className={cn("h-3.5 w-3.5", pendingKey === `${group.id}:+1` && "animate-pulse")} />
                                       </Button>
+                                      {group.carton_qty - group.received_cartons > 1 && (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-7 px-2 text-xs border-green-500/40 text-green-400 hover:text-green-300"
+                                          onClick={() => tapCarton(group, group.carton_qty - group.received_cartons)}
+                                          disabled={anyPending}
+                                          title="Check in every remaining carton in this group"
+                                        >
+                                          {pendingKey === `${group.id}:+${group.carton_qty - group.received_cartons}` ? "…" : `all ${group.carton_qty - group.received_cartons}`}
+                                        </Button>
+                                      )}
                                     </div>
                                   )}
                                 </div>

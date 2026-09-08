@@ -316,3 +316,31 @@ export function useCloseFreightShort() {
     },
   });
 }
+
+/**
+ * Carton-plan totals for every shipment in one query: shipment id →
+ * { groups, cartons, received }. Lets the Shipments list tell a carton-
+ * planned shipment ("check in cartons") from a legacy one ("receive all")
+ * without a per-card fetch. Absent from the map = no carton plan.
+ */
+export function useAllCartonGroupTotals() {
+  return useQuery({
+    queryKey: ["freight-carton-totals"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("freight_carton_groups")
+        .select("freight_shipment_id, carton_qty, received_cartons");
+      if (error) throw error;
+      const m = new Map<string, { groups: number; cartons: number; received: number }>();
+      for (const g of data ?? []) {
+        const cur = m.get(g.freight_shipment_id) ?? { groups: 0, cartons: 0, received: 0 };
+        cur.groups += 1;
+        cur.cartons += g.carton_qty;
+        cur.received += g.received_cartons;
+        m.set(g.freight_shipment_id, cur);
+      }
+      return m;
+    },
+    staleTime: 60 * 1000,
+  });
+}
