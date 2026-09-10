@@ -8,6 +8,7 @@ import {
   buildOfferColumns,
   draftFromOffer,
   buildForecastColumns,
+  validateForecastEdits,
   forecastView,
   giftUnits,
   isGiftFormat,
@@ -274,11 +275,11 @@ const DEFAULTS: OfferForecastDefaults = {
   cell: { format: "gift_min", depth_band: "mid", scope_class: "sitewide", season: "other" },
 };
 
-describe("buildForecastColumns", () => {
+describe("buildForecastColumns (planner-first)", () => {
   const now = new Date("2026-09-09T12:00:00Z");
 
-  it("without edits: derived columns from the RPC, planner columns null", () => {
-    expect(buildForecastColumns(DEFAULTS, { lift: "", orders: "", giftUnits: "" }, "gift_min", now)).toEqual({
+  it("no typed values: derived columns from the RPC, planner columns null", () => {
+    expect(buildForecastColumns(DEFAULTS, { lift: "", orders: "", giftUnits: "" }, "gift_min", 1, now)).toEqual({
       derived_lift_pct: 23.5,
       derived_orders: 120,
       derived_attach_pct: 40,
@@ -292,25 +293,31 @@ describe("buildForecastColumns", () => {
     });
   });
 
-  it("with edits: planner columns set, derived untouched", () => {
-    const cols = buildForecastColumns(DEFAULTS, { lift: "30", orders: "150", giftUnits: "60" }, "gift_min", now);
+  it("typed lift + orders: planner columns set, gift units computed from the typed orders", () => {
+    const cols = buildForecastColumns(DEFAULTS, { lift: "30", orders: "150", giftUnits: "" }, "gift_min", 1, now);
     expect(cols.expected_uplift_pct).toBe(30);
     expect(cols.expected_orders).toBe(150);
-    expect(cols.planner_gift_units).toBe(60);
+    expect(cols.planner_gift_units).toBe(60); // 150 x 40% x 1
     expect(cols.derived_lift_pct).toBe(23.5);
     expect(cols.derived_orders).toBe(120);
     expect(cols.derived_gift_units).toBe(48);
+    expect(buildForecastColumns(DEFAULTS, { lift: "30", orders: "150", giftUnits: "" }, "gift_min", 2, now).planner_gift_units).toBe(120);
+  });
+
+  it("a typed gift-units cap wins over the computed value", () => {
+    const cols = buildForecastColumns(DEFAULTS, { lift: "30", orders: "150", giftUnits: "55" }, "gift_min", 1, now);
+    expect(cols.planner_gift_units).toBe(55);
   });
 
   it("non-numeric or fractional edits are treated as unset", () => {
-    const cols = buildForecastColumns(DEFAULTS, { lift: "abc", orders: "12.5", giftUnits: " " }, "gift_min", now);
+    const cols = buildForecastColumns(DEFAULTS, { lift: "abc", orders: "12.5", giftUnits: " " }, "gift_min", 1, now);
     expect(cols.expected_uplift_pct).toBeNull();
     expect(cols.expected_orders).toBeNull();
     expect(cols.planner_gift_units).toBeNull();
   });
 
-  it("no RPC result: everything derived is null, edits still land", () => {
-    const cols = buildForecastColumns(null, { lift: "25", orders: "", giftUnits: "" }, "percent", now);
+  it("no RPC result: everything derived is null, typed values still land", () => {
+    const cols = buildForecastColumns(null, { lift: "25", orders: "", giftUnits: "" }, "percent", 1, now);
     expect(cols.derived_lift_pct).toBeNull();
     expect(cols.defaults_source).toBeNull();
     expect(cols.derived_at).toBeNull();
@@ -319,21 +326,43 @@ describe("buildForecastColumns", () => {
   });
 
   it("orders / gift edits never land on a non-gift format (format-switch leak)", () => {
-    const cols = buildForecastColumns(DEFAULTS, { lift: "15", orders: "900", giftUnits: "500" }, "percent", now);
+    const cols = buildForecastColumns(DEFAULTS, { lift: "15", orders: "900", giftUnits: "500" }, "percent", 1, now);
     expect(cols.expected_uplift_pct).toBe(15);
     expect(cols.expected_orders).toBeNull();
     expect(cols.planner_gift_units).toBeNull();
-    expect(buildForecastColumns(DEFAULTS, { lift: "", orders: "900", giftUnits: "500" }, "dollar", now).expected_orders).toBeNull();
+    expect(buildForecastColumns(DEFAULTS, { lift: "", orders: "900", giftUnits: "500" }, "dollar", 1, now).expected_orders).toBeNull();
   });
 
   it("edits outside the DB CHECK range are treated as unset", () => {
-    const zero = buildForecastColumns(DEFAULTS, { lift: "", orders: "0", giftUnits: "-5" }, "gift_min", now);
+    const zero = buildForecastColumns(DEFAULTS, { lift: "", orders: "0", giftUnits: "-5" }, "gift_min", 1, now);
     expect(zero.expected_orders).toBeNull();
     expect(zero.planner_gift_units).toBeNull();
-    const neg = buildForecastColumns(DEFAULTS, { lift: "-150", orders: "-3", giftUnits: "0" }, "gift_code", now);
+    const neg = buildForecastColumns(DEFAULTS, { lift: "-150", orders: "-3", giftUnits: "0" }, "gift_code", 1, now);
     expect(neg.expected_uplift_pct).toBeNull();
     expect(neg.expected_orders).toBeNull();
     expect(neg.planner_gift_units).toBe(0);
+  });
+});
+
+describe("validateForecastEdits", () => {
+  it("lift is required on every format", () => {
+    expect(validateForecastEdits({ lift: "", orders: "", giftUnits: "" }, "percent")).toEqual({ ok: false, missing: ["lift"] });
+    expect(validateForecastEdits({ lift: "15", orders: "", giftUnits: "" }, "percent").ok).toBe(true);
+    expect(validateForecastEdits({ lift: "-101", orders: "", giftUnits: "" }, "dollar").missing).toContain("lift");
+    expect(validateForecastEdits({ lift: "0", orders: "", giftUnits: "" }, "dollar").ok).toBe(true);
+  });
+
+  it("orders is required on gift formats; a typed cap must be a whole number >= 0", () => {
+    expect(validateForecastEdits({ lift: "40", orders: "", giftUnits: "" }, "gift_min")).toEqual({ ok: false, missing: ["orders"] });
+    expect(validateForecastEdits({ lift: "40", orders: "0", giftUnits: "" }, "gift_skus").missing).toEqual(["orders"]);
+    expect(validateForecastEdits({ lift: "40", orders: "900", giftUnits: "" }, "gift_code").ok).toBe(true);
+    expect(validateForecastEdits({ lift: "40", orders: "900", giftUnits: "-1" }, "bxgy").missing).toEqual(["giftUnits"]);
+    expect(validateForecastEdits({ lift: "40", orders: "900", giftUnits: "12.5" }, "bxgy").missing).toEqual(["giftUnits"]);
+    expect(validateForecastEdits({ lift: "40", orders: "900", giftUnits: "0" }, "bxgy").ok).toBe(true);
+  });
+
+  it("no format: not ok", () => {
+    expect(validateForecastEdits({ lift: "40", orders: "900", giftUnits: "" }, null).ok).toBe(false);
   });
 });
 
@@ -346,28 +375,28 @@ describe("giftUnits / forecastView", () => {
     expect(giftUnits(120, null, 1)).toBeNull();
   });
 
-  it("forecastView shows edits when set and re-derives gift units from edited orders", () => {
-    const base = forecastView(DEFAULTS, { lift: "", orders: "", giftUnits: "" }, 1);
-    expect(base).toEqual({ lift: 23.5, liftSet: false, orders: 120, ordersSet: false, giftUnits: 48, giftUnitsSet: false });
-    const edited = forecastView(DEFAULTS, { lift: "30", orders: "200", giftUnits: "" }, 2);
-    expect(edited.lift).toBe(30);
-    expect(edited.liftSet).toBe(true);
-    expect(edited.orders).toBe(200);
-    expect(edited.giftUnits).toBe(160);
-    expect(edited.giftUnitsSet).toBe(false);
-    const capped = forecastView(DEFAULTS, { lift: "", orders: "", giftUnits: "30" }, 1);
+  it("forecastView shows only typed lift/orders and computes gift units from typed orders", () => {
+    const empty = forecastView(DEFAULTS, { lift: "", orders: "", giftUnits: "" }, 1);
+    expect(empty).toEqual({ lift: null, liftSet: false, orders: null, ordersSet: false, giftUnits: null, giftUnitsSet: false });
+    const typed = forecastView(DEFAULTS, { lift: "30", orders: "200", giftUnits: "" }, 2);
+    expect(typed.lift).toBe(30);
+    expect(typed.liftSet).toBe(true);
+    expect(typed.orders).toBe(200);
+    expect(typed.giftUnits).toBe(160);
+    expect(typed.giftUnitsSet).toBe(false);
+    const capped = forecastView(DEFAULTS, { lift: "30", orders: "200", giftUnits: "30" }, 1);
     expect(capped.giftUnits).toBe(30);
     expect(capped.giftUnitsSet).toBe(true);
   });
 
   it("forecastView ignores orders / gift edits on a non-gift format and out-of-range values", () => {
-    const pct = forecastView(DEFAULTS, { lift: "", orders: "900", giftUnits: "500" }, 1, "percent");
-    expect(pct.orders).toBe(120);
+    const pct = forecastView(DEFAULTS, { lift: "12", orders: "900", giftUnits: "500" }, 1, "percent");
+    expect(pct.orders).toBeNull();
     expect(pct.ordersSet).toBe(false);
-    expect(pct.giftUnits).toBe(48);
+    expect(pct.giftUnits).toBeNull();
     expect(pct.giftUnitsSet).toBe(false);
     const zero = forecastView(DEFAULTS, { lift: "", orders: "0", giftUnits: "" }, 1, "gift_min");
-    expect(zero.orders).toBe(120);
+    expect(zero.orders).toBeNull();
     expect(zero.ordersSet).toBe(false);
   });
 

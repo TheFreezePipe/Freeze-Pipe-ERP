@@ -371,19 +371,22 @@ export function giftUnits(
 }
 
 /**
- * The columns written on every save: derived_* + defaults_source come from
- * the RPC result each time; the planner columns only when the user typed a
- * value (else NULL = use derived); effective_discount_pct = depth.
+ * The columns written on every save. Planner-first (owner decision
+ * 2026-09-10, SAP/Dynamics style): the planner TYPES lift and, for gift
+ * formats, orders; the history estimate is stored beside them as derived_*
+ * for scoring but never stands in for a number nobody entered. Gift units
+ * = the planner's orders x attach x qty unless the planner typed a cap.
+ * effective_discount_pct = computed depth.
  */
 export function buildForecastColumns(
   defaults: OfferForecastDefaults | null,
   edits: ForecastEdits,
   format: OfferFormat | null,
+  getQty: number = 1,
   now: Date = new Date(),
 ): OfferForecastColumns {
-  // Orders / gift units only exist for gift formats; anything else typed
-  // there (or out of the DB CHECK range) is treated as unset.
   const { lift, orders, gift } = cleanEdits(edits, format);
+  const computedGift = isGiftFormat(format) ? giftUnits(orders, defaults?.attach_pct, getQty) : null;
   return {
     derived_lift_pct: defaults?.lift_pct ?? null,
     derived_orders: defaults?.orders ?? null,
@@ -392,10 +395,31 @@ export function buildForecastColumns(
     defaults_source: defaults ? (defaults as unknown as Json) : null,
     expected_uplift_pct: lift,
     expected_orders: orders,
-    planner_gift_units: gift,
+    planner_gift_units: gift ?? computedGift,
     effective_discount_pct: defaults?.depth_pct ?? null,
     derived_at: defaults ? now.toISOString() : null,
   };
+}
+
+/**
+ * Planner-entered forecast inputs are REQUIRED: lift on every format,
+ * orders on gift formats; a typed gift-units cap must be a whole number
+ * >= 0. (The estimate beside the field is a reference, not a default.)
+ */
+export function validateForecastEdits(edits: ForecastEdits, format: OfferFormat | null): OfferValidation {
+  const missing: string[] = [];
+  if (!format) return { ok: false, missing: ["format"] };
+  const lift = numOrNull(edits.lift);
+  if (lift == null || lift < -100) missing.push("lift");
+  if (isGiftFormat(format)) {
+    const orders = intOrNull(edits.orders);
+    if (orders == null || orders < 1) missing.push("orders");
+    if (edits.giftUnits.trim()) {
+      const g = intOrNull(edits.giftUnits);
+      if (g == null || g < 0) missing.push("giftUnits");
+    }
+  }
+  return { ok: missing.length === 0, missing };
 }
 
 /** True for the four formats whose Forecast box shows the Orders x Attach row. */
@@ -424,8 +448,9 @@ export function cleanEdits(
 }
 
 /**
- * The values the Forecast box displays: planner edit when set, else derived.
- * Gift units re-derive from an edited Orders value so the row stays honest.
+ * The values the Forecast box displays. Lift and orders are the planner's
+ * typed numbers only (null until typed; the estimate is shown beside them,
+ * never in them). Gift units = typed cap, else orders x attach x qty.
  */
 export interface ForecastView {
   lift: number | null;
@@ -443,15 +468,13 @@ export function forecastView(
   format: OfferFormat | null = "gift_min",
 ): ForecastView {
   const { lift, orders, gift } = cleanEdits(edits, format);
-  const ordersShown = orders ?? defaults?.orders ?? null;
-  const derivedGift =
-    orders != null ? giftUnits(orders, defaults?.attach_pct, getQty) : (defaults?.gift_units ?? null);
+  const computedGift = giftUnits(orders, defaults?.attach_pct, getQty);
   return {
-    lift: lift ?? defaults?.lift_pct ?? null,
+    lift,
     liftSet: lift != null,
-    orders: ordersShown,
+    orders,
     ordersSet: orders != null,
-    giftUnits: gift ?? derivedGift,
+    giftUnits: gift ?? computedGift,
     giftUnitsSet: gift != null,
   };
 }

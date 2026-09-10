@@ -57,8 +57,10 @@ export function OfferSentence({ offer, freeItemName, skuCodes, className }: Prop
   const format: OfferFormat | null = isOfferFormat(offer.format) ? offer.format : inferOfferFormat(offer);
   const label = offer.label.trim();
   const showDeal = label !== d.deal;
-  const lift = offer.expected_uplift_pct ?? offer.derived_lift_pct ?? null;
-  const gift = offer.planner_gift_units ?? offer.derived_gift_units ?? null;
+  // Planner-entered numbers only; the history estimate (derived_*) is a
+  // reference inside the dialog, never a stand-in on the sale page.
+  const lift = offer.expected_uplift_pct ?? null;
+  const gift = offer.planner_gift_units ?? null;
 
   return (
     <div className={cn("min-w-0 space-y-1", className)}>

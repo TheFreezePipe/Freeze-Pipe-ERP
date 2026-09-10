@@ -34,10 +34,10 @@ import {
   intOrNull,
   isGiftFormat,
   validateOffer,
+  validateForecastEdits,
   validateOfferMechanics,
   type DiscountKind,
   type ForecastEdits,
-  type ForecastView,
   type OfferDraft,
   type OfferForecastDefaults,
   type Scope,
@@ -207,14 +207,16 @@ function OfferForm({
   }
 
   const pending = create.isPending || update.isPending || setSkus.isPending || remove.isPending;
-  const canSave = valid.ok && !pending && !forecast.isFetching;
+  const forecastValid = validateForecastEdits(edits, format);
+  const canSave = valid.ok && forecastValid.ok && !pending && !forecast.isFetching;
+  const getQtyNum = Number(draft.getQty) || 1;
 
   async function handleSubmit() {
-    if (!valid.ok || !cols.format) return;
+    if (!valid.ok || !forecastValid.ok || !cols.format) return;
     const payload: MktOfferInsert = {
       ...cols,
       format: cols.format,
-      ...buildForecastColumns(defaults, edits, format),
+      ...buildForecastColumns(defaults, edits, format, getQtyNum),
       sale_id: saleId,
       label: label.trim(),
     };
@@ -691,8 +693,7 @@ function dotN(n: number | null | undefined): string {
   return n != null ? ` ${DOT} ${n}` : "";
 }
 
-function liftChip(v: ForecastView, d: OfferForecastDefaults | null): string | null {
-  if (v.liftSet) return "Set";
+function liftChip(d: OfferForecastDefaults | null): string | null {
   if (!d || d.lift_pct == null) return null;
   switch (d.lift_source) {
     case "measured":
@@ -706,8 +707,7 @@ function liftChip(v: ForecastView, d: OfferForecastDefaults | null): string | nu
   }
 }
 
-function ordersChip(v: ForecastView, d: OfferForecastDefaults | null): string | null {
-  if (v.ordersSet) return "Set";
+function ordersChip(d: OfferForecastDefaults | null): string | null {
   if (!d || d.orders == null) return null;
   return d.orders_source === "last_year" ? "Last year" : "Derived";
 }
@@ -732,14 +732,15 @@ function ForecastBox({
   setEdits: (u: (e: ForecastEdits) => ForecastEdits) => void;
   getQty: number;
 }) {
+  // Planner-first: Lift and Orders are typed (empty until then); the
+  // history estimate sits beside each as a reference value with its source.
   const view = forecastView(defaults, edits, getQty, format);
   const gift = isGiftFormat(format);
   const edit = (k: keyof ForecastEdits) => (v: string) => setEdits((e) => ({ ...e, [k]: v }));
-  const derivedLift = defaults?.lift_pct ?? null;
-  const derivedOrders = defaults?.orders ?? null;
-  // What Gift units would read without the planner's override (an edited
-  // Orders value still flows through).
-  const derivedGift = forecastView(defaults, { ...edits, giftUnits: "" }, getQty, format).giftUnits;
+  const estLift = defaults?.lift_pct ?? null;
+  const estOrders = defaults?.orders ?? null;
+  // What Gift units read without a typed cap (the planner's orders flow through).
+  const computedGift = forecastView(defaults, { ...edits, giftUnits: "" }, getQty, format).giftUnits;
   const after = defaults?.after_ratio ?? null;
   // The after-effect comes from the same history rows as the lift prior, so
   // it is "Measured" only once that cell holds measured (not backfilled) rows.
@@ -749,17 +750,19 @@ function ForecastBox({
     <fieldset className="rounded-md border border-amber-500/25 bg-amber-500/[0.03] px-4 pb-4 pt-1">
       <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-amber-400/90">Forecast</legend>
       <div className="flex flex-wrap items-end gap-x-6 gap-y-4">
-        <Cell label="Lift" htmlFor={`${ids}-lift`}>
+        <Cell label="Lift" htmlFor={`${ids}-lift`} required>
           <NumInput
             id={`${ids}-lift`}
             value={edits.lift}
-            shown={view.lift}
+            shown={null}
             onChange={edit("lift")}
             width="w-20"
             suffix="%"
           />
-          <Chip text={liftChip(view, defaults)} set={view.liftSet} />
-          {view.liftSet && <Muted>{derivedLift != null ? `${fmtNum(derivedLift)}%` : DASH}</Muted>}
+        </Cell>
+        <Cell label="History">
+          <Value>{estLift != null ? `${fmtNum(estLift)}%` : DASH}</Value>
+          <Chip text={liftChip(defaults)} />
         </Cell>
         {format !== "percent" && (
           <Cell label="Depth">
@@ -778,18 +781,18 @@ function ForecastBox({
 
       {gift && (
         <div className="mt-4 flex flex-wrap items-end gap-x-3 gap-y-4">
-          <Cell label="Orders" htmlFor={`${ids}-orders`}>
+          <Cell label="Orders" htmlFor={`${ids}-orders`} required>
             <NumInput
               id={`${ids}-orders`}
               value={edits.orders}
-              shown={view.orders}
+              shown={null}
               onChange={edit("orders")}
               width="w-24"
               integer
               min={1}
             />
-            <Chip text={ordersChip(view, defaults)} set={view.ordersSet} />
-            {view.ordersSet && <Muted>{derivedOrders != null ? fmtNum(derivedOrders, 0) : DASH}</Muted>}
+            <Muted>{estOrders != null ? fmtNum(estOrders, 0) : DASH}</Muted>
+            <Chip text={ordersChip(defaults)} />
           </Cell>
           <Op>&times;</Op>
           <Cell label="Attach">
@@ -811,8 +814,8 @@ function ForecastBox({
               integer
               min={0}
             />
-            <Chip text={view.giftUnitsSet ? "Set" : view.giftUnits != null ? "Derived" : null} set={view.giftUnitsSet} />
-            {view.giftUnitsSet && <Muted>{derivedGift != null ? fmtNum(derivedGift, 0) : DASH}</Muted>}
+            <Chip text={view.giftUnitsSet ? "Set" : view.giftUnits != null ? "Computed" : null} set={view.giftUnitsSet} />
+            {view.giftUnitsSet && <Muted>{computedGift != null ? fmtNum(computedGift, 0) : DASH}</Muted>}
           </Cell>
         </div>
       )}
@@ -884,11 +887,12 @@ function Field({
   );
 }
 
-function Cell({ label, htmlFor, children }: { label: string; htmlFor?: string; children: ReactNode }) {
+function Cell({ label, htmlFor, required, children }: { label: string; htmlFor?: string; required?: boolean; children: ReactNode }) {
   return (
     <div className="space-y-1">
       <Label htmlFor={htmlFor} className="text-xs text-muted-foreground">
         {label}
+        {required && <span className="ml-0.5 text-primary">*</span>}
       </Label>
       <div className="flex min-h-8 items-center gap-1.5">{children}</div>
     </div>
