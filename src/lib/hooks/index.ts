@@ -18,4 +18,5 @@ export * from "./use-sales-pulse";
 export * from "./use-retail-value-history";
 export * from "./use-marketing";
 export * from "./use-marketing-signals";
+export * from "./use-offer-forecast-defaults";
 export * from "./use-pd";

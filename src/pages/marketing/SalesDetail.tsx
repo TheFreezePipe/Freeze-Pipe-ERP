@@ -13,14 +13,20 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import { SaleFormDialog } from "@/components/marketing/SaleFormDialog";
 import { OfferFormDialog } from "@/components/marketing/OfferFormDialog";
-import { describeOffer, salePhase, PHASE_COLOR, PHASE_LABEL, isPastKey, dayKeyOf } from "@/lib/marketing-format";
+import { OfferSentence } from "@/components/marketing/OfferSentence";
+import { salePhase, PHASE_COLOR, PHASE_LABEL, isPastKey, dayKeyOf } from "@/lib/marketing-format";
 import { toast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
-import { format, parseISO } from "date-fns";
+import { format } from "date-fns";
 
+/** Show the stored calendar day: key off YYYY-MM-DD and parse it as a LOCAL
+ *  date, so a UTC-midnight timestamptz never reads as the previous day. */
 function fmt(d: string | null): string {
-  if (!d) return "—";
-  try { return format(parseISO(d), "MMM d, yyyy"); } catch { return d; }
+  const key = dayKeyOf(d);
+  if (!key) return "—";
+  const [y, m, day] = key.split("-").map(Number);
+  if (!y || !m || !day) return key;
+  return format(new Date(y, m - 1, day), "MMM d, yyyy");
 }
 
 /** Post-sale outcomes: units during the window vs the trailing-28d
@@ -210,6 +216,12 @@ export default function SalesDetail() {
             <span className="w-28 text-muted-foreground">Runs</span>
             <span className="tabular-nums">{fmt(sale.starts_at)} → {fmt(sale.ends_at)}</span>
           </div>
+          {sale.early_access_starts_at && (
+            <div className="flex gap-2">
+              <span className="w-28 text-muted-foreground">Early access</span>
+              <span className="tabular-nums">{fmt(sale.early_access_starts_at)}</span>
+            </div>
+          )}
           {sale.notes && (
             <div className="flex gap-2">
               <span className="w-28 shrink-0 text-muted-foreground">Notes</span>
@@ -235,25 +247,12 @@ export default function SalesDetail() {
             <p className="py-4 text-center text-sm text-muted-foreground">No offers yet — add the codes / discounts that make up this sale.</p>
           ) : (
             offers.map((o) => {
-              const d = describeOffer(o, o.free_item?.product_name);
+              const skuCodes = (o.offer_skus ?? [])
+                .map((s) => s.product?.sku)
+                .filter((c): c is string => !!c);
               return (
-                <div key={o.id} className="flex items-center justify-between rounded-lg border border-border/50 p-3">
-                  <div className="min-w-0">
-                    <p className="font-medium">{o.label}</p>
-                    <p className="text-xs text-muted-foreground">
-                      <span className="text-foreground/80">{d.deal}</span>
-                      <span className="mx-1.5">·</span>{d.target}
-                      {d.code && (
-                        <>
-                          <span className="mx-1.5">·</span>
-                          code <span className="font-mono text-foreground/80">{d.code}</span>
-                        </>
-                      )}
-                      {o.scope === "sku_set" && (
-                        <span className="ml-1.5 text-muted-foreground/70">({o.offer_skus?.length ?? 0} SKUs)</span>
-                      )}
-                    </p>
-                  </div>
+                <div key={o.id} className="flex items-center justify-between gap-3 rounded-lg border border-border/50 p-3">
+                  <OfferSentence offer={o} freeItemName={o.free_item?.product_name} skuCodes={skuCodes} />
                   {canEdit && (
                     <div className="flex shrink-0 gap-1">
                       <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingOffer(o)}>

@@ -9,6 +9,49 @@ function trimNum(n: number): string {
   return Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+// ---------------------------------------------------------------------------
+// Offer formats — the six owner-approved shapes (2026-09-09). The stored
+// mechanic columns are a projection of exactly one format; `format` is the
+// discriminator, and inferOfferFormat() recovers it for legacy rows that
+// predate the column.
+// ---------------------------------------------------------------------------
+
+export type OfferFormat = "percent" | "dollar" | "gift_min" | "gift_skus" | "gift_code" | "bxgy";
+
+export const OFFER_FORMATS: readonly OfferFormat[] = [
+  "percent",
+  "dollar",
+  "gift_min",
+  "gift_skus",
+  "gift_code",
+  "bxgy",
+];
+
+export const OFFER_FORMAT_LABEL: Record<OfferFormat, string> = {
+  percent: "Percent off",
+  dollar: "Dollars off",
+  gift_min: "Free item over $ minimum",
+  gift_skus: "Free item with SKUs",
+  gift_code: "Free item with code",
+  bxgy: "Buy X get Y free",
+};
+
+export type OfferScope = "sitewide" | "category" | "sku_set";
+
+export const SCOPE_LABEL: Record<OfferScope, string> = {
+  sitewide: "Sitewide",
+  category: "Category",
+  sku_set: "Specific SKUs",
+};
+
+export function isOfferFormat(v: unknown): v is OfferFormat {
+  return typeof v === "string" && (OFFER_FORMATS as readonly string[]).includes(v);
+}
+
+export function isOfferScope(v: unknown): v is OfferScope {
+  return v === "sitewide" || v === "category" || v === "sku_set";
+}
+
 export interface OfferLike {
   percent_off: number | null;
   dollar_off: number | null;
@@ -19,43 +62,165 @@ export interface OfferLike {
   scope: string;
   category: string | null;
   code: string | null;
+  /** Format discriminator; null on legacy rows (see inferOfferFormat). */
+  format?: string | null;
+  /** Dollars-off modifier: the discount applies once per order, not per unit. */
+  once_per_order?: boolean | null;
+}
+
+const isTargeted = (scope: string) => scope === "category" || scope === "sku_set";
+
+/**
+ * Strict shape → format. Returns null when the mechanic columns do not
+ * match exactly one of the six formats (e.g. the legacy trap
+ * {sitewide, free_item, buy_qty 1, min_order 150}: gift_min forbids buy_qty
+ * and gift_skus forbids sitewide + min_order).
+ */
+export function inferOfferFormat(o: OfferLike): OfferFormat | null {
+  const pct = o.percent_off != null;
+  const dol = o.dollar_off != null;
+  const gift = !!o.free_item_sku_id;
+  const min = o.min_order_amount != null;
+  const buy = o.buy_qty != null;
+  const get = o.get_qty != null;
+  const code = !!(o.code && o.code.trim());
+  const sitewide = o.scope === "sitewide";
+  const targeted = isTargeted(o.scope);
+
+  if (!sitewide && !targeted) return null;
+
+  // percent: percent_off only; min-order only when sitewide.
+  if (pct && !dol && !gift && !buy && !get && (!min || sitewide)) return "percent";
+  // dollar: dollar_off only; min-order only when sitewide.
+  if (dol && !pct && !gift && !buy && !get && (!min || sitewide)) return "dollar";
+  // bxgy: buy + get, nothing else, targeted.
+  if (buy && get && !gift && !pct && !dol && !min && targeted) return "bxgy";
+  if (gift) {
+    // gift_min: free item over a threshold, sitewide, no qualifier.
+    if (min && sitewide && !pct && !dol && !buy) return "gift_min";
+    // gift_skus: free item with qualifying items (buy_qty 1 = qualifier count).
+    if (targeted && !min && !pct && !dol && o.buy_qty === 1) return "gift_skus";
+    // gift_code: code-gated gift, optional single discount part, no qualifier.
+    if (code && !min && !buy && !(pct && dol)) return "gift_code";
+  }
+  return null;
+}
+
+export interface DescribeOfferContext {
+  freeItemName?: string | null;
+  /** SKU codes of the offer's member set (for scope = sku_set). */
+  skuCodes?: string[];
+  /** Display name of the category (defaults to the stored category key). */
+  categoryName?: string | null;
+}
+
+export interface OfferDescription {
+  /** "15% off sitewide", "Free DNA Coil with BW20DNA", ... */
+  deal: string;
+  /** SCOPE_LABEL of the offer's scope. */
+  target: string;
+  /** "Code HOLIDAY" | "Automatic" */
+  how: string;
+  code: string | null;
+}
+
+/** Up to 3 SKU codes, then "+N". */
+export function skuListText(codes: string[] | undefined, fallback = "select SKUs"): string {
+  if (!codes || codes.length === 0) return fallback;
+  const head = codes.slice(0, 3).join(", ");
+  return codes.length > 3 ? `${head} +${codes.length - 3}` : head;
+}
+
+function scopeWord(o: OfferLike, ctx: DescribeOfferContext): string {
+  if (o.scope === "sitewide") return "sitewide";
+  if (o.scope === "category") return ctx.categoryName || o.category || "category";
+  return skuListText(ctx.skuCodes);
+}
+
+function money(n: number): string {
+  return `$${trimNum(n)}`;
+}
+
+function giftText(o: OfferLike, ctx: DescribeOfferContext): string {
+  const qty = o.get_qty ?? 1;
+  const name = ctx.freeItemName ?? "item";
+  return `${qty > 1 ? `${qty}x ` : ""}Free ${name}`;
+}
+
+function overText(o: OfferLike): string {
+  return o.scope === "sitewide" && o.min_order_amount != null
+    ? ` on orders over ${money(o.min_order_amount)}`
+    : "";
 }
 
 /**
- * Render a composable offer into readable parts:
- *   deal   — "20% off + free Grinder over $75"
- *   target — "Sitewide" | "<Category>" | "Select SKUs"
- *   code   — the coupon code or null
+ * Render an offer into the v2 sentence grammar. One function feeds both the
+ * dialog's live strip and the sale-page row so they can never disagree.
+ * The second argument accepts the legacy positional free-item name.
  */
 export function describeOffer(
   o: OfferLike,
-  freeItemName?: string | null,
-): { deal: string; target: string; code: string | null } {
+  ctxOrName?: DescribeOfferContext | string | null,
+): OfferDescription {
+  const ctx: DescribeOfferContext =
+    typeof ctxOrName === "string" || ctxOrName == null ? { freeItemName: ctxOrName ?? null } : ctxOrName;
+  const format: OfferFormat | null = isOfferFormat(o.format) ? o.format : inferOfferFormat(o);
+  const target = isOfferScope(o.scope) ? SCOPE_LABEL[o.scope] : SCOPE_LABEL.sku_set;
+  const where = scopeWord(o, ctx);
+  const code = o.code && o.code.trim() ? o.code.trim() : null;
+
+  let deal: string;
+  switch (format) {
+    case "percent":
+      deal = `${trimNum(o.percent_off ?? 0)}% off ${where}${overText(o)}`;
+      break;
+    case "dollar": {
+      const once = o.once_per_order && isTargeted(o.scope) ? ", once per order" : "";
+      deal = `${money(o.dollar_off ?? 0)} off ${where}${once}${overText(o)}`;
+      break;
+    }
+    case "gift_min":
+      deal = `${giftText(o, ctx)} on orders over ${money(o.min_order_amount ?? 0)}`;
+      break;
+    case "gift_skus":
+      deal = `${giftText(o, ctx)} with ${where}`;
+      break;
+    case "gift_code": {
+      const discount =
+        o.percent_off != null
+          ? `${trimNum(o.percent_off)}% off ${where} + `
+          : o.dollar_off != null
+            ? `${money(o.dollar_off)} off ${where} + `
+            : "";
+      deal = `${discount}${giftText(o, ctx)}`;
+      break;
+    }
+    case "bxgy":
+      deal = `Buy ${o.buy_qty ?? 1} of ${where}, get ${o.get_qty ?? 1} free`;
+      break;
+    default:
+      deal = legacyDeal(o, ctx);
+  }
+  deal = deal.charAt(0).toUpperCase() + deal.slice(1);
+
+  return { deal, target, how: code ? `Code ${code}` : "Automatic", code };
+}
+
+/** Composable fallback for rows whose columns fit no single format. */
+function legacyDeal(o: OfferLike, ctx: DescribeOfferContext): string {
   const parts: string[] = [];
   if (o.percent_off != null) parts.push(`${trimNum(o.percent_off)}% off`);
-  if (o.dollar_off != null) parts.push(`$${trimNum(o.dollar_off)} off`);
-  if (o.free_item_sku_id && o.buy_qty != null) {
-    // Qualifier-triggered gift — one mechanic, one sentence. (buy_qty
-    // without a free item stays the plain same-item BOGO below.)
-    const n = o.get_qty ?? 1;
-    parts.push(`buy any ${o.buy_qty}, get ${n > 1 ? `${n}× ` : ""}${freeItemName ?? "item"} free`);
-  } else {
-    if (o.buy_qty != null && o.get_qty != null) parts.push(`buy ${o.buy_qty} get ${o.get_qty}`);
-    if (o.free_item_sku_id) parts.push(`free ${freeItemName ?? "item"}`);
+  if (o.dollar_off != null) parts.push(`${money(o.dollar_off)} off`);
+  if (o.buy_qty != null && o.get_qty != null && !o.free_item_sku_id) {
+    parts.push(`buy ${o.buy_qty} get ${o.get_qty}`);
   }
-
+  if (o.free_item_sku_id) {
+    const qty = o.get_qty ?? 1;
+    parts.push(`${qty > 1 ? `${qty}x ` : ""}free ${ctx.freeItemName ?? "item"}`);
+  }
   let deal = parts.join(" + ") || "Offer";
-  deal = deal.charAt(0).toUpperCase() + deal.slice(1);
-  if (o.min_order_amount != null) deal += ` over $${trimNum(o.min_order_amount)}`;
-
-  const target =
-    o.scope === "sitewide"
-      ? "Sitewide"
-      : o.scope === "category"
-        ? o.category || "Category"
-        : "Select SKUs";
-
-  return { deal, target, code: o.code || null };
+  if (o.min_order_amount != null) deal += ` on orders over ${money(o.min_order_amount)}`;
+  return deal;
 }
 
 /**

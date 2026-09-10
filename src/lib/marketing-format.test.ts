@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
   describeOffer,
+  inferOfferFormat,
+  skuListText,
+  SCOPE_LABEL,
+  OFFER_FORMAT_LABEL,
   dayKeyOf,
   shiftDayKey,
   daysBetweenKeys,
@@ -24,70 +28,197 @@ function offer(over: Partial<OfferLike> = {}): OfferLike {
     scope: "sitewide",
     category: null,
     code: null,
+    format: null,
+    once_per_order: false,
     ...over,
   };
 }
 
-describe("describeOffer", () => {
-  it("percent off sitewide with a code", () => {
-    const r = describeOffer(offer({ percent_off: 20, scope: "sitewide", code: "LOVE" }));
-    expect(r.deal).toBe("20% off");
-    expect(r.target).toBe("Sitewide");
-    expect(r.code).toBe("LOVE");
+// The five offers in prod (2026-09-09), as their mechanic columns.
+const PROD = {
+  laborDay: offer({ percent_off: 15, scope: "sitewide" }),
+  bf10: offer({ dollar_off: 10, scope: "sku_set" }),
+  bf20: offer({ dollar_off: 20, scope: "sku_set" }),
+  bf40: offer({ dollar_off: 40, scope: "sku_set" }),
+  bfBottle: offer({ free_item_sku_id: "bottle", min_order_amount: 150, get_qty: 1, scope: "sitewide" }),
+};
+
+describe("describeOffer (v2 grammar)", () => {
+  it("percent: sitewide / category / sku list, with the min-order suffix only when sitewide", () => {
+    expect(describeOffer(PROD.laborDay).deal).toBe("15% off sitewide");
+    expect(describeOffer(offer({ percent_off: 10, scope: "category", category: "Bubblers" })).deal).toBe(
+      "10% off Bubblers",
+    );
+    expect(
+      describeOffer(offer({ percent_off: 20, scope: "sku_set" }), {
+        skuCodes: ["BW20", "NB4", "BW42", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J"],
+      }).deal,
+    ).toBe("20% off BW20, NB4, BW42 +10");
+    expect(describeOffer(offer({ percent_off: 15, scope: "sitewide", min_order_amount: 200 })).deal).toBe(
+      "15% off sitewide on orders over $200",
+    );
+    // A targeted percent row never grows a min-order suffix (stored format;
+    // by shape alone that row fits no format and takes the legacy branch).
+    expect(
+      describeOffer(
+        offer({ format: "percent", percent_off: 15, scope: "category", category: "Bongs", min_order_amount: 200 }),
+        {},
+      ).deal,
+    ).toBe("15% off Bongs");
   });
 
-  it("dollar off a category", () => {
-    const r = describeOffer(offer({ dollar_off: 15, scope: "category", category: "Bongs" }));
-    expect(r.deal).toBe("$15 off");
-    expect(r.target).toBe("Bongs");
+  it("dollar: sku list, once per order, sitewide min-order", () => {
+    expect(describeOffer(PROD.bf40, { skuCodes: ["NB2", "NB6", "BW63", "X", "Y"] }).deal).toBe(
+      "$40 off NB2, NB6, BW63 +2",
+    );
+    expect(
+      describeOffer(offer({ dollar_off: 40, scope: "sku_set", once_per_order: true }), {
+        skuCodes: ["NB2", "NB6"],
+      }).deal,
+    ).toBe("$40 off NB2, NB6, once per order");
+    // once_per_order is meaningless sitewide and never renders there.
+    expect(
+      describeOffer(offer({ dollar_off: 25, scope: "sitewide", once_per_order: true, min_order_amount: 100 }))
+        .deal,
+    ).toBe("$25 off sitewide on orders over $100");
+    expect(describeOffer(offer({ dollar_off: 12.5, scope: "category", category: "Grinders" })).deal).toBe(
+      "$12.5 off Grinders",
+    );
   });
 
-  it("free item over a threshold", () => {
+  it("gift_min: free item over a threshold, qty prefix when > 1", () => {
+    expect(describeOffer(PROD.bfBottle, "Cleaning Bottle").deal).toBe(
+      "Free Cleaning Bottle on orders over $150",
+    );
+    expect(describeOffer({ ...PROD.bfBottle, get_qty: 2 }, { freeItemName: "Cleaning Bottle" }).deal).toBe(
+      "2x Free Cleaning Bottle on orders over $150",
+    );
+  });
+
+  it("gift_skus: free item with qualifying SKUs or a category", () => {
+    const withSku = offer({ free_item_sku_id: "coil", get_qty: 1, buy_qty: 1, scope: "sku_set" });
+    expect(describeOffer(withSku, { freeItemName: "DNA Coil", skuCodes: ["BW20DNA"] }).deal).toBe(
+      "Free DNA Coil with BW20DNA",
+    );
+    const withCat = offer({ free_item_sku_id: "coil", get_qty: 1, buy_qty: 1, scope: "category", category: "Bongs" });
+    expect(describeOffer(withCat, { freeItemName: "DNA Coil" }).deal).toBe("Free DNA Coil with Bongs");
+    expect(describeOffer({ ...withSku, get_qty: 3 }, { freeItemName: "DNA Coil", skuCodes: ["BW20DNA"] }).deal).toBe(
+      "3x Free DNA Coil with BW20DNA",
+    );
+  });
+
+  it("gift_code: optional discount part + free item, code required", () => {
+    const pct = offer({ code: "HOLIDAY", free_item_sku_id: "key", get_qty: 1, percent_off: 10, scope: "category", category: "Bongs" });
+    const r = describeOffer(pct, { freeItemName: "Keychain Debowler" });
+    expect(r.deal).toBe("10% off Bongs + Free Keychain Debowler");
+    expect(r.how).toBe("Code HOLIDAY");
+    expect(r.code).toBe("HOLIDAY");
+    const dol = offer({ code: "GIFT", free_item_sku_id: "key", get_qty: 1, dollar_off: 5, scope: "sitewide" });
+    expect(describeOffer(dol, "Keychain Debowler").deal).toBe("$5 off sitewide + Free Keychain Debowler");
+    const none = offer({ code: "FREEBIE", free_item_sku_id: "key", get_qty: 2, scope: "sitewide" });
+    expect(describeOffer(none, "Keychain Debowler").deal).toBe("2x Free Keychain Debowler");
+  });
+
+  it("bxgy: buy X of the set, get Y free", () => {
+    expect(
+      describeOffer(offer({ buy_qty: 2, get_qty: 1, scope: "sku_set" }), { skuCodes: ["BW20"] }).deal,
+    ).toBe("Buy 2 of BW20, get 1 free");
+    expect(
+      describeOffer(offer({ buy_qty: 1, get_qty: 1, scope: "category", category: "Coils" })).deal,
+    ).toBe("Buy 1 of Coils, get 1 free");
+  });
+
+  it("target uses SCOPE_LABEL; how is Code X or Automatic", () => {
+    const auto = describeOffer(PROD.laborDay);
+    expect(auto.target).toBe(SCOPE_LABEL.sitewide);
+    expect(auto.how).toBe("Automatic");
+    expect(auto.code).toBeNull();
+    expect(describeOffer(PROD.bf10).target).toBe("Specific SKUs");
+    expect(describeOffer(offer({ percent_off: 10, scope: "category", category: "Bongs" })).target).toBe("Category");
+    const coded = describeOffer(offer({ percent_off: 20, code: "  LOVE " }));
+    expect(coded.how).toBe("Code LOVE");
+    expect(coded.code).toBe("LOVE");
+  });
+
+  it("honors a stored format over shape inference", () => {
+    // Stored gift_code with a percent part reads as gift_code even though
+    // the shape alone could look ambiguous.
     const r = describeOffer(
-      offer({ free_item_sku_id: "x", min_order_amount: 75 }),
-      "Grinder",
+      offer({ format: "gift_code", code: "X", free_item_sku_id: "k", percent_off: 10, scope: "sitewide" }),
+      "Keychain",
     );
-    expect(r.deal).toBe("Free Grinder over $75");
+    expect(r.deal).toBe("10% off sitewide + Free Keychain");
   });
 
-  it("combines percent + free item (the LOVE-style combo)", () => {
-    const r = describeOffer(
-      offer({ percent_off: 10, free_item_sku_id: "x", code: "HEART" }),
-      "Sticker",
-    );
-    expect(r.deal).toBe("10% off + free Sticker");
-    expect(r.code).toBe("HEART");
+  it("sku_set without codes falls back to a neutral phrase", () => {
+    expect(describeOffer(PROD.bf10).deal).toBe("$10 off select SKUs");
   });
 
-  it("BOGO on a SKU set", () => {
-    const r = describeOffer(offer({ buy_qty: 1, get_qty: 1, scope: "sku_set" }));
-    expect(r.deal).toBe("Buy 1 get 1");
-    expect(r.target).toBe("Select SKUs");
-  });
-
-  it("qualifier-triggered gift reads as one sentence", () => {
-    const r = describeOffer(
-      offer({ buy_qty: 1, get_qty: 1, free_item_sku_id: "x", scope: "sku_set" }),
-      "Grinder",
-    );
-    expect(r.deal).toBe("Buy any 1, get Grinder free");
-    const two = describeOffer(
-      offer({ buy_qty: 2, get_qty: 2, free_item_sku_id: "x", scope: "sku_set" }),
-      "Sticker",
-    );
-    expect(two.deal).toBe("Buy any 2, get 2× Sticker free");
-  });
-
-  it("percent + qualifier gift composes", () => {
-    const r = describeOffer(
-      offer({ percent_off: 10, buy_qty: 1, free_item_sku_id: "x", scope: "sku_set" }),
-      "Grinder",
-    );
-    expect(r.deal).toBe("10% off + buy any 1, get Grinder free");
-  });
-
-  it("falls back to 'Offer' when nothing is set", () => {
+  it("unrecognized shapes fall back to the composable legacy sentence", () => {
+    const trap = offer({ free_item_sku_id: "bottle", buy_qty: 1, min_order_amount: 150, scope: "sitewide" });
+    expect(describeOffer(trap, "Cleaning Bottle").deal).toBe("Free Cleaning Bottle on orders over $150");
     expect(describeOffer(offer()).deal).toBe("Offer");
+  });
+});
+
+describe("skuListText", () => {
+  it("lists up to three codes then +N", () => {
+    expect(skuListText(["A"])).toBe("A");
+    expect(skuListText(["A", "B", "C"])).toBe("A, B, C");
+    expect(skuListText(["A", "B", "C", "D"])).toBe("A, B, C +1");
+    expect(skuListText([])).toBe("select SKUs");
+    expect(skuListText(undefined, "SKUs")).toBe("SKUs");
+  });
+});
+
+describe("inferOfferFormat (strict shapes)", () => {
+  it("recovers the five prod shapes", () => {
+    expect(inferOfferFormat(PROD.laborDay)).toBe("percent");
+    expect(inferOfferFormat(PROD.bf10)).toBe("dollar");
+    expect(inferOfferFormat(PROD.bf20)).toBe("dollar");
+    expect(inferOfferFormat(PROD.bf40)).toBe("dollar");
+    expect(inferOfferFormat(PROD.bfBottle)).toBe("gift_min");
+    // gift_min tolerates a null get_qty (defaults to 1).
+    expect(inferOfferFormat({ ...PROD.bfBottle, get_qty: null })).toBe("gift_min");
+  });
+
+  it("recovers the other formats", () => {
+    expect(inferOfferFormat(offer({ free_item_sku_id: "c", buy_qty: 1, get_qty: 1, scope: "sku_set" }))).toBe(
+      "gift_skus",
+    );
+    expect(inferOfferFormat(offer({ code: "X", free_item_sku_id: "k", get_qty: 1, scope: "sitewide" }))).toBe(
+      "gift_code",
+    );
+    expect(
+      inferOfferFormat(offer({ code: "X", free_item_sku_id: "k", percent_off: 10, scope: "category", category: "B" })),
+    ).toBe("gift_code");
+    expect(inferOfferFormat(offer({ buy_qty: 2, get_qty: 1, scope: "sku_set" }))).toBe("bxgy");
+    expect(inferOfferFormat(offer({ dollar_off: 10, scope: "sitewide", min_order_amount: 50 }))).toBe("dollar");
+  });
+
+  it("returns null for shapes that fit no single format", () => {
+    // The legacy trap: sitewide gift with both a qualifier count and a threshold.
+    expect(
+      inferOfferFormat(offer({ free_item_sku_id: "bottle", buy_qty: 1, min_order_amount: 150, scope: "sitewide" })),
+    ).toBeNull();
+    // Targeted min-order is not a percent offer.
+    expect(inferOfferFormat(offer({ percent_off: 10, scope: "sku_set", min_order_amount: 50 }))).toBeNull();
+    // Percent + dollar together is nothing.
+    expect(inferOfferFormat(offer({ percent_off: 10, dollar_off: 5 }))).toBeNull();
+    // Gift with both discount parts is not gift_code.
+    expect(
+      inferOfferFormat(offer({ code: "X", free_item_sku_id: "k", percent_off: 10, dollar_off: 5 })),
+    ).toBeNull();
+    // Gift without code, threshold, or qualifier is nothing.
+    expect(inferOfferFormat(offer({ free_item_sku_id: "k" }))).toBeNull();
+    // bxgy sitewide is not allowed.
+    expect(inferOfferFormat(offer({ buy_qty: 1, get_qty: 1, scope: "sitewide" }))).toBeNull();
+    expect(inferOfferFormat(offer())).toBeNull();
+  });
+
+  it("label maps cover every key", () => {
+    expect(Object.keys(OFFER_FORMAT_LABEL)).toHaveLength(6);
+    expect(Object.keys(SCOPE_LABEL)).toEqual(["sitewide", "category", "sku_set"]);
   });
 });
 

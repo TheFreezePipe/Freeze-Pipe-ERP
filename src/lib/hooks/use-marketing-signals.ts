@@ -29,7 +29,9 @@ export interface SkuSaleSignal {
   uplift_pct: number | null;
   /** 'member' = qualifier/discounted SKU; 'gift' = the offer's free item. */
   role: "member" | "gift";
-  /** Gift rows: expected giveaway units (expected_orders × get_qty), when planned. */
+  /** Gift rows: the view's gift_units (planner cap, else derived), when planned. */
+  gift_units: number | null;
+  /** Gift rows: expected giveaway units — gift_units, else expected_orders × get_qty. */
   expected_gift_units: number | null;
 }
 export interface SkuLaunchSignal {
@@ -65,7 +67,7 @@ export function useUpcomingMarketingBySku(horizonDays = 60) {
       const { data, error } = await supabase
         .from("mkt_offer_sku_expansion")
         .select(
-          "sku_id, sale_id, sale_name, starts_at, ends_at, approval_status, effective_discount_pct, uplift_pct, role, get_qty, expected_orders",
+          "sku_id, sale_id, sale_name, starts_at, ends_at, approval_status, effective_discount_pct, uplift_pct, role, get_qty, expected_orders, gift_units",
         )
         .or("role.eq.gift,scope.neq.sitewide")
         .gte("ends_at", todayStart)
@@ -120,8 +122,11 @@ export function useUpcomingMarketingBySku(horizonDays = 60) {
         effective_discount_pct: r.effective_discount_pct,
         uplift_pct: r.uplift_pct,
         role,
+        gift_units: role === "gift" ? (r.gift_units ?? null) : null,
         expected_gift_units:
-          role === "gift" && r.expected_orders != null ? r.expected_orders * (r.get_qty ?? 1) : null,
+          role === "gift"
+            ? (r.gift_units ?? (r.expected_orders != null ? r.expected_orders * (r.get_qty ?? 1) : null))
+            : null,
       };
       if (existing) e.sales[e.sales.indexOf(existing)] = signal;
       else e.sales.push(signal);

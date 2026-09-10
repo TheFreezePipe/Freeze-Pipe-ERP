@@ -23,7 +23,7 @@ export type MktBroadcast = Tables["mkt_broadcasts"]["Row"];
 export type MktBroadcastInsert = Tables["mkt_broadcasts"]["Insert"];
 
 export type MktOfferWithSkus = MktOffer & {
-  offer_skus: { sku_id: string }[];
+  offer_skus: { sku_id: string; product: { id: string; sku: string } | null }[];
   free_item: { id: string; sku: string; product_name: string } | null;
 };
 export type MktSaleWithOffers = MktSale & { offers: MktOfferWithSkus[] };
@@ -105,7 +105,7 @@ export function useSaleWithOffers(id: string | undefined) {
           // free_item needs the explicit FK hint: mkt_offers reaches
           // product_skus two ways (free_item_sku_id AND the m2m through
           // mkt_offer_skus), and PostgREST refuses to guess between them.
-          "*, offers:mkt_offers(*, offer_skus:mkt_offer_skus(sku_id), free_item:product_skus!mkt_offers_free_item_sku_id_fkey(id, sku, product_name))",
+          "*, offers:mkt_offers(*, offer_skus:mkt_offer_skus(sku_id, product:product_skus(id, sku)), free_item:product_skus!mkt_offers_free_item_sku_id_fkey(id, sku, product_name))",
         )
         .eq("id", id!)
         .maybeSingle();
@@ -174,15 +174,7 @@ export function useCreateOffer() {
 export function useUpdateOffer() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({
-      id,
-      saleId: _saleId,
-      updates,
-    }: {
-      id: string;
-      saleId: string;
-      updates: Partial<MktOfferInsert>;
-    }) => {
+    mutationFn: async ({ id, updates }: { id: string; saleId: string; updates: Partial<MktOfferInsert> }) => {
       const { error } = await supabase.from("mkt_offers").update(updates).eq("id", id);
       if (error) throw error;
     },
@@ -193,7 +185,7 @@ export function useUpdateOffer() {
 export function useDeleteOffer() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, saleId: _saleId }: { id: string; saleId: string }) => {
+    mutationFn: async ({ id }: { id: string; saleId: string }) => {
       const { error } = await supabase.from("mkt_offers").delete().eq("id", id);
       if (error) throw error;
     },
@@ -205,15 +197,7 @@ export function useDeleteOffer() {
 export function useSetOfferSkus() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({
-      offerId,
-      saleId: _saleId,
-      skuIds,
-    }: {
-      offerId: string;
-      saleId: string;
-      skuIds: string[];
-    }) => {
+    mutationFn: async ({ offerId, skuIds }: { offerId: string; saleId: string; skuIds: string[] }) => {
       const { error: delErr } = await supabase.from("mkt_offer_skus").delete().eq("offer_id", offerId);
       if (delErr) throw delErr;
       if (skuIds.length > 0) {

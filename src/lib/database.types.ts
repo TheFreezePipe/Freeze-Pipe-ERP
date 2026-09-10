@@ -1736,63 +1736,105 @@ export type Database = {
       }
       mkt_offers: {
         Row: {
+          actual_attach_pct: number | null
+          actual_gift_units: number | null
+          actual_lift_pct: number | null
+          actual_orders: number | null
           buy_qty: number | null
           category: string | null
           code: string | null
           created_at: string
+          defaults_source: Json | null
+          derived_at: string | null
+          derived_attach_pct: number | null
+          derived_gift_units: number | null
+          derived_lift_pct: number | null
+          derived_orders: number | null
           dollar_off: number | null
           effective_discount_pct: number | null
           expected_orders: number | null
           expected_uplift_pct: number | null
           external_ref: string | null
+          format: string
           free_item_sku_id: string | null
           get_qty: number | null
           id: string
           label: string
           min_order_amount: number | null
+          once_per_order: boolean
           percent_off: number | null
+          planner_gift_units: number | null
+          post14_ratio: number | null
           sale_id: string
           scope: string
           source: string | null
           updated_at: string
         }
         Insert: {
+          actual_attach_pct?: number | null
+          actual_gift_units?: number | null
+          actual_lift_pct?: number | null
+          actual_orders?: number | null
           buy_qty?: number | null
           category?: string | null
           code?: string | null
           created_at?: string
+          defaults_source?: Json | null
+          derived_at?: string | null
+          derived_attach_pct?: number | null
+          derived_gift_units?: number | null
+          derived_lift_pct?: number | null
+          derived_orders?: number | null
           dollar_off?: number | null
           effective_discount_pct?: number | null
           expected_orders?: number | null
           expected_uplift_pct?: number | null
           external_ref?: string | null
+          format: string
           free_item_sku_id?: string | null
           get_qty?: number | null
           id?: string
           label: string
           min_order_amount?: number | null
+          once_per_order?: boolean
           percent_off?: number | null
+          planner_gift_units?: number | null
+          post14_ratio?: number | null
           sale_id: string
           scope?: string
           source?: string | null
           updated_at?: string
         }
         Update: {
+          actual_attach_pct?: number | null
+          actual_gift_units?: number | null
+          actual_lift_pct?: number | null
+          actual_orders?: number | null
           buy_qty?: number | null
           category?: string | null
           code?: string | null
           created_at?: string
+          defaults_source?: Json | null
+          derived_at?: string | null
+          derived_attach_pct?: number | null
+          derived_gift_units?: number | null
+          derived_lift_pct?: number | null
+          derived_orders?: number | null
           dollar_off?: number | null
           effective_discount_pct?: number | null
           expected_orders?: number | null
           expected_uplift_pct?: number | null
           external_ref?: string | null
+          format?: string
           free_item_sku_id?: string | null
           get_qty?: number | null
           id?: string
           label?: string
           min_order_amount?: number | null
+          once_per_order?: boolean
           percent_off?: number | null
+          planner_gift_units?: number | null
+          post14_ratio?: number | null
           sale_id?: string
           scope?: string
           source?: string | null
@@ -2307,6 +2349,96 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "mkt_pd_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mkt_promo_history: {
+        Row: {
+          attach_pct: number | null
+          baseline_daily: number | null
+          created_at: string
+          d1: string
+          d2: string
+          depth_band: string | null
+          depth_pct: number | null
+          format: string
+          holiday: boolean
+          id: string
+          lift_pct: number | null
+          name: string
+          notes: string | null
+          orders: number | null
+          orders_lift_pct: number | null
+          phase: string | null
+          post14_ratio: number | null
+          sale_id: string | null
+          scope_class: string | null
+          season: string | null
+          source: string
+          units: number | null
+        }
+        Insert: {
+          attach_pct?: number | null
+          baseline_daily?: number | null
+          created_at?: string
+          d1: string
+          d2: string
+          depth_band?: string | null
+          depth_pct?: number | null
+          format: string
+          holiday?: boolean
+          id?: string
+          lift_pct?: number | null
+          name: string
+          notes?: string | null
+          orders?: number | null
+          orders_lift_pct?: number | null
+          phase?: string | null
+          post14_ratio?: number | null
+          sale_id?: string | null
+          scope_class?: string | null
+          season?: string | null
+          source: string
+          units?: number | null
+        }
+        Update: {
+          attach_pct?: number | null
+          baseline_daily?: number | null
+          created_at?: string
+          d1?: string
+          d2?: string
+          depth_band?: string | null
+          depth_pct?: number | null
+          format?: string
+          holiday?: boolean
+          id?: string
+          lift_pct?: number | null
+          name?: string
+          notes?: string | null
+          orders?: number | null
+          orders_lift_pct?: number | null
+          phase?: string | null
+          post14_ratio?: number | null
+          sale_id?: string | null
+          scope_class?: string | null
+          season?: string | null
+          source?: string
+          units?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mkt_promo_history_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: false
+            referencedRelation: "mkt_offer_sku_expansion"
+            referencedColumns: ["sale_id"]
+          },
+          {
+            foreignKeyName: "mkt_promo_history_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: false
+            referencedRelation: "mkt_sales"
             referencedColumns: ["id"]
           },
         ]
@@ -3749,6 +3881,21 @@ export type Database = {
           },
         ]
       }
+      mkt_lift_priors: {
+        Row: {
+          after_n: number | null
+          depth_band: string | null
+          format: string | null
+          level: string | null
+          lift_pct: number | null
+          n: number | null
+          n_measured: number | null
+          post14_ratio: number | null
+          scope_class: string | null
+          season: string | null
+        }
+        Relationships: []
+      }
       mkt_offer_sku_expansion: {
         Row: {
           annual_recurring: boolean | null
@@ -3759,6 +3906,7 @@ export type Database = {
           ends_at: string | null
           expected_orders: number | null
           get_qty: number | null
+          gift_units: number | null
           offer_id: string | null
           percent_off: number | null
           role: string | null
@@ -4569,6 +4717,7 @@ export type Database = {
       jwt_is_internal: { Args: never; Returns: boolean }
       jwt_supplier_id: { Args: never; Returns: string }
       jwt_supplier_scope: { Args: never; Returns: string[] }
+      mkt_is_holiday_window: { Args: { d: string }; Returns: boolean }
       purge_ingest_telemetry: { Args: never; Returns: undefined }
       restore_sku: {
         Args: { p_actor_id: string; p_sku_id: string }
@@ -4742,6 +4891,25 @@ export type Database = {
           material_id: string
           units_consumed: number
         }[]
+      }
+      rpc_offer_forecast_defaults: {
+        // Hand-adjusted after `supabase gen types`: the generator marks every
+        // plpgsql argument non-null, but the function accepts NULL for the
+        // mechanic values a format does not own.
+        Args: {
+          p_buy_qty: number | null
+          p_category: string | null
+          p_dollar_off: number | null
+          p_format: string
+          p_free_item_sku_id: string | null
+          p_get_qty: number | null
+          p_min_order: number | null
+          p_percent_off: number | null
+          p_sale_id: string
+          p_scope: string
+          p_sku_ids: string[]
+        }
+        Returns: Json
       }
       rpc_pd_archive: {
         Args: { p_project_id: string; p_reason: string }
@@ -4947,12 +5115,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -4976,11 +5144,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -5001,11 +5169,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -5026,11 +5194,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -5043,11 +5211,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
