@@ -282,8 +282,11 @@ export function ShipmentManifest({
   const piecesOnVehicle = shipment.carrier_pieces_on_vehicle;
   const piecesUpdatedAt = shipment.carrier_pieces_updated_at;
   const awaitingCheckIn = piecesDelivered != null ? piecesDelivered - receivedCartons : 0;
+  // Action/calm only once the carrier has actually dropped something; a known
+  // piece count with nothing delivered yet is the neutral state (UPS now
+  // enumerates pieces from the day of pickup).
   const bannerState: "action" | "calm" | "neutral" =
-    cartonMode && !headlineDone && piecesDelivered != null
+    cartonMode && !headlineDone && piecesDelivered != null && piecesDelivered > 0
       ? awaitingCheckIn > 0
         ? "action"
         : "calm"
@@ -417,6 +420,9 @@ export function ShipmentManifest({
               </p>
               {unitModeCarrierLine && (
                 <p className="text-[13px] text-muted-foreground">{unitModeCarrierLine}</p>
+              )}
+              {cartonMode && !headlineDone && carrierDetail && (
+                <p className="text-[13px] text-muted-foreground">{carrierDetail}</p>
               )}
             </div>
             {cartonMode && !headlineDone && canEdit && (

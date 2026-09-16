@@ -92,6 +92,19 @@ interface Shipment {
 
 const RECEIVE_WINDOW_DAYS = { sea: 7, air: 2 };
 
+/** The `role` claim of a JWT (payload decoded, NOT verified — callers rely
+ *  on the Supabase gateway having verified the signature). */
+function jwtRole(token: string): string | null {
+  try {
+    const part = token.split(".")[1] ?? "";
+    const b64 = part.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(part.length / 4) * 4, "=");
+    const payload = JSON.parse(atob(b64)) as { role?: string };
+    return payload.role ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // CORS headers — required because this function is now also called from
 // the browser (the "Refresh tracking" button on the freight dashboard),
 // not just from pg_cron. Without these, the browser blocks the request
@@ -114,6 +127,49 @@ Deno.serve(async (req) => {
   const authHeader = req.headers.get("authorization") ?? "";
   if (!authHeader.startsWith("Bearer ")) {
     return new Response("unauthorized", { status: 401, headers: CORS_HEADERS });
+  }
+
+  // Read-only diagnostic: { "debug_track": "1Z..." } returns the raw UPS
+  // response for one tracking number so the piece parser can be checked
+  // against what UPS actually sends (added 2026-09-14 after sea 466, a
+  // 16-piece shipment the parser read as one package). Service-role callers
+  // only; writes nothing.
+  if (req.method === "POST") {
+    let body: { debug_track?: string; debug_path?: string; debug_parse?: string } | null = null;
+    try {
+      body = await req.clone().json();
+    } catch {
+      body = null;
+    }
+    // debug_track = a tracking number (raw details lookup); debug_path = any
+    // path under /api/track/v1/ (e.g. shipment/details/<1Z>?offset=0&count=50);
+    // debug_parse = a tracking number, returns what fetchUps derives from it.
+    const debugPath = body?.debug_path
+      ? String(body.debug_path)
+      : body?.debug_track
+        ? `details/${encodeURIComponent(String(body.debug_track))}`
+        : null;
+    const debugParse = body?.debug_parse ? String(body.debug_parse) : null;
+    if (debugPath || debugParse) {
+      // The gateway has already verified the JWT signature; require the
+      // service role claim (byte-equality with the injected key is brittle
+      // across key formats).
+      const token = authHeader.slice("Bearer ".length);
+      if (token !== SUPABASE_SERVICE_ROLE_KEY && jwtRole(token) !== "service_role") {
+        return new Response("forbidden", { status: 403, headers: CORS_HEADERS });
+      }
+      if (!UPS_CLIENT_ID || !UPS_CLIENT_SECRET) {
+        return new Response("ups not configured", { status: 500, headers: CORS_HEADERS });
+      }
+      const json = { ...CORS_HEADERS, "Content-Type": "application/json" };
+      if (debugParse) {
+        return new Response(JSON.stringify(await fetchUps(debugParse)), { headers: json });
+      }
+      if (!/^(details|reference\/details|shipment\/details)\//.test(debugPath!)) {
+        return new Response("bad path", { status: 400, headers: CORS_HEADERS });
+      }
+      return new Response(JSON.stringify(await fetchUpsRaw(debugPath!)), { headers: json });
+    }
   }
 
   const report = {
@@ -149,12 +205,14 @@ Deno.serve(async (req) => {
         // status/ETA logic — piece counts are informational and must never
         // interact with status transitions or inventory.
         //
-        // Trust guard (verified live 2026-07-23): during the ocean/customs/
-        // linehaul legs both carriers return only the MASTER record — a
-        // single result for a 20-carton shipment. Piece enumeration appears
-        // once boxes hit the domestic ground network. A 1-piece answer for
-        // a multi-carton shipment is master-only noise: store NULLs (also
-        // clearing any stale counts) so the UI shows its neutral banner.
+        // Trust guard: a 1-piece answer for a multi-carton shipment means the
+        // carrier did not enumerate pieces (FedEx during the ocean/customs
+        // legs returns only the master; cartons shipped under separate
+        // numbers never enumerate). Store NULLs (also clearing any stale
+        // counts) so the UI shows its neutral banner. Note: until
+        // 2026-09-15 the UPS path itself always answered 1 piece because it
+        // called the package-level endpoint; fetchUps now enumerates via
+        // shipment/details when packageCount > 1.
         const masterOnly =
           update.pieces != null &&
           update.pieces.total <= 1 &&
@@ -584,9 +642,12 @@ function formatFedExLocation(scan: any): string | null {
 // app's "Promote to Production" is approved).
 //
 // Reference: https://developer.ups.com/api/reference/tracking/api-overview
-async function fetchUps(trackingNumber: string): Promise<TrackingUpdate | null> {
-  if (!UPS_CLIENT_ID || !UPS_CLIENT_SECRET) return notReceivedNow();
-
+/** Raw UPS Track API call (OAuth token, then GET /api/track/v1/<path>).
+ *  Returns the parsed JSON body, or null when UPS answers 404 — "tracking
+ *  number not in our system", common for freshly-labelled shipments before
+ *  the first scan. */
+// deno-lint-ignore no-explicit-any
+async function fetchUpsRaw(path: string): Promise<any | null> {
   // Step 1: OAuth token. UPS uses HTTP Basic auth on the token endpoint
   // (client_id:client_secret base64-encoded), unlike FedEx which puts
   // the credentials in the form body.
@@ -609,7 +670,7 @@ async function fetchUps(trackingNumber: string): Promise<TrackingUpdate | null> 
   // and transactionSrc (free-text app identifier) header on every
   // tracking call.
   const trackRes = await fetch(
-    `${UPS_BASE}/api/track/v1/details/${encodeURIComponent(trackingNumber)}`,
+    `${UPS_BASE}/api/track/v1/${path}`,
     {
       method: "GET",
       headers: {
@@ -621,15 +682,17 @@ async function fetchUps(trackingNumber: string): Promise<TrackingUpdate | null> 
   );
   if (!trackRes.ok) {
     const body = await trackRes.text();
-    // 404 from UPS = "tracking number not in our system" — common for
-    // freshly-labelled shipments before the first scan. Treat as
-    // not-received-yet rather than an error.
-    if (trackRes.status === 404) return notReceivedNow();
+    if (trackRes.status === 404) return null;
     throw new Error(`UPS track ${trackRes.status}: ${body.slice(0, 200)}`);
   }
+  return await trackRes.json();
+}
 
-  // deno-lint-ignore no-explicit-any
-  const trackJson = await trackRes.json() as any;
+async function fetchUps(trackingNumber: string): Promise<TrackingUpdate | null> {
+  if (!UPS_CLIENT_ID || !UPS_CLIENT_SECRET) return notReceivedNow();
+
+  const trackJson = await fetchUpsRaw(`details/${encodeURIComponent(trackingNumber)}`);
+  if (trackJson == null) return notReceivedNow();
   const shipment = trackJson?.trackResponse?.shipment?.[0];
   const pkg = shipment?.package?.[0];
   if (!pkg) return notReceivedNow();
@@ -642,7 +705,7 @@ async function fetchUps(trackingNumber: string): Promise<TrackingUpdate | null> 
   // deno-lint-ignore no-explicit-any
   const activity: Array<any> = pkg.activity ?? [];
   const latestType: string | undefined = activity[0]?.status?.type;
-  const status: TrackingStatus = mapUpsStatusCode(latestType);
+  let status: TrackingStatus = mapUpsStatusCode(latestType);
 
   // UPS exposes ETA + delivery dates inside deliveryDate[]:
   //   { type: "DEL", date: "20260507" }   ← actual delivery
@@ -654,7 +717,7 @@ async function fetchUps(trackingNumber: string): Promise<TrackingUpdate | null> 
   const findDate = (t: string) =>
     upsYyyymmddToIso(deliveryDates.find((d) => d.type === t)?.date ?? null);
   const carrierEta = findDate("RDD") ?? findDate("EDD");
-  const deliveredAt = findDate("DEL");
+  let deliveredAt = findDate("DEL");
 
   // deno-lint-ignore no-explicit-any
   const events = activity.slice(0, 25).map((a: any) => ({
@@ -663,10 +726,28 @@ async function fetchUps(trackingNumber: string): Promise<TrackingUpdate | null> 
     location: formatUpsLocation(a.location),
   }));
 
-  // Multi-piece counts: UPS returns every package of a lead/master number
-  // in shipment.package[]. Count each piece's latest activity status.
+  // Multi-piece counts. The package-level endpoint (details/) returns ONLY
+  // the queried package; its packageCount says how many pieces the shipment
+  // has, and the pieces themselves come from the shipment-level endpoint
+  // (shipment/details/, paginated with offset/count). Verified live
+  // 2026-09-15 on sea 466: details/ -> 1 package with packageCount 16;
+  // shipment/details/ -> all 16, each with its own number and status.
+  const packageCount: number = Number(pkg.packageCount ?? 1) || 1;
   // deno-lint-ignore no-explicit-any
-  const packages: any[] = shipment?.package ?? [];
+  let packages: any[] = [pkg];
+  if (packageCount > 1) {
+    // deno-lint-ignore no-explicit-any
+    const all: any[] = [];
+    const enc = encodeURIComponent(trackingNumber);
+    for (let offset = 0; offset < packageCount && offset < 500; offset += 50) {
+      const page = await fetchUpsRaw(`shipment/details/${enc}?locale=en_US&offset=${offset}&count=50`);
+      // deno-lint-ignore no-explicit-any
+      const got: any[] = page?.trackResponse?.shipment?.[0]?.package ?? [];
+      all.push(...got);
+      if (got.length < 50) break;
+    }
+    if (all.length > 0) packages = all;
+  }
   // deno-lint-ignore no-explicit-any
   const pieceTypes = packages.map((p: any) => p.activity?.[0]?.status?.type as string | undefined);
   const lastEventAt = packages
@@ -675,14 +756,21 @@ async function fetchUps(trackingNumber: string): Promise<TrackingUpdate | null> 
     .filter(Boolean)
     .sort()
     .pop() || null;
-  const pieces: TrackingUpdate["pieces"] = packages.length > 0
-    ? {
-        total: packages.length,
-        delivered: pieceTypes.filter((t) => t === "D" || t === "DO" || t === "DD").length,
-        onVehicle: pieceTypes.filter((t) => t === "O").length,
-        lastEventAt,
-      }
-    : null;
+  const isDeliveredType = (t: string | undefined) => t === "D" || t === "DO" || t === "DD";
+  const pieces: TrackingUpdate["pieces"] = {
+    total: Math.max(packageCount, packages.length),
+    delivered: pieceTypes.filter(isDeliveredType).length,
+    onVehicle: pieceTypes.filter((t) => t === "O").length,
+    lastEventAt,
+  };
+
+  // A multi-piece shipment is delivered only when every piece is. The lead
+  // package landing first must not flip the shipment to delivered while the
+  // rest are still on a truck.
+  if (pieces.total > 1 && pieces.delivered < pieces.total && status === "delivered") {
+    status = pieces.onVehicle > 0 ? "out_for_delivery" : "in_transit";
+    deliveredAt = null;
+  }
 
   return {
     status,
@@ -733,7 +821,8 @@ function upsYyyymmddToIso(s: string | null): string | null {
 function upsActivityTimestamp(a: any): string {
   const iso = upsYyyymmddToIso(a?.date ?? null);
   if (!iso) return "";
-  const t: string | undefined = a?.time;
+  // details/ gives "143000"; shipment/details/ gives "14:30:00".
+  const t: string | undefined = a?.time ? String(a.time).replace(/:/g, "") : undefined;
   if (t && t.length === 6) {
     return `${iso}T${t.slice(0, 2)}:${t.slice(2, 4)}:${t.slice(4, 6)}`;
   }
