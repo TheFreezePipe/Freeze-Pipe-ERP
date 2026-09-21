@@ -22,7 +22,8 @@ interface Props {
   sale?: MktSale | null;
   /** Prefill dates when creating (e.g. from a calendar day click). */
   defaultDate?: string | null;
-  /** Lock the date fields (past sale — protected from rescheduling). */
+  /** Lock the START and early-access dates once the sale has begun (history).
+   *  The END date stays editable: sales routinely run past their planned end. */
   datesLocked?: boolean;
 }
 
@@ -121,12 +122,11 @@ export function SaleFormDialog({ open, onOpenChange, sale, defaultDate, datesLoc
             </div>
             <div className="space-y-1.5">
               <Label>End date</Label>
-              <Input type="date" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} disabled={datesLocked} />
+              {/* Never locked: marketing keeps a sale running while it still
+                  converts, so the end date moves after the sale has started. */}
+              <Input type="date" value={endsAt} min={startsAt || undefined} onChange={(e) => setEndsAt(e.target.value)} />
             </div>
           </div>
-          {datesLocked && (
-            <p className="-mt-2 text-[11px] text-amber-400/80">🔒 This sale has already started — its dates are locked.</p>
-          )}
           <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border/60 p-2.5 select-none">
             <input
               type="checkbox"
