@@ -15,6 +15,22 @@ export const WORKBACK = {
   arrivalBufferDays: 12,
 } as const;
 
+/** Default "inventory ready by" for a new launch: this many days before its
+ *  earliest date (early access when set, else the launch date). Owner,
+ *  2026-09-23. Distinct from WORKBACK.arrivalBufferDays, which drives the PD
+ *  board's order/ship deadline chain. */
+export const READY_BY_LEAD_DAYS = 21;
+
+/**
+ * Default "inventory ready by" for a launch: READY_BY_LEAD_DAYS before the
+ * earliest of its early-access date and its launch date. Empty when neither
+ * date is set.
+ */
+export function readyByDefault(earlyAccessIso: string, launchIso: string): string {
+  const earliest = [earlyAccessIso, launchIso].filter(Boolean).sort()[0];
+  return earliest ? addDaysIso(earliest, -READY_BY_LEAD_DAYS) : "";
+}
+
 export interface WorkbackOptions {
   manufacturingDays?: number;
   seaTransitDays?: number;

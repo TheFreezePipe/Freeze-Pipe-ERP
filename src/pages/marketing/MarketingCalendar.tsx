@@ -41,6 +41,16 @@ import {
   normalizeApproval,
   retailHolidaysForYear,
 } from "@/lib/marketing-format";
+import {
+  saleColorMap,
+  assignSaleLanes,
+  indexSaleSpans,
+  saleRoleOnDay,
+  weekKeyOf,
+  type SaleSpan,
+  type SaleSpanInput,
+  type SaleSpanRole,
+} from "@/lib/marketing/sale-spans";
 import { SaleFormDialog } from "@/components/marketing/SaleFormDialog";
 import { LaunchFormDialog } from "@/components/marketing/LaunchFormDialog";
 import { BroadcastFormDialog } from "@/components/marketing/BroadcastFormDialog";
@@ -65,6 +75,8 @@ type Ev = {
   past: boolean;
   /** approval_status for sales/launches; null for broadcasts (no approval track). */
   approval: string | null;
+  /** Per-sale color (sales only); launches and broadcasts use their type color. */
+  color?: string;
 };
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const HEADER_OFFSET = 62; // sticky month + weekday header height, for scroll math
@@ -205,31 +217,7 @@ export default function MarketingCalendar() {
       arr.push(ev);
       m.set(day, arr);
     };
-    if (typeFilters.sale) {
-      for (const s of sales) {
-        const start = dayKeyOf(s.starts_at);
-        if (!start) continue;
-        const end = dayKeyOf(s.ends_at) ?? start;
-        if (end < start) continue;
-        const past = isPastKey(start, todayKey);
-        // Early-access days render as their own pills ahead of the public span.
-        const ea = dayKeyOf(s.early_access_starts_at);
-        if (ea && ea < start) {
-          let ek = ea;
-          let eguard = 0;
-          while (ek < start && eguard++ < 30) {
-            push(ek, { id: s.id, type: "sale", label: `EA · ${s.name}`, anchorKey: start, originKey: ek, past, approval: s.approval_status });
-            ek = shiftDayKey(ek, 1);
-          }
-        }
-        let k = start;
-        let guard = 0;
-        while (k <= end && guard++ < 400) {
-          push(k, { id: s.id, type: "sale", label: s.name, anchorKey: start, originKey: k, past, approval: s.approval_status });
-          k = shiftDayKey(k, 1);
-        }
-      }
-    }
+    // Sales are drawn as spans (see saleSpans below), not per-day chips.
     if (typeFilters.launch) {
       for (const l of launches) {
         const k = dayKeyOf(l.launch_date);
@@ -249,7 +237,35 @@ export default function MarketingCalendar() {
       }
     }
     return m;
-  }, [sales, launches, broadcasts, todayKey, typeFilters]);
+  }, [launches, broadcasts, todayKey, typeFilters]);
+
+  // Sales as spans: one color per sale, a lane per overlapping sale, and an
+  // index of every drawn day (early access through close) per week row so
+  // lane positions line up across the row's cells.
+  const saleColors = useMemo(() => saleColorMap(sales), [sales]);
+  const saleSpans = useMemo(() => {
+    if (!typeFilters.sale) return [] as SaleSpan[];
+    const inputs: SaleSpanInput[] = [];
+    for (const s of sales) {
+      const start = dayKeyOf(s.starts_at);
+      if (!start) continue;
+      const end = dayKeyOf(s.ends_at) ?? start;
+      if (end < start) continue;
+      const ea = dayKeyOf(s.early_access_starts_at);
+      inputs.push({
+        id: s.id,
+        name: s.name,
+        color: saleColors.get(s.id) ?? EVENT_TYPE_COLOR.sale,
+        eaStart: ea && ea < start ? ea : null,
+        start,
+        end,
+        past: isPastKey(start, todayKey),
+        approval: s.approval_status,
+      });
+    }
+    return assignSaleLanes(inputs);
+  }, [sales, saleColors, todayKey, typeFilters.sale]);
+  const spanIndex = useMemo(() => indexSaleSpans(saleSpans), [saleSpans]);
 
   const months = useMemo(() => {
     const start = subMonths(startOfMonth(today), monthsBack);
@@ -413,7 +429,9 @@ export default function MarketingCalendar() {
         const newStart = shiftDayKey(startK, delta);
         if (isPastKey(newStart, todayKey)) { toast({ title: "Can't move into the past", variant: "destructive" }); return; }
         const newEnd = s.ends_at ? shiftDayKey(dayKeyOf(s.ends_at)!, delta) : null;
-        await updateSale.mutateAsync({ id: s.id, updates: { starts_at: newStart, ends_at: newEnd } });
+        // Early access travels with the sale (it must stay <= the start date).
+        const newEa = s.early_access_starts_at ? shiftDayKey(dayKeyOf(s.early_access_starts_at)!, delta) : null;
+        await updateSale.mutateAsync({ id: s.id, updates: { starts_at: newStart, ends_at: newEnd, early_access_starts_at: newEa } });
       } else if (p.type === "launch") {
         const l = launchById.get(p.id);
         const startK = dayKeyOf(l?.launch_date ?? null);
@@ -447,6 +465,9 @@ export default function MarketingCalendar() {
     const showMonth = isMonthStart || idx === 0;
     const clickable = canEdit && !isPast;
     const holiday = showHolidays ? holidayByDay.get(key) : undefined;
+    const spansToday = spanIndex.byDay.get(key) ?? [];
+    const laneCount = spanIndex.lanesByWeek.get(weekKeyOf(key)) ?? 0;
+    const dow = day.getDay();
     return (
       <div
         key={key}
@@ -471,6 +492,26 @@ export default function MarketingCalendar() {
           <p className="pointer-events-none mb-0.5 truncate text-[9px] font-medium leading-tight text-cyan-300/70" title={holiday}>
             {holiday}
           </p>
+        )}
+        {laneCount > 0 && (
+          <div className="mb-0.5 space-y-0.5">
+            {Array.from({ length: laneCount }, (_, lane) => {
+              const sp = spansToday.find((s) => s.lane === lane);
+              const role = sp ? saleRoleOnDay(sp, key) : null;
+              if (!sp || !role) return <div key={lane} className="h-[18px]" />;
+              return (
+                <SaleSegment
+                  key={sp.id}
+                  span={sp}
+                  role={role}
+                  dayKey={key}
+                  dow={dow}
+                  canEdit={canEdit}
+                  onOpen={() => openEdit({ type: "sale", id: sp.id })}
+                />
+              );
+            })}
+          </div>
         )}
         <div className="space-y-0.5">
           {evs.slice(0, 3).map((ev, i) => {
@@ -528,8 +569,8 @@ export default function MarketingCalendar() {
       ? launches.filter((l) => (dayKeyOf(l.launch_date) ?? "").startsWith(ym))
       : [];
     const items = [
-      ...monthSales.map((s) => ({ id: `s-${s.id}`, type: "sale" as const, label: s.name })),
-      ...monthLaunches.map((l) => ({ id: `l-${l.id}`, type: "launch" as const, label: l.name })),
+      ...monthSales.map((s) => ({ id: `s-${s.id}`, label: s.name, color: saleColors.get(s.id) ?? EVENT_TYPE_COLOR.sale })),
+      ...monthLaunches.map((l) => ({ id: `l-${l.id}`, label: l.name, color: EVENT_TYPE_COLOR.launch })),
     ];
     const monthHolidays = showHolidays
       ? [...holidayByDay.entries()]
@@ -549,7 +590,7 @@ export default function MarketingCalendar() {
         <div className="space-y-1">
           {items.slice(0, 6).map((it) => (
             <div key={it.id} className="flex items-center gap-1.5 text-[11px]">
-              <span className="inline-block h-2 w-2 shrink-0 rounded-sm" style={{ backgroundColor: EVENT_TYPE_COLOR[it.type] }} />
+              <span className="inline-block h-2 w-2 shrink-0 rounded-sm" style={{ backgroundColor: it.color }} />
               <span className="truncate">{it.label}</span>
             </div>
           ))}
@@ -565,7 +606,23 @@ export default function MarketingCalendar() {
     );
   }
 
-  const dayDialogEvents = dayDialogKey ? byDay.get(dayDialogKey) ?? [] : [];
+  // The day popover lists sales active on the day (from the spans) ahead of
+  // the day's launches and broadcasts.
+  const dayDialogEvents: Ev[] = dayDialogKey
+    ? [
+        ...(spanIndex.byDay.get(dayDialogKey) ?? []).map((sp): Ev => ({
+          id: sp.id,
+          type: "sale",
+          label: dayDialogKey < sp.start ? `EA · ${sp.name}` : sp.name,
+          anchorKey: sp.start,
+          originKey: dayDialogKey,
+          past: sp.past,
+          approval: sp.approval,
+          color: sp.color,
+        })),
+        ...(byDay.get(dayDialogKey) ?? []),
+      ]
+    : [];
   const dayDialogHoliday = dayDialogKey ? holidayByDay.get(dayDialogKey) : undefined;
 
   return (
@@ -626,7 +683,7 @@ export default function MarketingCalendar() {
                   onClick={() => { setDayDialogKey(null); openEdit(ev); }}
                   title={deco.tip ? `${baseTitle} · ${deco.tip}` : baseTitle}
                   className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-white/95 hover:opacity-90 ${deco.cls}`}
-                  style={{ backgroundColor: EVENT_TYPE_COLOR[ev.type] }}
+                  style={{ backgroundColor: ev.color ?? EVENT_TYPE_COLOR[ev.type] }}
                 >
                   {ev.past && <Lock className="h-3 w-3 shrink-0" />}
                   <span className="truncate">{ev.label}</span>
@@ -747,7 +804,7 @@ export default function MarketingCalendar() {
                             </span>
                             <span
                               className={`max-w-[45%] truncate rounded px-1.5 py-0.5 text-xs text-white/95 sm:max-w-xs ${deco.cls}`}
-                              style={{ backgroundColor: EVENT_TYPE_COLOR[r.type] }}
+                              style={{ backgroundColor: r.type === "sale" ? saleColors.get(r.id) ?? EVENT_TYPE_COLOR.sale : EVENT_TYPE_COLOR[r.type] }}
                               title={deco.tip ?? undefined}
                             >
                               {r.name}
@@ -791,6 +848,89 @@ export default function MarketingCalendar() {
           </CardContent>
         </Card>
       )}
+    </div>
+  );
+}
+
+/**
+ * One day's slice of a sale span. Markers (open / close / one-day) are 18px
+ * pills carrying the name; the days between draw a 6px line at the same lane
+ * height. Early-access pieces are black with the sale's color as an outline.
+ * Pieces bleed 7px into the grid gap on their open side(s) so the run reads
+ * as one continuous bar across cells; a row's first/last cell stays flush.
+ */
+function SaleSegment({
+  span,
+  role,
+  dayKey,
+  dow,
+  canEdit,
+  onOpen,
+}: {
+  span: SaleSpan;
+  role: SaleSpanRole;
+  dayKey: string;
+  dow: number;
+  canEdit: boolean;
+  onOpen: () => void;
+}) {
+  const ea = role === "ea_start" || role === "ea_line";
+  const isLine = role === "line" || role === "ea_line";
+  const extendL = (role === "line" || role === "end" || role === "ea_line") && dow !== 0;
+  const extendR = (role === "line" || role === "start" || role === "ea_line" || role === "ea_start") && dow !== 6;
+  const unconfirmed = span.approval != null && normalizeApproval(span.approval) !== "confirmed";
+  const fmtDay = (k: string) => format(new Date(`${k}T00:00:00`), "MMM d");
+  const range = span.start === span.end ? fmtDay(span.start) : `${fmtDay(span.start)} – ${fmtDay(span.end)}`;
+  const title = [
+    span.name,
+    ea ? `early access ${fmtDay(span.eaStart ?? span.start)}` : null,
+    range,
+    span.past ? "locked (past)" : null,
+    unconfirmed ? approvalTooltip(span.approval) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const draggable = canEdit && !span.past;
+  const cursor = span.past ? "cursor-pointer" : canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer";
+  const margins = `${extendL ? "-ml-[7px]" : ""} ${extendR ? "-mr-[7px]" : ""}`;
+  const opacity = span.past ? "opacity-60" : unconfirmed ? "opacity-75" : "";
+  const fill = ea ? "#000" : span.color;
+  const outline = ea ? `1.5px ${unconfirmed ? "dashed" : "solid"} ${span.color}` : undefined;
+
+  const dragProps = {
+    draggable,
+    onDragStart: (e: React.DragEvent) => {
+      e.dataTransfer.setData("text/plain", JSON.stringify({ type: "sale", id: span.id, originKey: dayKey }));
+      e.dataTransfer.effectAllowed = "move";
+    },
+    onClick: (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onOpen();
+    },
+    title,
+  };
+
+  if (isLine) {
+    return (
+      <div className={`flex h-[18px] items-center ${margins} ${cursor} ${opacity}`} {...dragProps}>
+        <div className="h-[6px] w-full" style={{ backgroundColor: fill, border: outline }} />
+      </div>
+    );
+  }
+
+  const radius = role === "single" ? "rounded" : role === "end" ? "rounded-r" : "rounded-l";
+  const dashed = !ea && unconfirmed ? "border border-dashed border-white/60" : "";
+  const label = role === "ea_start" ? `EA · ${span.name}` : span.name;
+  return (
+    <div className={`h-[18px] ${margins}`}>
+      <button
+        type="button"
+        {...dragProps}
+        className={`block h-full w-full truncate ${radius} px-1 text-left text-[10px] leading-[16px] text-white/95 hover:opacity-90 ${dashed} ${cursor} ${opacity}`}
+        style={{ backgroundColor: fill, border: outline }}
+      >
+        {span.past && "🔒 "}{label}
+      </button>
     </div>
   );
 }

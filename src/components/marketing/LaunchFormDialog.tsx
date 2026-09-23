@@ -21,6 +21,7 @@ import {
 import { Plus, X } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
+import { readyByDefault } from "@/lib/marketing/workback";
 import {
   useCreateLaunch,
   useUpdateLaunch,
@@ -68,6 +69,9 @@ export function LaunchFormDialog({ open, onOpenChange, launch, defaultDate, date
   const [launchDate, setLaunchDate] = useState("");
   const [earlyAccess, setEarlyAccess] = useState("");
   const [readyBy, setReadyBy] = useState("");
+  // Ready-by is derived (earliest launch date − READY_BY_LEAD_DAYS) until the
+  // user types one; clearing the field returns to the derived value.
+  const [readyByTouched, setReadyByTouched] = useState(false);
   const [notes, setNotes] = useState("");
   const [members, setMembers] = useState<MemberRow[]>([emptyMember()]);
 
@@ -78,6 +82,7 @@ export function LaunchFormDialog({ open, onOpenChange, launch, defaultDate, date
     setLaunchDate(dateInput(launch?.launch_date ?? null) || (defaultDate ?? ""));
     setEarlyAccess(dateInput(launch?.early_access_date ?? null));
     setReadyBy(dateInput(launch?.inventory_ready_by ?? null));
+    setReadyByTouched(!!launch?.inventory_ready_by);
     setNotes(launch?.notes ?? "");
     const rows = (launch?.skus ?? [])
       .slice()
@@ -94,6 +99,8 @@ export function LaunchFormDialog({ open, onOpenChange, launch, defaultDate, date
 
   const pending = create.isPending || update.isPending;
   const isStudio = kind === "studio_drop";
+
+  const effectiveReadyBy = readyByTouched ? readyBy : readyByDefault(earlyAccess, launchDate);
 
   function updateMember(i: number, patch: Partial<MemberRow>) {
     setMembers((prev) => prev.map((m, idx) => (idx === i ? { ...m, ...patch } : m)));
@@ -123,7 +130,7 @@ export function LaunchFormDialog({ open, onOpenChange, launch, defaultDate, date
       kind,
       launch_date: launchDate || null,
       early_access_date: earlyAccess || null,
-      inventory_ready_by: readyBy || null,
+      inventory_ready_by: effectiveReadyBy || null,
       notes: notes.trim() || null,
     };
     try {
@@ -178,7 +185,15 @@ export function LaunchFormDialog({ open, onOpenChange, launch, defaultDate, date
             </div>
             <div className="space-y-1.5">
               <Label>Inventory ready by</Label>
-              <Input type="date" value={readyBy} onChange={(e) => setReadyBy(e.target.value)} disabled={datesLocked} />
+              <Input
+                type="date"
+                value={effectiveReadyBy}
+                onChange={(e) => {
+                  setReadyBy(e.target.value);
+                  setReadyByTouched(e.target.value !== "");
+                }}
+                disabled={datesLocked}
+              />
             </div>
           </div>
           {datesLocked && (
