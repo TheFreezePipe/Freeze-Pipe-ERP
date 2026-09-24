@@ -59,6 +59,13 @@ const TYPE_COLORS: Record<string, string> = {
   freight_status_override_cleared: "border-muted text-muted-foreground",
   freight_delivered: "border-blue-500 text-blue-400",
   order_shipped: "border-cyan-500 text-cyan-400",
+  // ShipStation ledger housekeeping (migration 20260921000001 + the
+  // owner-approved correction script)
+  shipstation_overdeduct_correction: "border-emerald-500 text-emerald-400",
+  shipstation_absorbed_by_count: "border-teal-500 text-teal-400",
+  shipstation_ledger_rebase: "border-muted text-muted-foreground",
+  shipstation_oversell_warning: "border-red-500 text-red-400",
+  shipstation_pre_bootstrap_skip: "border-muted text-muted-foreground",
   factory_order_update: "border-orange-500 text-orange-400",
   tracking_eta_update: "border-sky-500 text-sky-400",
   tracking_status_auto: "border-cyan-500 text-cyan-400",

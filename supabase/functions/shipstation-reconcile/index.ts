@@ -64,6 +64,8 @@ Deno.serve(async (req) => {
     orders_new: 0,
     orders_updated: 0,
     orders_drift_detected: 0,
+    orders_upsert_failed: 0,
+    orders_reingested: 0,
     inventory_apply_succeeded: 0,
     inventory_apply_skipped: 0,
     error: null as string | null,
@@ -113,10 +115,48 @@ Deno.serve(async (req) => {
     report.orders_pulled = pulled.length;
 
     for (const order of pulled) {
-      const { isNew, hadDrift } = await upsertAndReconcile(order);
-      if (isNew) report.orders_new++;
-      else report.orders_updated++;
-      if (hadDrift) report.orders_drift_detected++;
+      try {
+        const { isNew, hadDrift } = await upsertAndReconcile(order);
+        if (isNew) report.orders_new++;
+        else report.orders_updated++;
+        if (hadDrift) report.orders_drift_detected++;
+      } catch (err) {
+        // One bad order must not abort the run; it stays parked ('line
+        // items not ingested') and the re-ingest step below retries it.
+        report.orders_upsert_failed++;
+        console.error("upsert failed", order.orderNumber, err);
+      }
+    }
+
+    // -------- Stage 2b: re-ingest lines for orders parked on a failed ingest
+    // The order row keeps the full ShipStation payload, so an order whose
+    // item insert failed (any run, any age — Stage 2 only re-pulls the last
+    // 26 h) is rebuilt from raw_payload here instead of stranding.
+    const { data: notIngested } = await supabase
+      .from("shipstation_orders")
+      .select("id, order_number, raw_payload")
+      .is("inventory_applied_at", null)
+      .eq("inventory_apply_error", "line items not ingested")
+      .in("order_status", ["shipped", "awaiting_shipment"])
+      .limit(100);
+
+    for (const o of notIngested ?? []) {
+      try {
+        const payload = o.raw_payload as ShipStationOrder | null;
+        if (!payload || !Array.isArray(payload.items)) continue;
+        const { count } = await supabase
+          .from("shipstation_order_items")
+          .select("id", { count: "exact", head: true })
+          .eq("shipstation_order_id", o.id);
+        if ((count ?? 0) > 0) continue; // lines exist now; the RPC will see them
+        const rowsToInsert = await resolveLineItems(supabase, o.id, payload.items);
+        if (rowsToInsert.length === 0) continue;
+        const { error } = await supabase.from("shipstation_order_items").insert(rowsToInsert);
+        if (error) throw error;
+        report.orders_reingested++;
+      } catch (err) {
+        console.error("re-ingest failed", o.order_number, err);
+      }
     }
 
     // -------- Stage 3: apply inventory for orders still pending ----------
@@ -124,12 +164,33 @@ Deno.serve(async (req) => {
     // for the full rationale): we deduct for shipped + awaiting_shipment
     // only. Skipping on_hold / cancelled / awaiting_payment avoids
     // false deductions for orders that may never ship.
+    //
+    // No attempts cap (removed 2026-09-21). inventory_apply_attempts only
+    // ever climbs for orders parked on an unknown SKU code (any other
+    // failure throws inside the RPC and rolls the bump back), so the old
+    // `< 6` filter was purely "stop retrying unknown-code orders" — and
+    // once a code was registered those orders were stranded forever. The
+    // cap's real job was limiting the damage from the RPC re-deducting
+    // recognized lines on every retry; migration 20260921000001 made the
+    // RPC ledger-idempotent, so a retry of a parked order is now a read:
+    // the RPC re-resolves still-unknown lines itself and only writes the
+    // order row (attempts + error text) when the unresolved code set
+    // changes, so this loop causes no per-run row churn.
+    //
+    // DEPLOY ORDER — REQUIRES migration 20260921000001 applied BEFORE this
+    // deploys: with the old RPC, uncapped retries would re-deduct every
+    // parked order's recognized lines every run. (The migration is safe
+    // with the old build still running; it just keeps skipping orders
+    // past 6 attempts until this build is live.)
+    //
+    // Never-tried orders first, so a large parked backlog can't crowd a
+    // fresh order out of the 500-row window.
     const { data: unappliedOrders } = await supabase
       .from("shipstation_orders")
       .select("id")
       .is("inventory_applied_at", null)
-      .lt("inventory_apply_attempts", 6)
       .in("order_status", ["shipped", "awaiting_shipment"])
+      .order("inventory_apply_attempts", { ascending: true })
       .limit(500);
 
     for (const o of unappliedOrders ?? []) {
@@ -268,14 +329,18 @@ async function upsertAndReconcile(order: ShipStationOrder): Promise<{ isNew: boo
   // Only (re)populate items for orders not yet inventory-applied. Once applied,
   // items are immutable to keep audit trail consistent.
   if (!existing?.inventory_applied_at) {
-    await supabase
+    const { error: delErr } = await supabase
       .from("shipstation_order_items")
       .delete()
       .eq("shipstation_order_id", orderRowId);
+    if (delErr) throw new Error(`line item delete failed for ${order.orderNumber}: ${delErr.message}`);
 
     const rowsToInsert = await resolveLineItems(supabase, orderRowId, order.items);
     if (rowsToInsert.length > 0) {
-      await supabase.from("shipstation_order_items").insert(rowsToInsert);
+      // Surface a failed insert: the order then parks as 'line items not
+      // ingested' and Stage 2b rebuilds its lines from raw_payload.
+      const { error: insErr } = await supabase.from("shipstation_order_items").insert(rowsToInsert);
+      if (insErr) throw new Error(`line item insert failed for ${order.orderNumber}: ${insErr.message}`);
     }
   }
 

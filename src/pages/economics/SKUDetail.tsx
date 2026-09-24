@@ -629,11 +629,18 @@ export default function SKUDetail() {
       });
       setNewAliasCode("");
       const n = env.existing_items_updated ?? 0;
-      setAliasFlash(
+      const requeued = env.orders_requeued ?? 0;
+      // The reconcile job runs every 30 minutes and applies every un-parked
+      // order carrying this code (migration 20260921000001).
+      const parts = [
         n > 0
           ? `Alias added — ${n} previously-blocked order item${n === 1 ? "" : "s"} just resolved`
           : "Alias added",
-      );
+      ];
+      if (requeued > 0) {
+        parts.push(`${requeued} order${requeued === 1 ? "" : "s"} will apply within 30 minutes`);
+      }
+      setAliasFlash(parts.join("; "));
     } catch (err) {
       setAliasError(err instanceof Error ? err.message : "Failed to add alias");
     }
@@ -643,23 +650,29 @@ export default function SKUDetail() {
     if (!skuId) return;
     setAliasError(null);
     setAliasFlash(null);
-    // Native confirm — the side effects (un-applying inventory deductions
-    // on linked orders) deserve a beat of friction. Operators can hit
-    // OK quickly; the explanation makes the consequence explicit.
+    // Native confirm — the side effects (crediting this SKU back on linked
+    // orders and re-opening them) deserve a beat of friction. Operators can
+    // hit OK quickly; the explanation makes the consequence explicit.
     const ok = window.confirm(
       `Remove alias "${skuCode}"?\n\n` +
         "Any ShipStation orders that resolved through this alias will be re-blocked " +
-        "and surface in the unresolved-SKU queue for re-triage.",
+        "and surface in the unresolved-SKU queue for re-triage. Units already " +
+        "deducted from this SKU for those orders are credited back.",
     );
     if (!ok) return;
     try {
       const env = await unregisterAlias.mutateAsync({ skuCode });
       const n = env.items_reset ?? 0;
-      setAliasFlash(
+      const credited = env.units_credited ?? 0;
+      const parts = [
         n > 0
           ? `Alias removed — ${n} order item${n === 1 ? "" : "s"} re-blocked`
           : "Alias removed",
-      );
+      ];
+      if (credited > 0) {
+        parts.push(`${credited} unit${credited === 1 ? "" : "s"} credited back to this SKU`);
+      }
+      setAliasFlash(parts.join("; "));
     } catch (err) {
       setAliasError(err instanceof Error ? err.message : "Failed to remove alias");
     }

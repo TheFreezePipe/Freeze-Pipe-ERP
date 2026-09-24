@@ -14,8 +14,10 @@ import type { Database } from "@/lib/database.types";
  *
  * Reads use the row-level SELECT policy added in migration 20260507000001
  * (admin/manager only). Mutations go through SECURITY DEFINER RPCs:
- *   - register   — admin or manager (managers triage day-to-day)
- *   - unregister — admin only (un-applies inventory deductions on linked orders)
+ *   - register   — admin or manager (managers triage day-to-day); un-parks
+ *                  the orders carrying the code (next reconcile applies them)
+ *   - unregister — admin only (credits the old sku back on linked orders and
+ *                  re-opens them)
  */
 
 export type ShipstationSkuHandlingRow =
@@ -44,14 +46,46 @@ export function useSkuAliases(skuId: string | null | undefined) {
   });
 }
 
+/** Envelope returned by `rpc_shipstation_register_sku_alias`. */
+export interface RegisterSkuAliasEnvelope {
+  ok: boolean;
+  error?: string;
+  /** Stored spelling of the code (normalised to the pending items' case). */
+  sku_code?: string;
+  /** Previously-blocked order items that just resolved through this alias. */
+  existing_items_updated?: number;
+  /**
+   * Unapplied shipped / awaiting_shipment orders carrying the code. The
+   * next reconcile run (every 30 minutes) applies them — migration
+   * 20260921000001.
+   */
+  orders_requeued?: number;
+}
+
+/** Envelope returned by `rpc_shipstation_unregister_sku_alias`. */
+export interface UnregisterSkuAliasEnvelope {
+  ok: boolean;
+  error?: string;
+  sku_code?: string;
+  /** Order items reset to sku_id NULL (re-blocked). */
+  items_reset?: number;
+  /** Applied orders re-opened so the next reconcile re-applies them. */
+  orders_reopened?: number;
+  /** Orders whose old-sku deduction was credited back by the RPC. */
+  orders_credited?: number;
+  /** Units credited back to the old sku across those orders. */
+  units_credited?: number;
+}
+
 /**
  * Register a ShipStation sku_code as an alias for an existing product SKU.
  * Wraps `rpc_shipstation_register_sku_alias` (admin or manager).
  *
  * Returns the RPC's JSON envelope so callers can surface
  * `existing_items_updated` (count of previously-blocked order items that
- * just resolved) — useful confirmation when registering a code that has
- * orders already piled up in the queue.
+ * just resolved) and `orders_requeued` (orders the next reconcile run will
+ * apply) — useful confirmation when registering a code that has orders
+ * already piled up in the queue.
  */
 export function useRegisterSkuAlias() {
   const qc = useQueryClient();
@@ -70,11 +104,7 @@ export function useRegisterSkuAlias() {
         },
       );
       if (error) throw error;
-      const env = data as {
-        ok: boolean;
-        error?: string;
-        existing_items_updated?: number;
-      } | null;
+      const env = data as RegisterSkuAliasEnvelope | null;
       if (!env?.ok) {
         throw new Error(env?.error ?? "Failed to register alias");
       }
@@ -93,11 +123,15 @@ export function useRegisterSkuAlias() {
 
 /**
  * Remove an alias entry. Wraps `rpc_shipstation_unregister_sku_alias`
- * (admin only). Side effects:
+ * (admin only). Side effects (migration 20260921000001):
  *   - any shipstation_order_items that resolved through this alias are
  *     reset back to sku_id = NULL (re-blocked)
- *   - any orders that had only this alias resolving them are flagged
- *     `inventory_apply_error` and `inventory_applied_at = NULL`
+ *   - for every affected order, units the ledger deducted for the old sku
+ *     beyond what its lines still resolve to are credited back right away
+ *     (positive order_shipped row, stock restored)
+ *   - applied orders are re-opened (`inventory_applied_at = NULL`,
+ *     `inventory_apply_error` set) so the next reconcile deducts whatever
+ *     the code resolves to next
  *
  * The detail page should warn the user about these side effects before
  * calling — there's a confirm dialog wired up in SKUDetail.
@@ -117,11 +151,7 @@ export function useUnregisterSkuAlias() {
         ) => Promise<{ data: unknown; error: { message: string } | null }>
       )("rpc_shipstation_unregister_sku_alias", { p_sku_code: params.skuCode });
       if (error) throw new Error(error.message);
-      const env = data as {
-        ok: boolean;
-        error?: string;
-        items_reset?: number;
-      } | null;
+      const env = data as UnregisterSkuAliasEnvelope | null;
       if (!env?.ok) {
         throw new Error(env?.error ?? "Failed to unregister alias");
       }

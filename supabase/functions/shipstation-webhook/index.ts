@@ -304,7 +304,7 @@ async function upsertOrder(order: ShipStationOrder, seenVia: string): Promise<st
   // Look up or insert the order
   const { data: existing } = await supabase
     .from("shipstation_orders")
-    .select("id")
+    .select("id, inventory_applied_at")
     .eq("shipstation_order_id", order.orderId)
     .maybeSingle();
 
@@ -330,8 +330,6 @@ async function upsertOrder(order: ShipStationOrder, seenVia: string): Promise<st
   if (existing) {
     await supabase.from("shipstation_orders").update(row).eq("id", existing.id);
     orderRowId = existing.id;
-    // Line items: replace them (idempotent — but only if none have been applied)
-    // Safer: only sync line items for orders not yet applied.
   } else {
     const { data: inserted, error } = await supabase
       .from("shipstation_orders")
@@ -342,15 +340,26 @@ async function upsertOrder(order: ShipStationOrder, seenVia: string): Promise<st
     orderRowId = inserted.id;
   }
 
-  // Replace line items idempotently. Filter+resolve via shared helper.
-  await supabase
-    .from("shipstation_order_items")
-    .delete()
-    .eq("shipstation_order_id", orderRowId);
+  // Replace line items idempotently — but only while the order is not yet
+  // inventory-applied (same rule as the reconcile). Once applied, the
+  // lines are what the ledger was reconciled against; replacing them would
+  // drift the lines away from the ledger with nothing to settle the gap
+  // (the RPC short-circuits on the stamp).
+  if (!existing?.inventory_applied_at) {
+    const { error: delErr } = await supabase
+      .from("shipstation_order_items")
+      .delete()
+      .eq("shipstation_order_id", orderRowId);
+    if (delErr) throw new Error(`line item delete failed for ${order.orderNumber}: ${delErr.message}`);
 
-  const rowsToInsert = await resolveLineItems(supabase, orderRowId, order.items);
-  if (rowsToInsert.length > 0) {
-    await supabase.from("shipstation_order_items").insert(rowsToInsert);
+    const rowsToInsert = await resolveLineItems(supabase, orderRowId, order.items);
+    if (rowsToInsert.length > 0) {
+      // A failed insert must fail the event: the order row now exists with
+      // zero lines, the RPC parks it as 'line items not ingested', and the
+      // reconcile's Stage 1 replays this event (attempts < 6).
+      const { error: insErr } = await supabase.from("shipstation_order_items").insert(rowsToInsert);
+      if (insErr) throw new Error(`line item insert failed for ${order.orderNumber}: ${insErr.message}`);
+    }
   }
 
   return orderRowId;
