@@ -1,18 +1,57 @@
 import { describe, it, expect } from "vitest";
 import {
   SALE_PALETTE,
+  SALE_PALETTE_ENTRIES,
   saleColorMap,
+  saleTextColor,
   assignSaleLanes,
   saleRoleOnDay,
+  saleSegmentOnDay,
   spanFirstDay,
   weekKeyOf,
   indexSaleSpans,
+  formatDayKeyShort,
+  formatSpanRange,
+  hexToRgba,
   type SaleSpanInput,
 } from "./sale-spans";
+import { shiftDayKey } from "@/lib/marketing-format";
 
 function span(over: Partial<SaleSpanInput> & { id: string; start: string; end: string }): SaleSpanInput {
   return { name: over.id, color: "#000", eaStart: null, past: false, approval: null, ...over };
 }
+
+/** Weekday (0 = Sun) of a YYYY-MM-DD key, local math like the calendar. */
+function dowOf(key: string): number {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(y, m - 1, d).getDay();
+}
+
+describe("SALE_PALETTE", () => {
+  it("has eight hues, each with a text step, and never the launch violet or broadcast cyan", () => {
+    expect(SALE_PALETTE).toHaveLength(8);
+    expect(SALE_PALETTE_ENTRIES).toHaveLength(8);
+    expect(new Set(SALE_PALETTE).size).toBe(8);
+    expect(SALE_PALETTE).not.toContain("#a78bfa");
+    expect(SALE_PALETTE).not.toContain("#22d3ee");
+    for (const p of SALE_PALETTE_ENTRIES) {
+      expect(saleTextColor(p.solid)).toBe(p.text);
+      expect(saleTextColor(p.solid.toUpperCase())).toBe(p.text);
+    }
+    expect(SALE_PALETTE[0]).toBe("#fbbf24");
+    expect(saleTextColor("#fbbf24")).toBe("#fcd34d");
+  });
+
+  it("falls back to a neutral text step for an unknown solid", () => {
+    expect(saleTextColor("#9a9a9a")).toBe("#e6e6e6");
+  });
+
+  it("hexToRgba expands a 6-digit hex and passes anything else through", () => {
+    expect(hexToRgba("#fbbf24", 0.18)).toBe("rgba(251,191,36,0.18)");
+    expect(hexToRgba("#FBBF24", 1)).toBe("rgba(251,191,36,1)");
+    expect(hexToRgba("hsl(45, 85%, 55%)", 0.5)).toBe("hsl(45, 85%, 55%)");
+  });
+});
 
 describe("saleColorMap", () => {
   it("assigns distinct colors in start-date order, independent of input order", () => {
@@ -75,6 +114,94 @@ describe("saleRoleOnDay", () => {
     const same = span({ id: "y", start: "2026-12-01", end: "2026-12-03", eaStart: "2026-12-01" });
     expect(spanFirstDay(same)).toBe("2026-12-01");
     expect(saleRoleOnDay(same, "2026-12-01")).toBe("start");
+  });
+});
+
+describe("formatDayKeyShort / formatSpanRange", () => {
+  it("formats 'Mon d' and an en-dash range, collapsing one-day sales", () => {
+    expect(formatDayKeyShort("2026-09-24")).toBe("Sep 24");
+    expect(formatDayKeyShort("2027-01-06")).toBe("Jan 6");
+    expect(formatSpanRange({ start: "2026-09-24", end: "2026-10-02" })).toBe("Sep 24 – Oct 2");
+    expect(formatSpanRange({ start: "2026-12-01", end: "2026-12-01" })).toBe("Dec 1");
+  });
+});
+
+describe("saleSegmentOnDay", () => {
+  // 2026-11-08 is a Sunday (see weekKeyOf), so 11-12 Thu, 11-14 Sat, 11-15 Sun, 11-16 Mon.
+  const seg = (s: SaleSpanInput, day: string) => saleSegmentOnDay(s, day, dowOf(day));
+
+  it("returns null outside the span", () => {
+    const s = span({ id: "s", start: "2026-11-12", end: "2026-11-13" });
+    expect(seg(s, "2026-11-11")).toBeNull();
+    expect(seg(s, "2026-11-14")).toBeNull();
+  });
+
+  it("single-day sale: cap, rounded both ends, no bleed, label, one-day tooltip", () => {
+    const s = span({ id: "flash", name: "Flash", start: "2026-12-01", end: "2026-12-01" });
+    expect(seg(s, "2026-12-01")).toEqual({
+      role: "single",
+      hollow: false,
+      cap: true,
+      roundL: true,
+      roundR: true,
+      bleedL: false,
+      bleedR: false,
+      edgeL: false,
+      edgeR: false,
+      showLabel: true,
+      tooltipParts: ["Flash", "Dec 1"],
+    });
+  });
+
+  it("early access then open across a Sat/Sun wrap: hollow leader, square wrap, cap on the open day, label on Sunday", () => {
+    const s = span({ id: "bf", name: "BF", eaStart: "2026-11-12", start: "2026-11-16", end: "2026-11-20", past: true });
+    const thu = seg(s, "2026-11-12")!; // EA start
+    expect(thu).toMatchObject({ role: "ea_start", hollow: true, cap: false, roundL: true, roundR: false, bleedL: false, bleedR: true, edgeL: false, edgeR: false, showLabel: true });
+    expect(thu.tooltipParts).toEqual(["BF", "early access Nov 12", "Nov 16 – Nov 20", "locked (past)"]);
+    const fri = seg(s, "2026-11-13")!;
+    expect(fri).toMatchObject({ role: "ea_line", hollow: true, cap: false, roundL: false, roundR: false, bleedL: true, bleedR: true, edgeL: false, edgeR: false, showLabel: false });
+    const sat = seg(s, "2026-11-14")!; // wraps into next row: square, to the cell edge, no gap bleed
+    expect(sat).toMatchObject({ role: "ea_line", hollow: true, roundR: false, bleedL: true, bleedR: false, edgeR: true, showLabel: false });
+    const sun = seg(s, "2026-11-15")!; // continues from previous row: square at the left edge, hosts the row's label
+    expect(sun).toMatchObject({ role: "ea_line", hollow: true, cap: false, roundL: false, bleedL: false, edgeL: true, bleedR: true, showLabel: true });
+    const mon = seg(s, "2026-11-16")!; // public open: solid + cap, fused (no radius, bleeds both ways)
+    expect(mon).toMatchObject({ role: "start", hollow: false, cap: true, roundL: false, roundR: false, bleedL: true, bleedR: true, edgeL: false, edgeR: false, showLabel: false });
+    const fri2 = seg(s, "2026-11-20")!; // true last day
+    expect(fri2).toMatchObject({ role: "end", hollow: false, cap: false, roundL: false, roundR: true, bleedL: true, bleedR: false, edgeR: false, showLabel: false });
+  });
+
+  it("three-week sale shows its name exactly once per week row", () => {
+    const s = span({ id: "long", name: "Long", start: "2026-11-10", end: "2026-11-27" }); // Tue → Fri, three rows
+    const labelDays: string[] = [];
+    for (let k = s.start; k <= s.end; k = shiftDayKey(k, 1)) {
+      if (seg(s, k)!.showLabel) labelDays.push(k);
+    }
+    expect(labelDays).toEqual(["2026-11-10", "2026-11-15", "2026-11-22"]);
+    expect(seg(s, "2026-11-10")!.cap).toBe(true);
+    expect(seg(s, "2026-11-15")!.cap).toBe(false);
+  });
+
+  it("ending on a Sunday: the last piece is square on the left edge, rounded on the right, and hosts the label", () => {
+    const s = span({ id: "e", start: "2026-11-12", end: "2026-11-15" });
+    expect(seg(s, "2026-11-14")!).toMatchObject({ role: "line", roundR: false, bleedR: false, edgeR: true });
+    expect(seg(s, "2026-11-15")!).toMatchObject({ role: "end", roundL: false, roundR: true, bleedL: false, bleedR: false, edgeL: true, edgeR: false, showLabel: true, cap: false });
+  });
+
+  it("starting on a Sunday: true first day is rounded (not an edge wrap) and hosts the label", () => {
+    const s = span({ id: "s", start: "2026-11-15", end: "2026-11-18" });
+    expect(seg(s, "2026-11-15")!).toMatchObject({ role: "start", cap: true, roundL: true, edgeL: false, bleedL: false, bleedR: true, showLabel: true });
+  });
+
+  it("ending on a Saturday: true last day is rounded (not an edge wrap), no label", () => {
+    const s = span({ id: "s", start: "2026-11-11", end: "2026-11-14" });
+    expect(seg(s, "2026-11-14")!).toMatchObject({ role: "end", roundR: true, edgeR: false, bleedR: false, bleedL: true, showLabel: false });
+  });
+
+  it("starting on a Saturday: cap + left radius, square into the next row, then a labelled square Sunday piece", () => {
+    const s = span({ id: "s", start: "2026-11-14", end: "2026-11-18" });
+    expect(seg(s, "2026-11-14")!).toMatchObject({ role: "start", cap: true, roundL: true, roundR: false, bleedL: false, bleedR: false, edgeL: false, edgeR: true, showLabel: true });
+    expect(seg(s, "2026-11-15")!).toMatchObject({ role: "line", cap: false, roundL: false, bleedL: false, edgeL: true, bleedR: true, showLabel: true });
+    expect(seg(s, "2026-11-18")!).toMatchObject({ role: "end", roundR: true, bleedL: true, bleedR: false, showLabel: false });
   });
 });
 
