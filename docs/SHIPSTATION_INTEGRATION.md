@@ -207,13 +207,14 @@ per-pair `shipstation_ledger_rebase` metadata rows (no stock movement) so the
 new rule does not blindly credit that excess back, stamped the orders whose
 owed units a later qualifying cycle count had already absorbed
 (`shipstation_absorbed_by_count`, plus one negative rebase row per pair so a
-re-open never deducts them; "qualifying" = the same `|delta| >=` knob the
-correction script uses), un-stamped the cancelled orders it rebased, and the
-stock itself is returned per SKU by the owner-approved
-`shipstation_overdeduct_correction` script (rows of that type in the Change
-Log). Cancelled orders owe the ledger nothing under that script's rule. Run
-the script between reconcile runs; its guard aborts if any
-`warehouse_finished` row for a SKU lands between derivation and write.
+re-open never deducts them; "qualifying" = any `warehouse_finished` cycle
+count, knob 1, owner decision 2026-09-24) and un-stamped the cancelled orders
+it rebased. The stock itself was NOT corrected by script: the owner declined
+the per-SKU add-back (41 SKUs / 400 units at the time) in favour of a full
+physical cycle count, which resets every counted SKU. The audit script
+(`shipstation_overdeduct_correction.sql`, session scratchpad) is retired; a
+`shipstation_overdeduct_correction` row type exists in the Change Log colours
+only in case it is ever revived. Cancelled orders owe the ledger nothing.
 
 ### Reconcile run history
 ```sql
