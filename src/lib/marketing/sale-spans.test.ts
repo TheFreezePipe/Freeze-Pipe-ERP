@@ -14,6 +14,7 @@ import {
   formatSpanRange,
   hexToRgba,
   type SaleSpanInput,
+  type SaleSegmentDraw,
 } from "./sale-spans";
 import { shiftDayKey } from "@/lib/marketing-format";
 
@@ -149,25 +150,42 @@ describe("saleSegmentOnDay", () => {
       edgeL: false,
       edgeR: false,
       showLabel: true,
+      label: "name",
       tooltipParts: ["Flash", "Dec 1"],
     });
   });
 
-  it("early access then open across a Sat/Sun wrap: hollow leader, square wrap, cap on the open day, label on Sunday", () => {
+  it("early access then open across a Sat/Sun wrap: hollow leader reads Early Access, square wrap, the open day carries the name", () => {
     const s = span({ id: "bf", name: "BF", eaStart: "2026-11-12", start: "2026-11-16", end: "2026-11-20", past: true });
-    const thu = seg(s, "2026-11-12")!; // EA start
-    expect(thu).toMatchObject({ role: "ea_start", hollow: true, cap: false, roundL: true, roundR: false, bleedL: false, bleedR: true, edgeL: false, edgeR: false, showLabel: true });
+    const thu = seg(s, "2026-11-12")!; // EA start: first cell of the early-access run -> "Early Access"
+    expect(thu).toMatchObject({ role: "ea_start", hollow: true, cap: false, roundL: true, roundR: false, bleedL: false, bleedR: true, edgeL: false, edgeR: false, showLabel: true, label: "early_access" });
     expect(thu.tooltipParts).toEqual(["BF", "early access Nov 12", "Nov 16 – Nov 20", "locked (past)"]);
     const fri = seg(s, "2026-11-13")!;
-    expect(fri).toMatchObject({ role: "ea_line", hollow: true, cap: false, roundL: false, roundR: false, bleedL: true, bleedR: true, edgeL: false, edgeR: false, showLabel: false });
+    expect(fri).toMatchObject({ role: "ea_line", hollow: true, cap: false, roundL: false, roundR: false, bleedL: true, bleedR: true, edgeL: false, edgeR: false, showLabel: false, label: null });
     const sat = seg(s, "2026-11-14")!; // wraps into next row: square, to the cell edge, no gap bleed
-    expect(sat).toMatchObject({ role: "ea_line", hollow: true, roundR: false, bleedL: true, bleedR: false, edgeR: true, showLabel: false });
-    const sun = seg(s, "2026-11-15")!; // continues from previous row: square at the left edge, hosts the row's label
-    expect(sun).toMatchObject({ role: "ea_line", hollow: true, cap: false, roundL: false, bleedL: false, edgeL: true, bleedR: true, showLabel: true });
-    const mon = seg(s, "2026-11-16")!; // public open: solid + cap, fused (no radius, bleeds both ways)
-    expect(mon).toMatchObject({ role: "start", hollow: false, cap: true, roundL: false, roundR: false, bleedL: true, bleedR: true, edgeL: false, edgeR: false, showLabel: false });
+    expect(sat).toMatchObject({ role: "ea_line", hollow: true, roundR: false, bleedL: true, bleedR: false, edgeR: true, showLabel: false, label: null });
+    const sun = seg(s, "2026-11-15")!; // EA continues from the previous row: square at the left edge, "Early Access" again for this row
+    expect(sun).toMatchObject({ role: "ea_line", hollow: true, cap: false, roundL: false, bleedL: false, edgeL: true, bleedR: true, showLabel: true, label: "early_access" });
+    const mon = seg(s, "2026-11-16")!; // public open: solid + cap, fused (no radius, bleeds both ways), carries the sale name
+    expect(mon).toMatchObject({ role: "start", hollow: false, cap: true, roundL: false, roundR: false, bleedL: true, bleedR: true, edgeL: false, edgeR: false, showLabel: true, label: "name" });
     const fri2 = seg(s, "2026-11-20")!; // true last day
-    expect(fri2).toMatchObject({ role: "end", hollow: false, cap: false, roundL: false, roundR: true, bleedL: true, bleedR: false, edgeR: false, showLabel: false });
+    expect(fri2).toMatchObject({ role: "end", hollow: false, cap: false, roundL: false, roundR: true, bleedL: true, bleedR: false, edgeR: false, showLabel: false, label: null });
+  });
+
+  it("a public run that wraps repeats the name on each Sunday; an early-access run that wraps repeats Early Access", () => {
+    // EA Tue 11-10 .. Sat 11-21 (12 days, wraps once), public Sun 11-22 .. Tue 12-01 (wraps once)
+    const s = span({ id: "x", name: "X", eaStart: "2026-11-10", start: "2026-11-22", end: "2026-12-01" });
+    const labels: Array<[string, SaleSegmentDraw["label"]]> = [];
+    for (let k = "2026-11-10"; k <= "2026-12-01"; k = shiftDayKey(k, 1)) {
+      const d = seg(s, k)!;
+      if (d.label) labels.push([k, d.label]);
+    }
+    expect(labels).toEqual([
+      ["2026-11-10", "early_access"], // EA first day (Tue)
+      ["2026-11-15", "early_access"], // EA continues into a new row (Sun)
+      ["2026-11-22", "name"],         // public open day (also a Sunday): the name, once
+      ["2026-11-29", "name"],         // public run continues into a new row (Sun)
+    ]);
   });
 
   it("three-week sale shows its name exactly once per week row", () => {

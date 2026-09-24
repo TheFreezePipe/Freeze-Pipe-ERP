@@ -41,6 +41,7 @@ import {
 } from "@/lib/marketing-format";
 import {
   SALE_FALLBACK_COLOR,
+  EARLY_ACCESS_LABEL,
   saleColorMap,
   saleTextColor,
   hexToRgba,
@@ -1031,7 +1032,7 @@ function SaleBarPiece({
         {outline}
         {cap}
         <span className={`truncate text-xs font-medium leading-5 ${draw.cap ? "pl-[11px]" : "pl-2"}`} style={{ color: saleTextColor(hue) }}>
-          {span.name}
+          {draw.label === "early_access" ? EARLY_ACCESS_LABEL : span.name}
         </span>
       </button>
     );

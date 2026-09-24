@@ -173,11 +173,24 @@ export interface SaleSegmentDraw {
   /** Continues from the previous row (Sunday) / into the next row (Saturday): square to the cell edge. */
   edgeL: boolean;
   edgeR: boolean;
-  /** Hosts the name: Sunday (first cell of a week row) or the span's first drawn day. */
+  /** Hosts a label (see `label`). */
   showLabel: boolean;
+  /**
+   * Which label this piece carries (owner 2026-09-24: the early-access run
+   * reads "Early Access", the sale name sits on the public open day):
+   * - "early_access" on the first cell of the early-access run in each week
+   *   row (its first day, or Sunday when it continues from the row above);
+   * - "name" on the public open day (incl. one-day sales) and on Sunday
+   *   when the public run continues from the row above;
+   * - null on every other piece.
+   */
+  label: "name" | "early_access" | null;
   /** "Name · early access Sep 21 · Sep 24 – Oct 2 · locked (past)" pieces (approval appended by the caller). */
   tooltipParts: string[];
 }
+
+/** Text drawn on the early-access run of a sale bar. */
+export const EARLY_ACCESS_LABEL = "Early Access";
 
 /**
  * Drawing facts for `span` on `day` (YYYY-MM-DD) whose weekday is `dow`
@@ -197,17 +210,23 @@ export function saleSegmentOnDay(s: SaleSpanInput, day: string, dow: number): Sa
     formatSpanRange(s),
     s.past ? "locked (past)" : null,
   ].filter((p): p is string => !!p);
+  const hollow = role === "ea_start" || role === "ea_line";
+  const cap = role === "start" || role === "single";
+  const label: SaleSegmentDraw["label"] = hollow
+    ? (dow === 0 || trueFirst ? "early_access" : null)
+    : (cap || dow === 0 ? "name" : null);
   return {
     role,
-    hollow: role === "ea_start" || role === "ea_line",
-    cap: role === "start" || role === "single",
+    hollow,
+    cap,
     roundL: trueFirst,
     roundR: trueLast,
     bleedL: continuesL && dow !== 0,
     bleedR: continuesR && dow !== 6,
     edgeL: continuesL && dow === 0,
     edgeR: continuesR && dow === 6,
-    showLabel: dow === 0 || trueFirst,
+    showLabel: label !== null,
+    label,
     tooltipParts,
   };
 }
