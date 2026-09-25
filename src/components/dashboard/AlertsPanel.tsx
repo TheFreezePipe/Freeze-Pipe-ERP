@@ -10,6 +10,7 @@ import {
   inventoryTotalsReal,
 } from "@/lib/inventory-aggregates";
 import { buildPlannedAllocationMap } from "@/lib/allocation";
+import { productLifecycle } from "@/lib/product-lifecycle";
 import { differenceInDays, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
 import {
@@ -84,6 +85,11 @@ export function AlertsPanel() {
     inventory.forEach(inv => {
       const product = inv.product;
       if (!product) return;
+      // Only the live catalog alerts. Archived SKUs keep their old demand
+      // figure at zero stock and would sit as permanent Low Stock rows;
+      // pre-launch SKUs have nothing to sell yet. Matches Stock Levels
+      // (hidden unless "Show archived") and the daily email (active only).
+      if (productLifecycle(product) !== "active") return;
       const totals = inventoryTotalsReal(inv, inTransitMap, onOrderMap);
       const demand = getEffectiveDemand(product.id, product.monthly_demand, forecastMap);
       const warehouseDOS = computeDOS(totals.warehouseTotal, demand);
