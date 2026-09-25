@@ -135,7 +135,10 @@ Deno.serve(async (req) => {
   // 16-piece shipment the parser read as one package). Service-role callers
   // only; writes nothing.
   if (req.method === "POST") {
-    let body: { debug_track?: string; debug_path?: string; debug_parse?: string } | null = null;
+    let body: {
+      debug_track?: string; debug_path?: string; debug_parse?: string;
+      debug_fedex?: string; debug_fedex_path?: string; debug_fedex_body?: unknown;
+    } | null = null;
     try {
       body = await req.clone().json();
     } catch {
@@ -150,7 +153,15 @@ Deno.serve(async (req) => {
         ? `details/${encodeURIComponent(String(body.debug_track))}`
         : null;
     const debugParse = body?.debug_parse ? String(body.debug_parse) : null;
-    if (debugPath || debugParse) {
+    // debug_fedex = a tracking number: the raw FedEx track/v1/trackingnumbers
+    // response for it (the exact request fetchFedEx sends). debug_fedex_path
+    // (a resource name under /track/v1/, e.g. "associatedshipments") plus
+    // debug_fedex_body (the JSON body to POST) call any Track API resource,
+    // for checking how FedEx exposes the pieces of a multi-piece shipment
+    // (added 2026-09-25, sea 469: the master returns one record, pieces NULL).
+    const debugFedex = body?.debug_fedex ? String(body.debug_fedex) : null;
+    const debugFedexPath = body?.debug_fedex_path ? String(body.debug_fedex_path) : null;
+    if (debugPath || debugParse || debugFedex || debugFedexPath) {
       // The gateway has already verified the JWT signature; require the
       // service role claim (byte-equality with the injected key is brittle
       // across key formats).
@@ -158,10 +169,24 @@ Deno.serve(async (req) => {
       if (token !== SUPABASE_SERVICE_ROLE_KEY && jwtRole(token) !== "service_role") {
         return new Response("forbidden", { status: 403, headers: CORS_HEADERS });
       }
+      const json = { ...CORS_HEADERS, "Content-Type": "application/json" };
+      if (debugFedex || debugFedexPath) {
+        if (!FEDEX_API_KEY || !FEDEX_API_SECRET) {
+          return new Response("fedex not configured", { status: 500, headers: CORS_HEADERS });
+        }
+        const path = debugFedexPath ?? "trackingnumbers";
+        if (!/^[a-z]+$/.test(path)) {
+          return new Response("bad path", { status: 400, headers: CORS_HEADERS });
+        }
+        const reqBody = body?.debug_fedex_body ?? {
+          includeDetailedScans: true,
+          trackingInfo: [{ trackingNumberInfo: { trackingNumber: debugFedex } }],
+        };
+        return new Response(JSON.stringify(await fetchFedExRaw(path, reqBody)), { headers: json });
+      }
       if (!UPS_CLIENT_ID || !UPS_CLIENT_SECRET) {
         return new Response("ups not configured", { status: 500, headers: CORS_HEADERS });
       }
-      const json = { ...CORS_HEADERS, "Content-Type": "application/json" };
       if (debugParse) {
         return new Response(JSON.stringify(await fetchUps(debugParse)), { headers: json });
       }
@@ -487,10 +512,8 @@ async function fetchEvergreen(trackingNumber: string): Promise<TrackingUpdate | 
 // FedEx Track API v1. OAuth2 client_credentials → POST /track/v1/trackingnumbers.
 // Token has 1hr TTL; cron fires every 6h so we just fetch fresh each call (cheap,
 // no caching needed). Sandbox vs production controlled by FEDEX_USE_SANDBOX env.
-async function fetchFedEx(trackingNumber: string): Promise<TrackingUpdate | null> {
-  if (!FEDEX_API_KEY || !FEDEX_API_SECRET) return notReceivedNow();
-
-  // Step 1: OAuth token
+/** OAuth2 client_credentials token for the FedEx APIs (1 h TTL, fetched per call). */
+async function fetchFedExToken(): Promise<string> {
   const tokenRes = await fetch(`${FEDEX_BASE}/oauth/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -505,27 +528,37 @@ async function fetchFedEx(trackingNumber: string): Promise<TrackingUpdate | null
     throw new Error(`FedEx OAuth ${tokenRes.status}: ${body.slice(0, 200)}`);
   }
   const { access_token } = await tokenRes.json() as { access_token: string };
+  return access_token;
+}
 
-  // Step 2: tracking call
-  const trackRes = await fetch(`${FEDEX_BASE}/track/v1/trackingnumbers`, {
+/** POST a Track API resource (`/track/v1/<path>`) and return the parsed JSON. */
+// deno-lint-ignore no-explicit-any
+async function fetchFedExRaw(path: string, reqBody: unknown): Promise<any> {
+  const access_token = await fetchFedExToken();
+  const trackRes = await fetch(`${FEDEX_BASE}/track/v1/${path}`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${access_token}`,
       "Content-Type": "application/json",
       "X-locale": "en_US",
     },
-    body: JSON.stringify({
-      includeDetailedScans: true,
-      trackingInfo: [{ trackingNumberInfo: { trackingNumber } }],
-    }),
+    body: JSON.stringify(reqBody),
   });
   if (!trackRes.ok) {
     const body = await trackRes.text();
     throw new Error(`FedEx track ${trackRes.status}: ${body.slice(0, 200)}`);
   }
+  return await trackRes.json();
+}
+
+async function fetchFedEx(trackingNumber: string): Promise<TrackingUpdate | null> {
+  if (!FEDEX_API_KEY || !FEDEX_API_SECRET) return notReceivedNow();
 
   // deno-lint-ignore no-explicit-any
-  const trackJson = await trackRes.json() as any;
+  const trackJson: any = await fetchFedExRaw("trackingnumbers", {
+    includeDetailedScans: true,
+    trackingInfo: [{ trackingNumberInfo: { trackingNumber } }],
+  });
   const result = trackJson?.output?.completeTrackResults?.[0]?.trackResults?.[0];
   if (!result) return notReceivedNow();
 
@@ -551,16 +584,48 @@ async function fetchFedEx(trackingNumber: string): Promise<TrackingUpdate | null
     location: formatFedExLocation(e.scanLocation),
   }));
 
-  // Multi-piece counts: tracking a master number returns one trackResult
-  // per piece. Only trust the counts when FedEx actually enumerated the
-  // pieces (>1 results, or a genuine single-piece shipment) — if it
-  // returned just the master record for a 23-piece shipment we can't
-  // count per-piece states, so report null and let the UI fall back.
+  // Multi-piece counts. Tracking the master returns ONE record (piece 1 of
+  // N: packageDetails.sequenceNumber / count, additionalTrackingInfo.
+  // hasAssociatedShipments = true). The pieces themselves come from the
+  // Track API's associatedshipments resource, keyed by the master and
+  // carrierCode, associatedType STANDARD_MPS. Verified live 2026-09-25 on
+  // sea 469 (FedEx Ground, 31 cartons): trackingnumbers -> 1 record with
+  // count "31"; associatedshipments -> 31 records, each with its own
+  // tracking number, sequence and latest status. Without that call the
+  // piece columns must stay NULL (the UI falls back to its neutral state).
   // deno-lint-ignore no-explicit-any
-  const allResults: any[] = (trackJson?.output?.completeTrackResults?.[0]?.trackResults ?? [])
+  let allResults: any[] = (trackJson?.output?.completeTrackResults?.[0]?.trackResults ?? [])
     // deno-lint-ignore no-explicit-any
     .filter((r: any) => !r.error?.code);
-  const declaredCount = Number(allResults[0]?.shipmentDetails?.packageCount ?? NaN);
+  const declaredCount = Number(
+    result.packageDetails?.count ?? allResults[0]?.shipmentDetails?.packageCount ?? NaN,
+  );
+  const isMps = result.additionalTrackingInfo?.hasAssociatedShipments === true
+    || (Number.isFinite(declaredCount) && declaredCount > 1);
+  if (isMps && allResults.length <= 1) {
+    try {
+      // deno-lint-ignore no-explicit-any
+      const assoc: any = await fetchFedExRaw("associatedshipments", {
+        includeDetailedScans: false,
+        associatedType: "STANDARD_MPS",
+        masterTrackingNumberInfo: {
+          trackingNumberInfo: {
+            trackingNumber,
+            carrierCode: result.trackingNumberInfo?.carrierCode ?? undefined,
+          },
+        },
+      });
+      // deno-lint-ignore no-explicit-any
+      const assocResults: any[] = (assoc?.output?.completeTrackResults ?? [])
+        // deno-lint-ignore no-explicit-any
+        .flatMap((c: any) => c.trackResults ?? [])
+        // deno-lint-ignore no-explicit-any
+        .filter((r: any) => !r.error?.code);
+      if (assocResults.length > 1) allResults = assocResults;
+    } catch (err) {
+      console.warn(`FedEx associatedshipments ${trackingNumber}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
   let pieces: TrackingUpdate["pieces"] = null;
   if (allResults.length > 1 || (allResults.length === 1 && (!Number.isFinite(declaredCount) || declaredCount <= 1))) {
     // deno-lint-ignore no-explicit-any
@@ -580,10 +645,19 @@ async function fetchFedEx(trackingNumber: string): Promise<TrackingUpdate | null
     };
   }
 
+  // A multi-piece shipment is delivered only when every piece is (same rule
+  // as UPS): the lead piece landing first must not flip the shipment.
+  let finalStatus = status;
+  let finalDeliveredAt = deliveredAt;
+  if (pieces && pieces.total > 1 && pieces.delivered < pieces.total && status === "delivered") {
+    finalStatus = pieces.onVehicle > 0 ? "out_for_delivery" : "in_transit";
+    finalDeliveredAt = null;
+  }
+
   return {
-    status,
+    status: finalStatus,
     carrierEta,
-    deliveredAt,
+    deliveredAt: finalDeliveredAt,
     events,
     checkedAt: new Date().toISOString(),
     pieces,
