@@ -510,10 +510,17 @@ async function fetchEvergreen(trackingNumber: string): Promise<TrackingUpdate | 
 }
 
 // FedEx Track API v1. OAuth2 client_credentials → POST /track/v1/trackingnumbers.
-// Token has 1hr TTL; cron fires every 6h so we just fetch fresh each call (cheap,
-// no caching needed). Sandbox vs production controlled by FEDEX_USE_SANDBOX env.
-/** OAuth2 client_credentials token for the FedEx APIs (1 h TTL, fetched per call). */
+// Sandbox vs production controlled by FEDEX_USE_SANDBOX env.
+/**
+ * OAuth2 client_credentials token for the FedEx APIs, cached for the life of
+ * the isolate (1 h TTL, refreshed 5 min early). One sweep makes two Track
+ * calls per FedEx shipment (master + associated pieces); the OAuth endpoint
+ * has a per-IP burst threshold that answers 403 for ten minutes, so the
+ * token must not be fetched per call.
+ */
+let fedexToken: { value: string; expiresAt: number } | null = null;
 async function fetchFedExToken(): Promise<string> {
+  if (fedexToken && fedexToken.expiresAt > Date.now()) return fedexToken.value;
   const tokenRes = await fetch(`${FEDEX_BASE}/oauth/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -527,7 +534,9 @@ async function fetchFedExToken(): Promise<string> {
     const body = await tokenRes.text();
     throw new Error(`FedEx OAuth ${tokenRes.status}: ${body.slice(0, 200)}`);
   }
-  const { access_token } = await tokenRes.json() as { access_token: string };
+  const { access_token, expires_in } = await tokenRes.json() as { access_token: string; expires_in?: number };
+  const ttlMs = Math.max(60, (Number(expires_in) || 3600) - 300) * 1000;
+  fedexToken = { value: access_token, expiresAt: Date.now() + ttlMs };
   return access_token;
 }
 
@@ -605,23 +614,40 @@ async function fetchFedEx(trackingNumber: string): Promise<TrackingUpdate | null
   if (isMps && allResults.length <= 1) {
     try {
       // deno-lint-ignore no-explicit-any
-      const assoc: any = await fetchFedExRaw("associatedshipments", {
-        includeDetailedScans: false,
-        associatedType: "STANDARD_MPS",
-        masterTrackingNumberInfo: {
-          trackingNumberInfo: {
-            trackingNumber,
-            carrierCode: result.trackingNumberInfo?.carrierCode ?? undefined,
+      const assocResults: any[] = [];
+      let pagingToken: string | null = null;
+      // The 31-piece response came back in one page (pagingDetail
+      // {moreDataAvailable:false}); loop defensively for larger shipments.
+      for (let page = 0; page < 10; page++) {
+        // deno-lint-ignore no-explicit-any
+        const assoc: any = await fetchFedExRaw("associatedshipments", {
+          includeDetailedScans: false,
+          associatedType: "STANDARD_MPS",
+          masterTrackingNumberInfo: {
+            trackingNumberInfo: {
+              trackingNumber,
+              carrierCode: result.trackingNumberInfo?.carrierCode ?? undefined,
+            },
           },
-        },
-      });
-      // deno-lint-ignore no-explicit-any
-      const assocResults: any[] = (assoc?.output?.completeTrackResults ?? [])
+          ...(pagingToken ? { pagingDetails: { pagingToken } } : {}),
+        });
         // deno-lint-ignore no-explicit-any
-        .flatMap((c: any) => c.trackResults ?? [])
-        // deno-lint-ignore no-explicit-any
-        .filter((r: any) => !r.error?.code);
+        const complete: any[] = assoc?.output?.completeTrackResults ?? [];
+        assocResults.push(
+          ...complete
+            // deno-lint-ignore no-explicit-any
+            .flatMap((c: any) => c.trackResults ?? [])
+            // deno-lint-ignore no-explicit-any
+            .filter((r: any) => !r.error?.code),
+        );
+        const paging = complete[0]?.pagingDetail ?? complete[0]?.pagingDetails ?? null;
+        pagingToken = paging?.moreDataAvailable && paging?.pagingToken ? String(paging.pagingToken) : null;
+        if (!pagingToken) break;
+      }
       if (assocResults.length > 1) allResults = assocResults;
+      if (Number.isFinite(declaredCount) && assocResults.length > 0 && assocResults.length < declaredCount) {
+        console.warn(`FedEx associatedshipments ${trackingNumber}: ${assocResults.length} of ${declaredCount} pieces returned`);
+      }
     } catch (err) {
       console.warn(`FedEx associatedshipments ${trackingNumber}: ${err instanceof Error ? err.message : String(err)}`);
     }

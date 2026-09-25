@@ -37,6 +37,7 @@ import {
   type FreightLineItemWithProduct,
 } from "@/lib/hooks";
 import type { FreightShipment } from "@/types/database";
+import { isReceivingActive } from "@/lib/freight/receiving";
 import { buildTransitRows, windowStats } from "@/lib/freight/transit-report";
 import { TransitReportModal } from "@/components/freight/TransitReportModal";
 import { PrefillReportModal } from "@/components/freight/PrefillReportModal";
@@ -127,24 +128,46 @@ export default function FreightDashboard() {
     return { activeCount, seaCount, airCount, highRiskCount, cashAtRiskCost, cashAtRiskRetail, prefillPct, prefillTotal, seaTransit };
   }, [freight, freightLineItems]);
 
+  // Pre-bucket line items by shipment so each card render is O(1) instead
+  // of a fresh filter pass (and so the receiving rule below can see them).
+  const linesByShipment = useMemo(() => {
+    const out = new Map<string, FreightLineItemWithProduct[]>();
+    for (const li of freightLineItems) {
+      const arr = out.get(li.freight_shipment_id);
+      if (arr) arr.push(li);
+      else out.set(li.freight_shipment_id, [li]);
+    }
+    return out;
+  }, [freightLineItems]);
+
   const sortedFreight = useMemo(() => {
     let filtered = freight;
     if (filter === "sea") filtered = filtered.filter(f => f.freight_type === "sea");
     else if (filter === "air") filtered = filtered.filter(f => f.freight_type === "air");
     else if (filter === "high_risk") filtered = filtered.filter(f => f.status === "high_risk");
 
-    // Pending receipt: carrier flipped status to delivered, but admin/manager
-    // hasn't confirmed physical receipt yet. These get pinned to the top of
-    // the list with green-glow styling and a "Confirm receipt" button so
-    // operators can't miss them. Inventory only credits on confirmation.
+    // Receiving: the same rule as the shipment page (isReceivingActive) —
+    // landed status, ETA reached, any carrier piece delivered, or any
+    // carton already checked in — not "carrier said delivered". Until
+    // 2026-09-25 this list only surfaced status = delivered, so a shipment
+    // whose cartons were on the dock (sea 469: FedEx dropped 7 of 31 while
+    // the master still read "tracking") showed no check-in here at all.
+    // Pinned to the top with the check-in button. Inventory only credits
+    // on check-in.
     const pendingReceipt = filtered
-      .filter(f => f.status === "delivered" && !f.receipt_confirmed_at)
+      .filter(f => isReceivingActive(f, linesByShipment.get(f.id) ?? []))
       .sort((a, b) => {
-        // Most recently delivered first
-        if (!a.actual_arrival_date) return 1;
-        if (!b.actual_arrival_date) return -1;
-        return b.actual_arrival_date.localeCompare(a.actual_arrival_date);
+        // Cartons already on the dock first (carrier delivered, or pieces
+        // dropped), most recent arrival first; then by ETA.
+        const dockA = a.status === "delivered" || (a.carrier_pieces_delivered ?? 0) > 0 ? 0 : 1;
+        const dockB = b.status === "delivered" || (b.carrier_pieces_delivered ?? 0) > 0 ? 0 : 1;
+        if (dockA !== dockB) return dockA - dockB;
+        const arrA = a.actual_arrival_date ?? a.carrier_last_piece_event_at ?? "";
+        const arrB = b.actual_arrival_date ?? b.carrier_last_piece_event_at ?? "";
+        if (arrA !== arrB) return arrB.localeCompare(arrA);
+        return (a.eta ?? "").localeCompare(b.eta ?? "");
       });
+    const pendingIds = new Set(pendingReceipt.map(f => f.id));
 
     // In-transit ordering: tier-by-status first, then shipment_number
     // ascending within each tier. Tier order goes high_risk → tracking
@@ -174,7 +197,7 @@ export default function FreightDashboard() {
       return a.localeCompare(b);
     }
     const inTransit = filtered
-      .filter(f => f.status !== "delivered")
+      .filter(f => f.status !== "delivered" && !pendingIds.has(f.id))
       .sort((a, b) => {
         const tierA = STATUS_TIER[a.status] ?? 99;
         const tierB = STATUS_TIER[b.status] ?? 99;
@@ -221,19 +244,7 @@ export default function FreightDashboard() {
       totalOlderHidden: olderDelivered.length,
       totalDelivered: delivered.length,
     };
-  }, [filter, revealedOlderCount, freight]);
-
-  // Pre-bucket line items by shipment so each card render is O(1) instead
-  // of a fresh filter pass.
-  const linesByShipment = useMemo(() => {
-    const out = new Map<string, FreightLineItemWithProduct[]>();
-    for (const li of freightLineItems) {
-      const arr = out.get(li.freight_shipment_id);
-      if (arr) arr.push(li);
-      else out.set(li.freight_shipment_id, [li]);
-    }
-    return out;
-  }, [freightLineItems]);
+  }, [filter, revealedOlderCount, freight, linesByShipment]);
 
   if (isLoading) {
     return (
@@ -345,7 +356,7 @@ export default function FreightDashboard() {
                 <div className="h-px bg-green-500/40 flex-1" />
                 <span className="text-[10px] uppercase tracking-wider text-green-400 font-semibold inline-flex items-center gap-1.5">
                   <PackageCheck className="h-3 w-3" />
-                  Awaiting Receipt Confirmation ({sortedFreight.pendingReceipt.length})
+                  Receiving ({sortedFreight.pendingReceipt.length})
                 </span>
                 <div className="h-px bg-green-500/40 flex-1" />
               </div>
@@ -455,18 +466,26 @@ function ShipmentCard({
   const isPending = shipment.status === "pending";
   const isHighRisk = shipment.status === "high_risk";
   const missingTracking = isPending && !shipment.tracking_number;
-  // Pending receipt: carrier said delivered, operator hasn't confirmed yet.
-  const isPendingReceipt = shipment.status === "delivered" && !shipment.receipt_confirmed_at;
+  // Receiving-active: the shipment page's rule (landed status, ETA reached,
+  // any carrier piece delivered, or any carton already checked in), not
+  // "carrier said delivered".
+  const isPendingReceipt = isReceivingActive(shipment, lines);
   // Partially received (DERIVED — no status value exists for this): some
   // units checked in via the receiving panel but the shipment isn't
   // receipt-confirmed yet. Counts come from already-fetched line items so
   // no per-card carton-group fetch is needed.
   const receivedUnits = lines.reduce((s, l) => s + (l.quantity_received ?? 0), 0);
   const isReceiving = receivedUnits > 0 && !shipment.receipt_confirmed_at;
+  // Cartons physically on the dock (carrier delivered, pieces dropped, or a
+  // check-in already happened): the green glow. Merely due / past the water
+  // gets the quiet receiving banner without the glow.
+  const piecesDelivered = shipment.carrier_pieces_delivered ?? 0;
+  const piecesTotal = shipment.carrier_pieces_total ?? 0;
+  const onDock = shipment.status === "delivered" || piecesDelivered > 0 || receivedUnits > 0;
 
-  // Border tint precedence: pending_receipt (green glow, most actionable) >
+  // Border tint precedence: cartons on the dock (green glow, most actionable) >
   // high_risk (red) > missing tracking on pending (amber) > primary.
-  const borderTone = isPendingReceipt
+  const borderTone = isPendingReceipt && onDock
     ? "border-l-4 border-l-green-500 ring-2 ring-green-500/40 shadow-[0_0_15px_rgba(34,197,94,0.25)]"
     : isHighRisk
       ? "border-l-4 border-l-red-500/70"
@@ -523,35 +542,53 @@ function ShipmentCard({
       {/* Confirmation banner — only when pending receipt. Shows carrier
           delivery date + Confirm Receipt button (admin/manager only). */}
       {isPendingReceipt && (
-        <div className="flex items-center justify-between gap-3 px-5 py-2.5 bg-green-500/10 border-b border-green-500/30">
+        <div className={`flex items-center justify-between gap-3 px-5 py-2.5 border-b ${onDock ? "bg-green-500/10 border-green-500/30" : "bg-muted/30 border-border/80"}`}>
           <div className="flex items-center gap-2 text-sm">
-            <PackageCheck className="h-4 w-4 text-green-400 shrink-0" />
-            <span className="text-green-100">
-              Marked delivered by carrier
-              {shipment.actual_arrival_date && (
-                <> on <span className="font-medium">{format(parseISO(shipment.actual_arrival_date), "MMM d, yyyy")}</span></>
-              )}.{" "}
-              <span className="text-green-300/80">
+            <PackageCheck className={`h-4 w-4 shrink-0 ${onDock ? "text-green-400" : "text-muted-foreground"}`} />
+            <span className={onDock ? "text-green-100" : "text-foreground"}>
+              {shipment.status === "delivered" ? (
+                <>
+                  Marked delivered by carrier
+                  {shipment.actual_arrival_date && (
+                    <> on <span className="font-medium">{format(parseISO(shipment.actual_arrival_date), "MMM d, yyyy")}</span></>
+                  )}.
+                </>
+              ) : piecesDelivered > 0 ? (
+                <>
+                  {shipment.carrier_name ?? "Carrier"} delivered{" "}
+                  <span className="font-medium">{piecesDelivered.toLocaleString()} of {Math.max(piecesTotal, piecesDelivered).toLocaleString()}</span> cartons
+                  {shipment.carrier_last_piece_event_at && (
+                    <> on <span className="font-medium">{format(parseISO(shipment.carrier_last_piece_event_at), "MMM d")}</span></>
+                  )}.
+                </>
+              ) : shipment.eta ? (
+                <>Due <span className="font-medium">{format(parseISO(shipment.eta), "MMM d")}</span>.</>
+              ) : (
+                <>Landed.</>
+              )}{" "}
+              <span className={onDock ? "text-green-300/80" : "text-muted-foreground"}>
                 {cartonPlan
                   ? `${(cartonPlan.cartons - cartonPlan.received).toLocaleString()} of ${cartonPlan.cartons.toLocaleString()} cartons to check in.`
-                  : (isAdmin || isManager)
-                    ? "Receive all remaining units to credit warehouse inventory."
-                    : "Awaiting admin or manager to confirm receipt."}
+                  : shipment.status === "delivered"
+                    ? (isAdmin || isManager)
+                      ? "Receive all remaining units to credit warehouse inventory."
+                      : "Awaiting admin or manager to confirm receipt."
+                    : `${(totalUnits - receivedUnits).toLocaleString()} of ${totalUnits.toLocaleString()} units to check in.`}
               </span>
             </span>
           </div>
-          {cartonPlan ? (
+          {cartonPlan || shipment.status !== "delivered" ? (
             <Button
               size="sm"
               variant="default"
-              className="bg-green-600 hover:bg-green-500 text-white shrink-0"
+              className={`shrink-0 text-white ${onDock ? "bg-green-600 hover:bg-green-500" : "bg-primary hover:bg-primary/90"}`}
               onClick={(e) => {
                 e.stopPropagation();
                 activate();
               }}
             >
               <PackageCheck className="mr-1.5 h-3.5 w-3.5" />
-              Check in cartons
+              {cartonPlan ? "Check in cartons" : "Check in"}
             </Button>
           ) : (isAdmin || isManager) && (
             <Button
@@ -562,8 +599,8 @@ function ShipmentCard({
               disabled={confirmReceipt.isPending}
             >
               <PackageCheck className="mr-1.5 h-3.5 w-3.5" />
-              {/* Legacy shipments only (no carton plan): credits whatever
-                  is left in one go. */}
+              {/* Legacy shipments only (no carton plan), carrier-delivered:
+                  credits whatever is left in one go. */}
               {confirmReceipt.isPending ? "Receiving…" : "Receive all remaining"}
             </Button>
           )}
