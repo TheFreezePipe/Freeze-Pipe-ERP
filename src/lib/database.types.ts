@@ -2113,7 +2113,7 @@ export type Database = {
           {
             foreignKeyName: "mkt_pd_projects_linked_launch_id_fkey"
             columns: ["linked_launch_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "mkt_launches"
             referencedColumns: ["id"]
           },
@@ -4932,10 +4932,7 @@ export type Database = {
         Args: { p_launch_id: string; p_project_ids: string[] }
         Returns: Json
       }
-      rpc_pd_detach_launch: {
-        Args: { p_project_id: string }
-        Returns: Json
-      }
+      rpc_pd_detach_launch: { Args: { p_project_id: string }; Returns: Json }
       rpc_pd_kill: {
         Args: { p_project_id: string; p_reason: string }
         Returns: Json
@@ -5113,6 +5110,20 @@ export type Database = {
           p_target_user_id: string
         }
         Returns: Json
+      }
+      shipstation_credit_pair: {
+        Args: {
+          p_actor: string
+          p_notes: string
+          p_order_id: string
+          p_sku_id: string
+          p_units: number
+        }
+        Returns: number
+      }
+      shipstation_pair_ledger_net: {
+        Args: { p_order_id: string; p_sku_id: string }
+        Returns: number
       }
       verify_audit_chain: {
         Args: { p_from_seq?: number }
