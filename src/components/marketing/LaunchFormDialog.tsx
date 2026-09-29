@@ -182,6 +182,7 @@ function LaunchFormBody({ onOpenChange, launch, defaultDate, datesLocked, prefil
   const isStudio = kind === "studio_drop";
 
   const effectiveReadyBy = readyByTouched ? readyBy : readyByDefault(earlyAccess, launchDate);
+  const earlyAccessAfterLaunch = !!earlyAccess && !!launchDate && earlyAccess > launchDate;
   const includedCount = members.filter((m) => m.included).length;
 
   function updateMember(i: number, patch: Partial<MemberRow>) {
@@ -226,6 +227,13 @@ function LaunchFormBody({ onOpenChange, launch, defaultDate, datesLocked, prefil
   function handleSubmit() {
     if (!name.trim()) {
       toast({ title: "Name required", description: "Give the launch/drop a name.", variant: "destructive" });
+      return;
+    }
+    // The database refuses early access after the launch date
+    // (mkt_launches_early_access_check); say so here instead of surfacing
+    // the raw constraint error. A typed date bypasses the input's max.
+    if (earlyAccessAfterLaunch) {
+      toast({ title: "Invalid dates", description: "Early access opens after the launch date.", variant: "destructive" });
       return;
     }
     // Each member must identify a product (existing SKU or a working name).
@@ -277,11 +285,26 @@ function LaunchFormBody({ onOpenChange, launch, defaultDate, datesLocked, prefil
         <div className="grid grid-cols-3 gap-4">
           <div className="space-y-1.5">
             <Label>Early access <span className="text-xs text-muted-foreground font-normal">optional</span></Label>
-            <Input type="date" value={earlyAccess} max={launchDate || undefined} onChange={(e) => setEarlyAccess(e.target.value)} disabled={datesLocked} />
+            <Input
+              type="date"
+              value={earlyAccess}
+              max={launchDate || undefined}
+              onChange={(e) => setEarlyAccess(e.target.value)}
+              disabled={datesLocked}
+              aria-invalid={earlyAccessAfterLaunch || undefined}
+              className={earlyAccessAfterLaunch ? "border-destructive focus-visible:ring-destructive" : undefined}
+            />
           </div>
           <div className="space-y-1.5">
             <Label>Launch date</Label>
-            <Input type="date" value={launchDate} onChange={(e) => setLaunchDate(e.target.value)} disabled={datesLocked} />
+            <Input
+              type="date"
+              value={launchDate}
+              onChange={(e) => setLaunchDate(e.target.value)}
+              disabled={datesLocked}
+              aria-invalid={earlyAccessAfterLaunch || undefined}
+              className={earlyAccessAfterLaunch ? "border-destructive focus-visible:ring-destructive" : undefined}
+            />
           </div>
           <div className="space-y-1.5">
             <Label>Inventory ready by</Label>
