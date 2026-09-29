@@ -1516,6 +1516,7 @@ export type Database = {
           id: string
           launch_id: string
           limited_qty: number | null
+          pd_project_id: string | null
           planned_name: string | null
           planner_confidence: number | null
           sku_id: string | null
@@ -1531,6 +1532,7 @@ export type Database = {
           id?: string
           launch_id: string
           limited_qty?: number | null
+          pd_project_id?: string | null
           planned_name?: string | null
           planner_confidence?: number | null
           sku_id?: string | null
@@ -1546,6 +1548,7 @@ export type Database = {
           id?: string
           launch_id?: string
           limited_qty?: number | null
+          pd_project_id?: string | null
           planned_name?: string | null
           planner_confidence?: number | null
           sku_id?: string | null
@@ -1573,6 +1576,13 @@ export type Database = {
             columns: ["launch_id"]
             isOneToOne: false
             referencedRelation: "mkt_launches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mkt_launch_skus_pd_project_id_fkey"
+            columns: ["pd_project_id"]
+            isOneToOne: false
+            referencedRelation: "mkt_pd_projects"
             referencedColumns: ["id"]
           },
           {
@@ -1939,6 +1949,7 @@ export type Database = {
           insert_cards: string | null
           koozie: string | null
           last_reviewed_at: string | null
+          launch_date_override: boolean
           linked_factory_order_id: string | null
           linked_launch_id: string | null
           linked_sku_id: string | null
@@ -1981,6 +1992,7 @@ export type Database = {
           insert_cards?: string | null
           koozie?: string | null
           last_reviewed_at?: string | null
+          launch_date_override?: boolean
           linked_factory_order_id?: string | null
           linked_launch_id?: string | null
           linked_sku_id?: string | null
@@ -2023,6 +2035,7 @@ export type Database = {
           insert_cards?: string | null
           koozie?: string | null
           last_reviewed_at?: string | null
+          launch_date_override?: boolean
           linked_factory_order_id?: string | null
           linked_launch_id?: string | null
           linked_sku_id?: string | null
@@ -4915,6 +4928,14 @@ export type Database = {
         Args: { p_project_id: string; p_reason: string }
         Returns: Json
       }
+      rpc_pd_attach_launch: {
+        Args: { p_launch_id: string; p_project_ids: string[] }
+        Returns: Json
+      }
+      rpc_pd_detach_launch: {
+        Args: { p_project_id: string }
+        Returns: Json
+      }
       rpc_pd_kill: {
         Args: { p_project_id: string; p_reason: string }
         Returns: Json
@@ -4942,6 +4963,10 @@ export type Database = {
       }
       rpc_pd_sample_save: {
         Args: { p_project_id: string; p_sample: Json }
+        Returns: Json
+      }
+      rpc_pd_set_launch_override: {
+        Args: { p_date?: string; p_override: boolean; p_project_id: string }
         Returns: Json
       }
       rpc_promote_user_to_supplier: {
