@@ -57,6 +57,8 @@ import {
 } from "@/lib/marketing/sale-spans";
 import { SaleFormDialog } from "@/components/marketing/SaleFormDialog";
 import { LaunchFormDialog } from "@/components/marketing/LaunchFormDialog";
+import { LaunchMoveConfirm } from "@/components/marketing/LaunchMoveConfirm";
+import { movePreview, type MovePreview } from "@/lib/marketing/launch-link";
 import { BroadcastFormDialog } from "@/components/marketing/BroadcastFormDialog";
 import {
   startOfMonth,
@@ -211,6 +213,14 @@ export default function MarketingCalendar() {
   const [editSale, setEditSale] = useState<MktSale | null>(null);
   const [editLaunch, setEditLaunch] = useState<MktLaunchWithMembers | null>(null);
   const [editBroadcast, setEditBroadcast] = useState<MktBroadcastWithLinks | null>(null);
+  // A dragged launch with attached PD cards waits here until the move is confirmed.
+  const [pendingMove, setPendingMove] = useState<{
+    launch: MktLaunchWithMembers;
+    newDate: string;
+    newReady: string | null;
+    preview: MovePreview;
+  } | null>(null);
+  const [moveOpen, setMoveOpen] = useState(false);
 
   const saleById = useMemo(() => new Map(sales.map((s) => [s.id, s])), [sales]);
   const launchById = useMemo(() => new Map(launches.map((l) => [l.id, l])), [launches]);
@@ -488,6 +498,12 @@ export default function MarketingCalendar() {
         const newDate = shiftDayKey(startK, delta);
         if (isPastKey(newDate, todayKey)) { toast({ title: "Can't move into the past", variant: "destructive" }); return; }
         const newReady = l.inventory_ready_by ? shiftDayKey(dayKeyOf(l.inventory_ready_by)!, delta) : null;
+        // Cards that follow the launch move with it: confirm before saving.
+        if (l.cards.some((c) => !c.archived_at)) {
+          setPendingMove({ launch: l, newDate, newReady, preview: movePreview(l, newDate, l.cards, todayKey) });
+          setMoveOpen(true);
+          return;
+        }
         await updateLaunch.mutateAsync({ id: l.id, updates: { launch_date: newDate, inventory_ready_by: newReady } });
       } else {
         const b = broadcastById.get(p.id);
@@ -500,6 +516,19 @@ export default function MarketingCalendar() {
       toast({ title: "Rescheduled" });
     } catch (err) {
       toast({ title: "Couldn't move", description: describeError(err), variant: "destructive" });
+    }
+  }
+
+  async function confirmLaunchMove() {
+    if (!pendingMove || !moveOpen) return;
+    const { launch: l, newDate, newReady } = pendingMove;
+    try {
+      await updateLaunch.mutateAsync({ id: l.id, updates: { launch_date: newDate, inventory_ready_by: newReady } });
+      toast({ title: "Rescheduled" });
+    } catch (err) {
+      toast({ title: "Couldn't move", description: describeError(err), variant: "destructive" });
+    } finally {
+      setMoveOpen(false);
     }
   }
 
@@ -699,6 +728,14 @@ export default function MarketingCalendar() {
         datesLocked={!!editSale && isPastKey(dayKeyOf(editSale.starts_at), todayKey)} />
       <LaunchFormDialog open={!!editLaunch} onOpenChange={(o) => !o && setEditLaunch(null)} launch={editLaunch}
         datesLocked={!!editLaunch && isPastKey(dayKeyOf(editLaunch.launch_date), todayKey)} />
+      <LaunchMoveConfirm
+        open={moveOpen && !!pendingMove}
+        launchName={pendingMove?.launch.name ?? ""}
+        preview={pendingMove?.preview ?? null}
+        pending={updateLaunch.isPending}
+        onCancel={() => setMoveOpen(false)}
+        onConfirm={() => void confirmLaunchMove()}
+      />
       <BroadcastFormDialog open={!!editBroadcast} onOpenChange={(o) => !o && setEditBroadcast(null)} broadcast={editBroadcast}
         datesLocked={!!editBroadcast && isPastKey(dayKeyOf(editBroadcast.sent_at) ?? dayKeyOf(editBroadcast.scheduled_at), todayKey)} />
 

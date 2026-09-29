@@ -4,22 +4,28 @@
  * marketing calendar, and the Launches page can never disagree.
  *
  * Owner-supplied timings (2026-08-19): manufacturing ~30d, sea transit ~35d,
- * air ~15d, arrival 10–14d before launch (default 12). These replace the
- * single combined LEAD_DAYS=75 that Launches.tsx carried.
+ * air ~15d. These replace the single combined LEAD_DAYS=75 that Launches.tsx
+ * carried.
+ *
+ * In-warehouse standard (owner, 2026-09-28): "We should always shoot for
+ * goods to be in warehouse 20 days before a launch." One number for both the
+ * launch's default inventory-ready-by and every PD card's arrive-by (it was
+ * 21 on launches and 12 on cards, so the two never agreed).
  */
+
+export const IN_WAREHOUSE_LEAD_DAYS = 20;
 
 export const WORKBACK = {
   manufacturingDays: 30,
   seaTransitDays: 35,
   airTransitDays: 15,
-  arrivalBufferDays: 12,
+  arrivalBufferDays: IN_WAREHOUSE_LEAD_DAYS,
 } as const;
 
 /** Default "inventory ready by" for a new launch: this many days before its
- *  earliest date (early access when set, else the launch date). Owner,
- *  2026-09-23. Distinct from WORKBACK.arrivalBufferDays, which drives the PD
- *  board's order/ship deadline chain. */
-export const READY_BY_LEAD_DAYS = 21;
+ *  earliest date (early access when set, else the launch date). Same number
+ *  as the PD card chain's arrival buffer (IN_WAREHOUSE_LEAD_DAYS). */
+export const READY_BY_LEAD_DAYS = IN_WAREHOUSE_LEAD_DAYS;
 
 /**
  * Default "inventory ready by" for a launch: READY_BY_LEAD_DAYS before the

@@ -1,12 +1,12 @@
 /**
  * Product Development board — the card face. Exactly: drop band, name +
- * next action, chip row (factory · target+risk dot · aging ·
- * first flag). Nothing else lives on the face; everything else is in the sheet.
+ * next action, chip row (factory · target+risk dot, violet when the card
+ * follows a launch · aging · first flag). Nothing else lives on the face; everything else is in the sheet.
  */
 import type { DragEvent } from "react";
 import { format, parseISO } from "date-fns";
 import { Star } from "lucide-react";
-import { aging, cardFlags, riskDot } from "@/lib/marketing/pd";
+import { aging, cardFlags, followsLaunch, riskDot } from "@/lib/marketing/pd";
 import { dropColorFor } from "@/lib/marketing/drop-colors";
 import type { PdProjectWithRefs } from "@/lib/hooks/use-pd";
 import { cn } from "@/lib/utils";
@@ -43,7 +43,10 @@ export interface PdCardProps {
 export function PdCard({ project, todayIso, selected, dragging, onOpen, onDragStart, onDragEnd, onDragOver, onDrop }: PdCardProps) {
   const card = toCardLike(project);
   const age = aging(card, todayIso);
-  const dot = project.target_launch_date ? riskDot(card, todayIso) : null;
+  // A card that follows a launch shows the launch's date (violet) and its launch-anchored risk.
+  const following = !!project.launch && followsLaunch(card);
+  const shownDate = (following ? project.launch?.launch_date : null) ?? project.target_launch_date;
+  const dot = shownDate ? riskDot(card, todayIso) : null;
   const flags = cardFlags(card, todayIso);
   const factory = project.supplier?.code ?? null;
   const newest = project.samples[0] ?? null;
@@ -108,10 +111,16 @@ export function PdCard({ project, todayIso, selected, dragging, onOpen, onDragSt
               {golden && <Star className="h-2.5 w-2.5 fill-current" />}R{newest.round_no}
             </span>
           )}
-          {project.target_launch_date && (
-            <span className="inline-flex items-center gap-1 rounded border border-border px-1 tabular-nums text-muted-foreground">
+          {shownDate && (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 whitespace-nowrap rounded border px-1 tabular-nums",
+                following ? "border-violet-400/70 text-violet-300" : "border-border text-muted-foreground",
+              )}
+              title={project.launch?.name}
+            >
               {dot && <span className={cn("h-1.5 w-1.5 rounded-full", DOT_CLASS[dot])} />}
-              {fmtShort(project.target_launch_date)}
+              {fmtShort(shownDate)}
             </span>
           )}
           {age.expected != null && (

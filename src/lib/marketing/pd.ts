@@ -4,7 +4,16 @@
  * enforcer; this lets the UI paint red fields without a round-trip and must
  * stay in lockstep with the migration).
  */
-import { workback, daysBetween, deadlineState, type WorkbackChain } from "./workback";
+import { humanizeEnum } from "@/lib/utils";
+import {
+  workback,
+  daysBetween,
+  deadlineState,
+  readyByDefault,
+  orderByFromReadyBy,
+  IN_WAREHOUSE_LEAD_DAYS,
+  type WorkbackChain,
+} from "./workback";
 
 export const PD_STAGES = [
   "purgatory",
@@ -74,6 +83,62 @@ export interface PdCardLike {
   linked_factory_order_id: string | null;
   /** Newest sample round (Phase 2); undefined/null when no rounds exist. */
   last_sample?: PdSampleLike | null;
+  /** The launch this card rides (mkt_pd_projects.linked_launch_id). */
+  linked_launch_id?: string | null;
+  /** Attached but keeps its own target_launch_date. */
+  launch_date_override?: boolean;
+  /** The attached launch's dates (embedded by usePdBoard; toCardLike carries it). */
+  launch?: PdLaunchRef | null;
+}
+
+/** The slice of mkt_launches the card chain needs. */
+export interface PdLaunchRef {
+  id: string;
+  name: string;
+  kind: string;
+  launch_date: string | null;
+  early_access_date: string | null;
+  inventory_ready_by: string | null;
+}
+
+/** What deadlineChain / riskDot / cardFlags read from a card. */
+export type PdChainCard = {
+  stage: string;
+  target_launch_date: string | null;
+  spec_sent_at: string | null;
+  linked_launch_id?: string | null;
+  launch_date_override?: boolean;
+  launch?: PdLaunchRef | null;
+};
+
+/** Attached to a launch and not on its own date: the launch's date is the card's date. */
+export function followsLaunch(card: Pick<PdChainCard, "linked_launch_id" | "launch_date_override">): boolean {
+  return !!card.linked_launch_id && !card.launch_date_override;
+}
+
+/**
+ * A launch's inventory-ready-by: the stored value, else the default
+ * (earliest of early access and launch date, minus IN_WAREHOUSE_LEAD_DAYS).
+ * Null when the launch has no dates.
+ */
+export function launchReadyBy(
+  launch: Pick<PdLaunchRef, "launch_date" | "early_access_date" | "inventory_ready_by">,
+): string | null {
+  if (launch.inventory_ready_by) return launch.inventory_ready_by.slice(0, 10);
+  return readyByDefault(launch.early_access_date?.slice(0, 10) ?? "", launch.launch_date?.slice(0, 10) ?? "") || null;
+}
+
+/** The Launches page's order-by for a launch (orderByFromReadyBy of its effective ready-by). */
+export function launchOrderBy(
+  launch: Pick<PdLaunchRef, "launch_date" | "early_access_date" | "inventory_ready_by">,
+): string | null {
+  const r = launchReadyBy(launch);
+  return r ? orderByFromReadyBy(r) : null;
+}
+
+/** Stage label for any stage string (label map; never the raw enum). */
+export function pdStageLabel(stage: string): string {
+  return PD_STAGE_LABEL[stage as PdStage] ?? humanizeEnum(stage);
 }
 
 export const PD_VERDICTS = ["approved", "approved_with_changes", "revise", "rejected"] as const;
@@ -222,11 +287,46 @@ export interface DeadlineRow {
   air?: { date: string; days: number };
 }
 
-/** The deadline chain for a card, with per-row state; null when no target date. */
-export function deadlineChain(card: PdCardLike, todayIso: string): DeadlineRow[] | null {
+/**
+ * Where a card's chain starts: the launch date it works back from and the
+ * in-warehouse buffer. A card that follows a dated launch works back from
+ * the launch date with Arrive by = the launch's ready-by, so its Order by is
+ * the Launches page's order-by to the day. Everything else (unattached,
+ * own date, undated launch) uses IN_WAREHOUSE_LEAD_DAYS from its own target.
+ */
+export function chainAnchor(
+  card: PdChainCard,
+  launch?: PdLaunchRef | null,
+): { launchDate: string; arrivalBufferDays: number; followsLaunch: boolean } | null {
+  const l = launch === undefined ? card.launch ?? null : launch;
+  if (l && followsLaunch(card) && l.launch_date) {
+    const launchDate = l.launch_date.slice(0, 10);
+    const ready = launchReadyBy(l);
+    return {
+      launchDate,
+      arrivalBufferDays: ready ? daysBetween(ready, launchDate) : IN_WAREHOUSE_LEAD_DAYS,
+      followsLaunch: true,
+    };
+  }
   if (!card.target_launch_date) return null;
-  const ch: WorkbackChain = workback(card.target_launch_date, {
+  return {
+    launchDate: card.target_launch_date.slice(0, 10),
+    arrivalBufferDays: IN_WAREHOUSE_LEAD_DAYS,
+    followsLaunch: false,
+  };
+}
+
+/**
+ * The deadline chain for a card, with per-row state; null when no target
+ * date. `launch` defaults to the card's embedded launch (card.launch); pass
+ * null to ignore it. Only a card that follows a dated launch reads it.
+ */
+export function deadlineChain(card: PdChainCard, todayIso: string, launch?: PdLaunchRef | null): DeadlineRow[] | null {
+  const anchor = chainAnchor(card, launch);
+  if (!anchor) return null;
+  const ch: WorkbackChain = workback(anchor.launchDate, {
     sampleLoopDays: SAMPLE_LOOP_DAYS,
+    arrivalBufferDays: anchor.arrivalBufferDays,
   });
   const row = (key: DeadlineRow["key"], label: string, date: string, done: boolean): DeadlineRow => ({
     key,
@@ -235,7 +335,7 @@ export function deadlineChain(card: PdCardLike, todayIso: string): DeadlineRow[]
     days: daysBetween(todayIso, date),
     state: done ? "done" : deadlineState(date, todayIso),
   });
-  const stageIdx = PD_LANES.indexOf(card.stage);
+  const stageIdx = (PD_LANES as readonly string[]).indexOf(card.stage);
   const specDone = !!card.spec_sent_at || stageIdx >= PD_LANES.indexOf("china_working");
   const orderDone = card.stage === "ordered";
   const rows: DeadlineRow[] = [
@@ -260,17 +360,25 @@ export function nextDeadline(rows: DeadlineRow[] | null): DeadlineRow | null {
 }
 
 export type RiskDot = "g" | "a" | "r" | null;
-export function riskDot(card: PdCardLike, todayIso: string): RiskDot {
-  const n = nextDeadline(deadlineChain(card, todayIso));
+/** `launch` defaults to card.launch (see deadlineChain). */
+export function riskDot(card: PdChainCard, todayIso: string, launch?: PdLaunchRef | null): RiskDot {
+  const n = nextDeadline(deadlineChain(card, todayIso, launch));
   if (!n) return null;
   return n.state === "late" ? "r" : n.state === "tight" ? "a" : "g";
 }
 
-/** Card-face flags (owner: flag on the card, nothing in the 8am email). */
-export function cardFlags(card: PdCardLike, todayIso: string, opts: { hasFactoryOrderLine?: boolean } = {}): string[] {
+/**
+ * Card-face flags (owner: flag on the card, nothing in the 8am email).
+ * `opts.launch` defaults to card.launch (see deadlineChain).
+ */
+export function cardFlags(
+  card: PdChainCard,
+  todayIso: string,
+  opts: { hasFactoryOrderLine?: boolean; launch?: PdLaunchRef | null } = {},
+): string[] {
   const out: string[] = [];
   if (card.stage === "ordered" || card.stage === "halted" || card.stage === "purgatory") return out;
-  const n = nextDeadline(deadlineChain(card, todayIso));
+  const n = nextDeadline(deadlineChain(card, todayIso, opts.launch));
   if (n && n.state === "late") out.push(`${n.label} passed`);
   if (n && n.key === "orderBy" && n.state === "tight" && !opts.hasFactoryOrderLine) out.push("Order by inside 14d");
   return out;
@@ -287,13 +395,14 @@ export const PURGATORY_REVIEW_DAYS = 90;
 export function needsReview(
   card: PdCardLike & { last_reviewed_at?: string | null; created_at?: string },
   todayIso: string,
+  launch?: PdLaunchRef | null,
 ): boolean {
   if (card.stage === "halted" || card.stage === "ordered") return false;
   if (card.stage === "purgatory") {
     const touched = (card.last_reviewed_at ?? card.created_at ?? "").slice(0, 10);
     return !!touched && daysBetween(touched, todayIso) >= PURGATORY_REVIEW_DAYS;
   }
-  if (cardFlags(card, todayIso).length > 0) return true;
+  if (cardFlags(card, todayIso, { launch }).length > 0) return true;
   return aging(card, todayIso).tone === "red";
 }
 

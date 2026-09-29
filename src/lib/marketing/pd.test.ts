@@ -52,21 +52,21 @@ const round = (over: Partial<PdSampleLike> = {}): PdSampleLike => ({
 });
 
 describe("workback", () => {
-  it("backs off launch → arrive (−12) → ship (−35 sea) → order (−30 make)", () => {
+  it("backs off launch → arrive (−20, in-warehouse standard) → ship (−35 sea) → order (−30 make)", () => {
     const ch = workback("2026-12-18");
-    expect(ch.arriveBy).toBe("2026-12-06");
-    expect(ch.shipBy).toBe("2026-11-01");
-    expect(ch.orderBy).toBe("2026-10-02");
+    expect(ch.arriveBy).toBe("2026-11-28");
+    expect(ch.shipBy).toBe("2026-10-24");
+    expect(ch.orderBy).toBe("2026-09-24");
   });
 
   it("air fallback: order by arrive − 15 − 30", () => {
     const ch = workback("2026-12-18");
-    expect(ch.orderByAir).toBe("2026-10-22");
+    expect(ch.orderByAir).toBe("2026-10-14");
   });
 
   it("spec-by subtracts the sample loop from order-by", () => {
     const ch = workback("2026-12-18", { sampleLoopDays: 35 });
-    expect(ch.specBy).toBe("2026-08-28");
+    expect(ch.specBy).toBe("2026-08-20");
   });
 
   it("orderByFromReadyBy = ready-by − (35 + 30), the split of the old 75", () => {
@@ -185,17 +185,17 @@ describe("aging / chain / risk / flags", () => {
     const rows = deadlineChain(c, TODAY)!;
     expect(rows.map((r) => r.label)).toEqual(["Spec by", "Order by", "Ship by", "Arrive by", "Launch"]);
     expect(rows[0].state).toBe("done");
-    expect(rows[1].date).toBe("2026-10-02");
-    expect(rows[1].air?.date).toBe("2026-10-22");
+    expect(rows[1].date).toBe("2026-09-24");
+    expect(rows[1].air?.date).toBe("2026-10-14");
     expect(nextDeadline(rows)?.key).toBe("orderBy");
-    expect(riskDot(c, TODAY)).toBe("g"); // 44 days out
+    expect(riskDot(c, TODAY)).toBe("g"); // 36 days out
   });
 
   it("flags a passed deadline and an order-by inside 14d without a PO", () => {
     const late = card({ stage: "ready_for_confirmation", target_launch_date: "2026-11-01", spec_sent_at: "2026-06-20" });
     expect(cardFlags(late, TODAY)).toEqual(["Order by passed"]);
-    const tight = card({ stage: "prototype_sent", target_launch_date: "2026-11-10", spec_sent_at: "2026-06-20" });
-    // order-by = 11-10 − 12 − 35 − 30 = 08-24 → 5 days out → tight
+    const tight = card({ stage: "prototype_sent", target_launch_date: "2026-11-17", spec_sent_at: "2026-06-20" });
+    // order-by = 11-17 − 20 − 35 − 30 = 08-24 → 5 days out → tight
     expect(cardFlags(tight, TODAY)).toEqual(["Order by inside 14d"]);
     expect(cardFlags(tight, TODAY, { hasFactoryOrderLine: true })).toEqual([]);
   });
@@ -203,6 +203,14 @@ describe("aging / chain / risk / flags", () => {
   it("ordered / halted / purgatory cards never flag", () => {
     expect(cardFlags(card({ stage: "ordered", target_launch_date: "2026-01-01" }), TODAY)).toEqual([]);
     expect(cardFlags(card({ stage: "purgatory", target_launch_date: "2026-01-01" }), TODAY)).toEqual([]);
+  });
+
+  it("a launch passed for an unattached card changes nothing", () => {
+    const c = card({ stage: "prototype_sent", target_launch_date: "2026-12-18", spec_sent_at: "2026-07-14" });
+    const l = { id: "L", name: "L", kind: "launch", launch_date: "2027-03-01", early_access_date: null, inventory_ready_by: "2026-12-01" };
+    expect(deadlineChain(c, TODAY, l)).toEqual(deadlineChain(c, TODAY));
+    expect(riskDot(c, TODAY, l)).toBe(riskDot(c, TODAY));
+    expect(cardFlags(c, TODAY, { launch: l })).toEqual(cardFlags(c, TODAY));
   });
 
   it("margin tone thresholds", () => {

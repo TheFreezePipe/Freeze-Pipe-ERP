@@ -9,6 +9,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { Database, Json } from "@/lib/database.types";
+import type { PdLaunchRef } from "@/lib/marketing/pd";
+import { keepCurrentCardMembers } from "@/lib/marketing/launch-link";
 
 type Tables = Database["public"]["Tables"];
 export type MktSale = Tables["mkt_sales"]["Row"];
@@ -31,7 +33,38 @@ export type MktSaleWithOffers = MktSale & { offers: MktOfferWithSkus[] };
 export type MktLaunchMember = MktLaunchSku & {
   product: { id: string; sku: string; product_name: string } | null;
 };
-export type MktLaunchWithMembers = MktLaunch & { skus: MktLaunchMember[] };
+type PdProjectRow = Tables["mkt_pd_projects"]["Row"];
+
+/**
+ * A PD card attached to a launch (mkt_pd_projects.linked_launch_id), with
+ * what the deadline chain / risk dot / launch-link previews read. `launch`
+ * is the parent launch's dates, so deadlineChain(card, today) and
+ * riskDot(card, today) anchor on it without passing it.
+ */
+export type MktLaunchCard = Pick<
+  PdProjectRow,
+  | "id"
+  | "name"
+  | "stage"
+  | "drop_tag"
+  | "display_category"
+  | "target_launch_date"
+  | "launch_date_override"
+  | "linked_launch_id"
+  | "spec_sent_at"
+  | "stage_entered_at"
+  | "linked_sku_id"
+  | "linked_factory_order_id"
+  | "archived_at"
+  | "created_at"
+> & { launch: PdLaunchRef };
+
+/**
+ * skus: member rows (each carries pd_project_id when it stands for a card).
+ * cards: attached PD cards, archived ones included (the follow trigger moves
+ * them too), ordered by their member row's position, then name.
+ */
+export type MktLaunchWithMembers = MktLaunch & { skus: MktLaunchMember[]; cards: MktLaunchCard[] };
 
 /** A member row as entered in the launch form (before it has an id). */
 export interface LaunchMemberInput {
@@ -40,6 +73,12 @@ export interface LaunchMemberInput {
   expected_first_30d_units: number | null;
   limited_qty: number | null;
   planner_confidence: number | null;
+  /**
+   * The PD card this row stands for. rpc_save_launch attaches a card that is
+   * not on the launch yet (create-launch-from-drop is one call) and never
+   * deletes card-backed rows.
+   */
+  pd_project_id?: string | null;
 }
 
 export type MktBroadcastWithLinks = MktBroadcast & {
@@ -211,19 +250,67 @@ export function useSetOfferSkus() {
 }
 
 // ===================== Launches =====================
+const LAUNCH_CARD_COLUMNS =
+  "id, name, stage, drop_tag, display_category, target_launch_date, launch_date_override, linked_launch_id, " +
+  "spec_sent_at, stage_entered_at, linked_sku_id, linked_factory_order_id, archived_at, created_at";
+
+type LaunchRowRaw = MktLaunch & { skus: MktLaunchMember[] | null; cards: Omit<MktLaunchCard, "launch">[] | null };
+
+/** Cards get their parent launch's dates; ordered like the member rows (then name). */
+function normalizeLaunch(row: LaunchRowRaw): MktLaunchWithMembers {
+  const skus = row.skus ?? [];
+  const pos = new Map<string, number>();
+  for (const m of skus) if (m.pd_project_id) pos.set(m.pd_project_id, m.sort_order);
+  const launch: PdLaunchRef = {
+    id: row.id,
+    name: row.name,
+    kind: row.kind,
+    launch_date: row.launch_date,
+    early_access_date: row.early_access_date,
+    inventory_ready_by: row.inventory_ready_by,
+  };
+  const cards = (row.cards ?? [])
+    .map((c) => ({ ...c, launch }))
+    .sort(
+      (a, b) =>
+        (pos.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (pos.get(b.id) ?? Number.MAX_SAFE_INTEGER) ||
+        a.name.localeCompare(b.name),
+    );
+  return { ...row, skus, cards };
+}
+
 export function useLaunches() {
   return useQuery({
     queryKey: ["mkt-launches"],
     queryFn: async (): Promise<MktLaunchWithMembers[]> => {
       const { data, error } = await supabase
         .from("mkt_launches")
-        .select("*, skus:mkt_launch_skus(*, product:product_skus(id, sku, product_name))")
+        .select(
+          "*, skus:mkt_launch_skus(*, product:product_skus(id, sku, product_name)), " +
+            // FK hint required: launches and cards are also joined by the
+            // legacy mkt_launches.pd_project_id and through mkt_launch_skus.
+            // Cards are internal-only (RLS): other accounts get [].
+            `cards:mkt_pd_projects!mkt_pd_projects_linked_launch_id_fkey(${LAUNCH_CARD_COLUMNS})`,
+        )
         .order("launch_date", { ascending: false, nullsFirst: false });
       if (error) throw error;
-      return data as MktLaunchWithMembers[];
+      return ((data ?? []) as unknown as LaunchRowRaw[]).map(normalizeLaunch);
     },
     staleTime: STALE,
   });
+}
+
+/**
+ * A launch save can move cards (trg_pd_follow_launch writes their date and a
+ * 'launch_moved' activity event) and attach cards (card-backed members), so
+ * it refreshes the PD board and card activity as well as the launches.
+ */
+function invalidateLaunchWrite(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ["mkt-launches"] });
+  qc.invalidateQueries({ queryKey: ["mkt-launch-skus-upcoming"] });
+  qc.invalidateQueries({ queryKey: ["pd-board"] });
+  qc.invalidateQueries({ queryKey: ["pd-events"] });
+  qc.invalidateQueries({ queryKey: ["pd-project"] });
 }
 
 // Launch writes go through rpc_save_launch: one transaction (no stranded
@@ -244,7 +331,7 @@ export function useCreateLaunch() {
       // RPC returns the new launch id; callers only read .id.
       return { ...(launch as MktLaunch), id: data as string };
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["mkt-launches"] }),
+    onSuccess: () => invalidateLaunchWrite(qc),
   });
 }
 
@@ -254,14 +341,28 @@ export function useUpdateLaunch() {
     // members omitted (e.g. a calendar drag that only shifts dates) → members
     // untouched (RPC leaves them alone when p_members is null).
     mutationFn: async ({ id, updates, members }: { id: string; updates: Partial<MktLaunchInsert>; members?: LaunchMemberInput[] }) => {
+      // A form opened before a card was detached still carries that card's
+      // row; rpc_save_launch would re-attach it. Send only cards that still
+      // have a member row on this launch (the edit form never adds cards).
+      let payload = members ?? null;
+      if (payload?.some((m) => m.pd_project_id)) {
+        const { data: rows, error: rowsError } = await supabase
+          .from("mkt_launch_skus")
+          .select("pd_project_id")
+          .eq("launch_id", id)
+          .not("pd_project_id", "is", null);
+        if (rowsError) throw rowsError;
+        const current = new Set((rows ?? []).map((r) => r.pd_project_id).filter((v): v is string => !!v));
+        payload = keepCurrentCardMembers(payload, current);
+      }
       const { error } = await supabase.rpc("rpc_save_launch", {
         p_id: id,
         p_launch: updates as unknown as Json,
-        p_members: (members ?? null) as unknown as Json,
+        p_members: payload as unknown as Json,
       });
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["mkt-launches"] }),
+    onSuccess: () => invalidateLaunchWrite(qc),
   });
 }
 
@@ -272,7 +373,8 @@ export function useDeleteLaunch() {
       const { error } = await supabase.from("mkt_launches").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["mkt-launches"] }),
+    // attached cards become unattached (FK ON DELETE SET NULL)
+    onSuccess: () => invalidateLaunchWrite(qc),
   });
 }
 

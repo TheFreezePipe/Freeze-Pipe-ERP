@@ -1,18 +1,28 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Rocket, Pencil, Trash2 } from "lucide-react";
+import { Plus, Rocket, Pencil, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useLaunches, useDeleteLaunch, useInventory, useFactoryOrders, useFreightShipments, useFreightLineItems, type MktLaunchWithMembers } from "@/lib/hooks";
+import { useLaunches, useDeleteLaunch, useInventory, useFactoryOrders, useFreightShipments, useFreightLineItems, usePdBoard, type MktLaunchWithMembers } from "@/lib/hooks";
 import { useSetLaunchApproval } from "@/lib/hooks/use-marketing-signals";
 import { useAuth } from "@/lib/auth-context";
 import { LaunchFormDialog } from "@/components/marketing/LaunchFormDialog";
 import { ConfirmCell } from "@/components/marketing/ConfirmCell";
+import { AddProductsDialog } from "@/components/marketing/AddProductsDialog";
+import { LaunchMemberList } from "@/components/marketing/LaunchMemberList";
+import { RiskDotMark } from "@/components/marketing/LaunchLinkParts";
+import { launchKindLabel } from "@/components/marketing/launch-format";
 import { launchPhase, LAUNCH_PHASE_COLOR, LAUNCH_PHASE_LABEL, isPastKey, dayKeyOf } from "@/lib/marketing-format";
 import { toast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
 import { format, parseISO, addDays } from "date-fns";
-import { orderByFromReadyBy } from "@/lib/marketing/workback";
+import {
+  launchHealth,
+  launchHealthText,
+  launchOrderBy,
+  launchReadyBy,
+} from "@/lib/marketing/launch-link";
+import { launchProductCount, taggedDropHints } from "@/components/marketing/launch-members";
 
 function fmt(d: string | null): string {
   if (!d) return "—";
@@ -23,7 +33,7 @@ function fmt(d: string | null): string {
  * The single most urgent stock signal for an upcoming launch, in priority
  * order: SKUs the incoming pipeline won't cover → order window passed →
  * order-by inside 14d → covered by incoming freight/orders → stock on hand
- * → a quiet order-by date. One chip per row — the old page stacked several.
+ * (the order-by date itself sits in the Date column). One chip per row.
  */
 function stockSignal(
   l: MktLaunchWithMembers,
@@ -33,7 +43,7 @@ function stockSignal(
   todayKey: string,
 ): ReactNode {
   const launchDay = l.launch_date;
-  const orderBy = l.inventory_ready_by ? orderByFromReadyBy(l.inventory_ready_by) : null;
+  const orderBy = launchOrderBy(l);
   const dry = launchDay ? realMembers.filter((m) => (onHandBySku.get(m.sku_id!) ?? 0) <= 0) : [];
   const uncovered = dry.filter((m) => {
     const eta = incomingBySku.get(m.sku_id!);
@@ -61,9 +71,7 @@ function stockSignal(
   if (launchDay && realMembers.length > 0) {
     return <span className="w-fit whitespace-nowrap rounded border border-green-500/30 bg-green-500/10 px-1.5 py-0.5 text-[10px] text-green-400">stock on hand</span>;
   }
-  if (orderBy && todayKey <= orderBy) {
-    return <span className="w-fit whitespace-nowrap rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">order by {fmt(orderBy)}</span>;
-  }
+  // A quiet order-by date needs no chip: the Date column shows it while it can still be acted on.
   return null;
 }
 
@@ -94,6 +102,29 @@ export default function Launches() {
   }, [inventory]);
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<MktLaunchWithMembers | null>(null);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+  // The id outlives the open flag so the dialog keeps its launch while it animates closed.
+  const [addingId, setAddingId] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const adding = addingId ? launches.find((l) => l.id === addingId) ?? null : null;
+  function openAddProducts(id: string) {
+    setAddingId(id);
+    setAddOpen(true);
+  }
+
+  function toggleExpanded(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  // Unattached board cards whose drop names an upcoming launch: "4 cards
+  // tagged Alien Studio" under that launch's product chip.
+  const { data: board = [] } = usePdBoard();
+  const taggedHints = useMemo(() => taggedDropHints(board, launches, todayKey), [board, launches, todayKey]);
 
   // Earliest incoming date per SKU — open factory-order expected completion
   // or in-transit freight ETA. Drives the derived stock-readiness chips
@@ -143,15 +174,31 @@ export default function Launches() {
     }
   }
 
-  function Row({ l }: { l: MktLaunchWithMembers }) {
+  // A render function, not a nested component: a component declared here would be a new type every
+  // render, remounting every row (and dropping keyboard focus) on each expand toggle.
+  function renderRow(l: MktLaunchWithMembers) {
     const memberLabels = l.skus.map((m) => m.product?.sku || m.planned_name || "?");
     const realMembers = l.skus.filter((m) => m.sku_id);
     const soldCount = realMembers.filter((m) => (onHandBySku.get(m.sku_id!) ?? 0) <= 0).length;
     const total = realMembers.length;
     const allSold = total > 0 && soldCount === total;
     const phase = launchPhase(l.launch_date, todayKey, allSold, l.early_access_date);
+    const isOpen = expanded.has(l.id);
+    const health = launchHealth(l.cards, todayKey);
+    const productCount = launchProductCount(l);
+    const readyBy = launchReadyBy(l);
+    const orderBy = launchOrderBy(l);
+    // The order-by date matters only while it can still be acted on: upcoming, and either still
+    // ahead or with dry SKUs nothing incoming covers (stockSignal's "window passed").
+    const showOrderBy =
+      !!orderBy &&
+      phase === "upcoming" &&
+      (todayKey <= orderBy ||
+        realMembers.some((m) => (onHandBySku.get(m.sku_id!) ?? 0) <= 0 && !incomingBySku.has(m.sku_id!)));
+    const hints = taggedHints.get(l.id) ?? [];
     return (
-      <tr className="border-t border-border/40 hover:bg-muted/20">
+      <Fragment key={l.id}>
+      <tr className={`border-t border-border/40 hover:bg-muted/20 ${isOpen ? "bg-muted/10" : ""}`}>
         <td className="px-4 py-3">
           <p className="font-medium">
             {l.name}
@@ -167,7 +214,7 @@ export default function Launches() {
             )}
           </p>
           <p className="mt-0.5 truncate text-xs text-muted-foreground" title={memberLabels.join(", ")}>
-            <span className="capitalize">{l.kind.replace("_", " ")}</span>
+            <span>{launchKindLabel(l.kind)}</span>
             {memberLabels.length > 0 && <> · {memberLabels.join(", ")}</>}
           </p>
         </td>
@@ -176,9 +223,34 @@ export default function Launches() {
           {l.early_access_date && (
             <p className="text-[10px] text-violet-400">EA {fmt(l.early_access_date)}</p>
           )}
-          {l.inventory_ready_by && (
-            <p className="text-[10px] text-muted-foreground">ready by {fmt(l.inventory_ready_by)}</p>
+          {readyBy && (
+            <p className="text-[10px] text-muted-foreground">ready by {fmt(readyBy)}</p>
           )}
+          {showOrderBy && (
+            <p className="text-[10px] text-muted-foreground">order by {fmt(orderBy)}</p>
+          )}
+        </td>
+        <td className="px-4 py-3">
+          <button
+            type="button"
+            onClick={() => toggleExpanded(l.id)}
+            aria-expanded={isOpen}
+            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded px-1 py-0.5 text-xs hover:bg-muted/40"
+          >
+            <RiskDotMark dot={health.worst} />
+            {launchHealthText({ ...health, count: productCount })}
+            {isOpen ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
+          </button>
+          {canEdit && hints.map((h) => (
+            <button
+              key={h.tag}
+              type="button"
+              onClick={() => openAddProducts(l.id)}
+              className="mt-0.5 block whitespace-nowrap px-1 text-left text-[10px] text-muted-foreground hover:text-foreground hover:underline"
+            >
+              {h.count} {h.count === 1 ? "card" : "cards"} tagged {h.tag}
+            </button>
+          ))}
         </td>
         <td className="px-4 py-3">
           {!phase ? (
@@ -230,6 +302,14 @@ export default function Launches() {
           )}
         </td>
       </tr>
+      {isOpen && (
+        <tr className="bg-muted/10">
+          <td colSpan={6} className="px-4 pb-4 pt-0">
+            <LaunchMemberList launch={l} todayIso={todayKey} canEdit={canEdit} onAddProducts={() => openAddProducts(l.id)} />
+          </td>
+        </tr>
+      )}
+      </Fragment>
     );
   }
 
@@ -242,6 +322,7 @@ export default function Launches() {
         launch={editing}
         datesLocked={!!editing && isPastKey(dayKeyOf(editing.launch_date), todayKey)}
       />
+      <AddProductsDialog open={addOpen} launch={adding} todayIso={todayKey} onClose={() => setAddOpen(false)} />
 
       <div className="flex items-center justify-between">
         <div>
@@ -271,27 +352,28 @@ export default function Launches() {
         </Card>
       ) : (
         <Card>
-          <CardContent className="p-0">
+          <CardContent className="overflow-x-auto p-0">
             <table className="w-full text-sm">
               <thead className="border-b border-border/50 text-left text-muted-foreground">
                 <tr>
                   <th className="px-4 py-2.5 font-medium">Launch</th>
                   <th className="px-4 py-2.5 font-medium">Date</th>
+                  <th className="px-4 py-2.5 font-medium">Products</th>
                   <th className="px-4 py-2.5 font-medium">Status</th>
                   <th className="px-4 py-2.5 font-medium">Confirmed</th>
                   <th className="px-4 py-2.5" />
                 </tr>
               </thead>
               <tbody>
-                {upcoming.map((l) => <Row key={l.id} l={l} />)}
+                {upcoming.map(renderRow)}
                 {upcoming.length > 0 && past.length > 0 && (
                   <tr className="border-t border-border/40">
-                    <td colSpan={5} className="px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                    <td colSpan={6} className="px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
                       Past
                     </td>
                   </tr>
                 )}
-                {past.map((l) => <Row key={l.id} l={l} />)}
+                {past.map(renderRow)}
               </tbody>
             </table>
           </CardContent>

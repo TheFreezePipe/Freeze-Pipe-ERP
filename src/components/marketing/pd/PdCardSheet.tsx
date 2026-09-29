@@ -4,7 +4,7 @@
  * and hand off to the Move sheet; recycle/kill are the board's drag gestures.
  * Gate preview comes from gateMissing (pd.ts) and paints missing values red.
  */
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactElement, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, ChevronDown, Send } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
@@ -25,21 +25,38 @@ import {
   gateMissing,
   nextDeadline,
   nextStage,
+  pdStageLabel,
   type DeadlineRow,
   type PdStage,
 } from "@/lib/marketing/pd";
+import { launchMovedDates, launchReadyBy } from "@/lib/marketing/launch-link";
+import { fmtDayLong } from "@/components/marketing/launch-format";
 import {
   useAddPdNote,
+  useAttachLaunch,
+  useDetachLaunch,
+  usePdBoard,
   usePdProjectEvents,
   usePdProjectNotes,
+  useSetLaunchOverride,
   type PdProjectWithRefs,
 } from "@/lib/hooks/use-pd";
+import type { MktLaunchWithMembers } from "@/lib/hooks/use-marketing";
 import { useSuppliers } from "@/lib/hooks/use-suppliers";
 import { useProducts } from "@/lib/hooks/use-products";
 import { CostBasisEditor, EditableValue, FieldRow, MarginLine, SectionTitle, type EditableOption } from "./PdFields";
 import { PdSamplesBlock } from "./PdSamples";
 import { PdDropPicker } from "./PdDropPicker";
+import { PdCreateLaunchDialog, PdLaunchPicker } from "./PdLaunchPicker";
 import { fmtDate, relDays, toCardLike, usePdFieldSave } from "./pd-field-utils";
+import {
+  LAUNCH_CHIP_CLASS,
+  LAUNCH_DOT_CLASS,
+  dropLaunchState,
+  launchChipText,
+  launchFormPrefill,
+  type LaunchFormPrefill,
+} from "./pd-launch-utils";
 
 export interface PdCardSheetProps {
   project: PdProjectWithRefs | null;
@@ -105,8 +122,51 @@ export function PdCardSheet({
 
 type BodyProps = Omit<PdCardSheetProps, "open" | "onOpenChange" | "project"> & { project: PdProjectWithRefs };
 
+const DASHED_CHIP =
+  "inline-flex items-center whitespace-nowrap rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground";
+const OWN_CHIP =
+  "inline-flex items-center whitespace-nowrap rounded-full border border-amber-400 px-2 py-0.5 text-xs font-medium tabular-nums text-amber-400 hover:bg-amber-500/10";
+
+/** A chip that turns into a date input on click; blur / Enter commits, Esc cancels. */
+function DateChip({
+  value,
+  onCommit,
+  className,
+  children,
+}: {
+  value: string | null;
+  onCommit: (iso: string) => void;
+  className: string;
+  children: ReactNode;
+}) {
+  const [editing, setEditing] = useState(false);
+  if (editing) {
+    return (
+      <Input
+        autoFocus
+        type="date"
+        defaultValue={value ? value.slice(0, 10) : ""}
+        onBlur={(e) => {
+          setEditing(false);
+          if (e.target.value) onCommit(e.target.value);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          else if (e.key === "Escape") setEditing(false);
+        }}
+        className="h-7 w-36 text-xs tabular-nums"
+      />
+    );
+  }
+  return (
+    <button type="button" onClick={() => setEditing(true)} className={className}>
+      {children}
+    </button>
+  );
+}
+
 function SheetBody({ project: p, onRequestMove, onRequestArchive, todayIso }: BodyProps) {
-  const { isAdmin } = useAuth();
+  const { isAdmin, isManager } = useAuth();
   const { save, pending } = usePdFieldSave(p.id);
   const { data: suppliers = [] } = useSuppliers({ activeOnly: true });
   const { data: products = [] } = useProducts();
@@ -121,6 +181,74 @@ function SheetBody({ project: p, onRequestMove, onRequestArchive, todayIso }: Bo
   const flags = cardFlags(card, todayIso, { hasFactoryOrderLine: !!p.linked_factory_order_id });
   const branded = brandedSpecRequired(card);
   const [costsOpen, setCostsOpen] = useState(false);
+
+  // Launch link: the launch is the date authority for a following card.
+  const { data: board = [] } = usePdBoard();
+  const attach = useAttachLaunch();
+  const detach = useDetachLaunch();
+  const setOverride = useSetLaunchOverride();
+  const [createPrefill, setCreatePrefill] = useState<LaunchFormPrefill | null>(null);
+  const launch = p.launch;
+  const attached = !!p.linked_launch_id && !!launch;
+  const following = attached && !p.launch_date_override;
+  const readyBy = launch && following ? launchReadyBy(launch) : null;
+  const dropTag = p.drop_tag?.trim() || null;
+  const dropCards = dropTag ? board.filter((c) => c.drop_tag?.trim() === dropTag) : [];
+  // Same rule as the drop header: a drop with any card on a launch is never re-launched from here
+  // (rpc_save_launch would pull those cards off their launch).
+  const canCreateLaunch = (isAdmin || isManager) && !!dropTag && !dropLaunchState(dropCards).anyAttached;
+
+  async function attachTo(l: MktLaunchWithMembers) {
+    if (l.id === p.linked_launch_id && following) return;
+    try {
+      const res = await attach.mutateAsync({ projectIds: [p.id], launchId: l.id });
+      const c = res.cards[0];
+      toast({
+        title: `Attached to ${l.name}`,
+        description: c && c.old_target !== c.new_target ? `Target ${fmtDate(c.old_target)} → ${fmtDate(c.new_target)}` : undefined,
+      });
+    } catch (e) {
+      toast({ title: "Not attached", description: describeError(e), variant: "destructive" });
+    }
+  }
+  async function detachLaunch() {
+    try {
+      await detach.mutateAsync({ projectId: p.id });
+    } catch (e) {
+      toast({ title: "Not detached", description: describeError(e), variant: "destructive" });
+    }
+  }
+  async function saveOverride(override: boolean, date?: string) {
+    try {
+      await setOverride.mutateAsync({ projectId: p.id, override, date: date ?? null });
+    } catch (e) {
+      toast({ title: "Not saved", description: describeError(e), variant: "destructive" });
+    }
+  }
+  /** A date typed on the launch-link chips: the launch date means "follow", anything else is the card's own date. */
+  function commitOwnDate(iso: string) {
+    const launchDate = launch?.launch_date?.slice(0, 10) ?? null;
+    if (iso === launchDate) {
+      if (!following) void saveOverride(false);
+      return;
+    }
+    if (!following && iso === p.target_launch_date?.slice(0, 10)) return;
+    void saveOverride(true, iso);
+  }
+
+  const launchPicker = (trigger: ReactElement) => (
+    <PdLaunchPicker
+      todayIso={todayIso}
+      dropTag={dropTag}
+      currentLaunchId={p.linked_launch_id}
+      createCount={dropCards.length}
+      onPick={(l) => void attachTo(l)}
+      onCreate={canCreateLaunch && dropTag ? () => setCreatePrefill(launchFormPrefill(dropTag, dropCards)) : undefined}
+      onDetach={p.linked_launch_id ? () => void detachLaunch() : undefined}
+    >
+      {trigger}
+    </PdLaunchPicker>
+  );
 
   const supplierOptions = useMemo<EditableOption[]>(
     () => suppliers.map((s) => ({ value: s.id, label: s.name })),
@@ -218,16 +346,57 @@ function SheetBody({ project: p, onRequestMove, onRequestArchive, todayIso }: Bo
 
       {/* Deadlines */}
       <div className="space-y-2">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <SectionTitle>Deadlines</SectionTitle>
-          <span className="text-xs text-muted-foreground">· target launch</span>
-          <EditableValue
-            kind="date"
-            value={p.target_launch_date}
-            missing={missing.has("target_launch_date")}
-            onCommit={(v) => void save({ target_launch_date: str(v) })}
-            className="text-xs"
-          />
+          {attached && launch ? (
+            <>
+              {launchPicker(
+                <button type="button" className={LAUNCH_CHIP_CLASS} aria-label={`Launch: ${launchChipText(launch)}`}>
+                  <span className={LAUNCH_DOT_CLASS} />
+                  {launchChipText(launch)}
+                </button>,
+              )}
+              {following ? (
+                <>
+                  {readyBy && (
+                    <span className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">ready by {fmtDate(readyBy)}</span>
+                  )}
+                  <span className="ml-auto">
+                    <DateChip value={p.target_launch_date ?? launch.launch_date} onCommit={commitOwnDate} className={DASHED_CHIP}>
+                      Use own date
+                    </DateChip>
+                  </span>
+                </>
+              ) : (
+                <>
+                  <DateChip value={p.target_launch_date} onCommit={commitOwnDate} className={OWN_CHIP}>
+                    Own date · {fmtDayLong(p.target_launch_date)}
+                  </DateChip>
+                  {launch.launch_date && (
+                    <button type="button" className={cn(DASHED_CHIP, "ml-auto")} onClick={() => void saveOverride(false)}>
+                      Use launch date
+                    </button>
+                  )}
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <span className="text-xs text-muted-foreground">· target launch</span>
+              <EditableValue
+                kind="date"
+                value={p.target_launch_date}
+                missing={missing.has("target_launch_date")}
+                onCommit={(v) => void save({ target_launch_date: str(v) })}
+                className="text-xs"
+              />
+              {launchPicker(
+                <button type="button" className={DASHED_CHIP}>
+                  + launch
+                </button>,
+              )}
+            </>
+          )}
         </div>
         {chain ? (
           <div className="grid grid-cols-5 gap-2">
@@ -252,7 +421,7 @@ function SheetBody({ project: p, onRequestMove, onRequestArchive, todayIso }: Bo
               </div>
             ))}
           </div>
-        ) : (
+        ) : attached ? null : (
           <div className="text-xs text-muted-foreground">Set a target launch date</div>
         )}
       </div>
@@ -461,7 +630,11 @@ function SheetBody({ project: p, onRequestMove, onRequestArchive, todayIso }: Bo
 
       {/* Genealogy */}
       <div className="flex flex-wrap items-center gap-1.5">
-        <GeneChip on={!!p.linked_launch_id} label="Launch" to={p.linked_launch_id ? "/marketing/launches" : null} />
+        <GeneChip
+          on={!!p.linked_launch_id}
+          label={launch ? `Launch · ${launch.name}` : "Launch"}
+          to={p.linked_launch_id ? "/marketing/launches" : null}
+        />
         <GeneArrow />
         <GeneChip
           on={!!p.linked_sku_id}
@@ -483,6 +656,8 @@ function SheetBody({ project: p, onRequestMove, onRequestArchive, todayIso }: Bo
 
       {/* Activity */}
       <Activity projectId={p.id} todayIso={todayIso} />
+
+      <PdCreateLaunchDialog prefill={createPrefill} onClose={() => setCreatePrefill(null)} />
     </div>
   );
 }
@@ -493,7 +668,7 @@ function GeneArrow() {
 
 function GeneChip({ on, label, to, missing }: { on: boolean; label: string; to: string | null; missing?: boolean }) {
   const cls = cn(
-    "rounded-full border px-2 py-0.5 text-xs",
+    "whitespace-nowrap rounded-full border px-2 py-0.5 text-xs",
     on ? "border-blue-500 text-foreground" : missing ? "border-red-500 text-red-400" : "border-border text-muted-foreground/60",
   );
   if (on && to) {
@@ -519,8 +694,14 @@ interface ActivityItem {
   logged?: string; // ISO date when a note was back-dated
 }
 
-function eventText(e: { outcome: string; from_stage: string | null; to_stage: string | null; reason: string | null }): string {
-  const label = (s: string | null) => (s ? (PD_STAGE_LABEL[s as PdStage] ?? s) : "—");
+function eventText(e: {
+  outcome: string;
+  from_stage: string | null;
+  to_stage: string | null;
+  reason: string | null;
+  meta: unknown;
+}): string {
+  const label = (s: string | null) => (s ? pdStageLabel(s) : "—");
   const reason = e.reason ? ` · ${e.reason}` : "";
   switch (e.outcome) {
     case "advance":
@@ -535,6 +716,10 @@ function eventText(e: { outcome: string; from_stage: string | null; to_stage: st
       return `archived${reason}`;
     case "link_fo":
       return "linked factory order";
+    case "launch_moved": {
+      const d = launchMovedDates(e.meta);
+      return d ? `Launch moved ${fmtDate(d.oldDate)} → ${fmtDate(d.newDate)}` : "Launch moved";
+    }
     default:
       return `${e.outcome}${reason}`;
   }

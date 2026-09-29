@@ -18,16 +18,8 @@ import type { SKUEconomics } from "@/types/database";
 // Formatters
 // ---------------------------------------------------------------------------
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/** "2026-08-19" (or any ISO timestamp) → "Aug 19". */
-export function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const m = Number(iso.slice(5, 7));
-  const d = Number(iso.slice(8, 10));
-  if (!m || !d) return "—";
-  return `${MONTHS[m - 1]} ${d}`;
-}
+/** "2026-08-19" (or any ISO timestamp) → "Aug 19"; relDays: "today" / "in 29d" / "6d late". One copy, shared with the launch side. */
+export { fmtDay as fmtDate, relDays } from "@/components/marketing/launch-format";
 
 export function fmtMoney(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return "—";
@@ -37,12 +29,6 @@ export function fmtMoney(n: number | null | undefined): string {
 export function fmtPct(ratio: number | null | undefined): string {
   if (ratio == null || !Number.isFinite(ratio)) return "—";
   return `${Math.round(ratio * 100)}%`;
-}
-
-/** Relative-day phrasing used by deadline tiles. */
-export function relDays(days: number): string {
-  if (days === 0) return "today";
-  return days > 0 ? `in ${days}d` : `${-days}d late`;
 }
 
 export const MARGIN_TONE_CLASS: Record<"ok" | "amber" | "red", string> = {

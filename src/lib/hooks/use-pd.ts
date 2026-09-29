@@ -6,6 +6,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { Database } from "@/lib/database.types";
+import type { PdLaunchRef } from "@/lib/marketing/pd";
+import { launchLinkErrorMessage } from "@/lib/marketing/launch-link";
 
 type Tables = Database["public"]["Tables"];
 export type PdProject = Tables["mkt_pd_projects"]["Row"];
@@ -25,14 +27,22 @@ export type PdProjectWithRefs = PdProject & {
   comparable_sku: { id: string; sku: string; product_name: string } | null;
   /** Sample rounds, newest first, each with its photos (sort_order, then created_at). */
   samples: PdSampleWithPhotos[];
+  /** The launch this card rides (linked_launch_id); null when unattached. */
+  launch: PdLaunchRef | null;
 };
+
+/** Launch columns embedded on a card (the chain reads launch_date / early_access_date / inventory_ready_by). */
+export const PD_LAUNCH_REF_COLUMNS = "id, name, kind, launch_date, early_access_date, inventory_ready_by";
 
 const PROJECT_SELECT =
   "*, owner:profiles!mkt_pd_projects_owner_id_fkey(id, full_name), " +
   "supplier:suppliers!mkt_pd_projects_supplier_id_fkey(id, name, code), " +
   "linked_sku:product_skus!mkt_pd_projects_linked_sku_id_fkey(id, sku, product_name), " +
   "comparable_sku:product_skus!mkt_pd_projects_comparable_sku_id_fkey(id, sku, product_name), " +
-  "samples:mkt_pd_samples!mkt_pd_samples_project_id_fkey(*, photos:mkt_pd_sample_photos(*))";
+  "samples:mkt_pd_samples!mkt_pd_samples_project_id_fkey(*, photos:mkt_pd_sample_photos(*)), " +
+  // FK hint required: mkt_pd_projects and mkt_launches are also joined by
+  // mkt_launches.pd_project_id (legacy) and through mkt_launch_skus.
+  `launch:mkt_launches!mkt_pd_projects_linked_launch_id_fkey(${PD_LAUNCH_REF_COLUMNS})`;
 
 /** Embedded arrays come back unordered; sort rounds newest-first and photos by sort_order. */
 function normalizeProject(row: PdProjectWithRefs): PdProjectWithRefs {
@@ -42,7 +52,7 @@ function normalizeProject(row: PdProjectWithRefs): PdProjectWithRefs {
       photos: [...(s.photos ?? [])].sort((a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at)),
     }))
     .sort((a, b) => b.round_no - a.round_no);
-  return { ...row, samples };
+  return { ...row, samples, launch: row.launch ?? null };
 }
 
 const KEYS = {
@@ -120,10 +130,17 @@ export function usePdProjectNotes(projectId: string | null) {
   });
 }
 
+/** Launches list (use-marketing useLaunches) embeds each launch's cards. */
+const LAUNCHES_KEY = ["mkt-launches"] as const;
+/** Upcoming launch members per SKU (use-marketing-signals). */
+const LAUNCH_SKUS_UPCOMING_KEY = ["mkt-launch-skus-upcoming"] as const;
+
 function useInvalidateBoard() {
   const qc = useQueryClient();
   return (projectId?: string) => {
     qc.invalidateQueries({ queryKey: KEYS.board });
+    // card names, stages and dates show on the Launches page member lists
+    qc.invalidateQueries({ queryKey: LAUNCHES_KEY });
     if (projectId) {
       qc.invalidateQueries({ queryKey: KEYS.events(projectId) });
       qc.invalidateQueries({ queryKey: KEYS.notes(projectId) });
@@ -288,6 +305,8 @@ export function usePromotePdProduct() {
     },
     onSuccess: (_d, v) => {
       invalidate(v.id);
+      // an attached card's member row flips to the new SKU
+      qc.invalidateQueries({ queryKey: LAUNCH_SKUS_UPCOMING_KEY });
       qc.invalidateQueries({ queryKey: ["products"] });
       qc.invalidateQueries({ queryKey: ["sku-economics"] });
     },
@@ -440,5 +459,122 @@ export function useAddPdNote() {
       if (error) throw error;
     },
     onSuccess: (_d, v) => invalidate(v.projectId),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Launch link — cards attach to launches (20260928000001_pd_launch_attach)
+// ---------------------------------------------------------------------------
+
+/** How the card's launch member row was found (rpc_pd_attach_launch rules a-e). */
+export type PdAttachMember = "kept" | "claimed_sku" | "claimed_placeholder" | "moved" | "inserted";
+
+export interface PdAttachLaunchCard {
+  project_id: string;
+  member_id: string;
+  member: PdAttachMember;
+  /** Planned name of the placeholder row the card took over (claimed_placeholder only). */
+  replaced: string | null;
+  from_launch_id: string | null;
+  old_target: string | null;
+  new_target: string | null;
+}
+
+export interface PdAttachLaunchResult {
+  ok: true;
+  attached: number;
+  launch_id: string;
+  launch_date: string | null;
+  cards: PdAttachLaunchCard[];
+}
+
+export interface PdDetachLaunchResult {
+  ok: true;
+  noop?: boolean;
+  launch_id?: string | null;
+  target_launch_date?: string | null;
+  member?: "deleted" | "released" | "none";
+}
+
+export interface PdSetLaunchOverrideResult {
+  ok: true;
+  launch_date_override: boolean;
+  target_launch_date: string | null;
+}
+
+type LaunchLinkFailure = { ok: false; error?: string; missing?: string[] };
+
+/** {ok:false, error} → Error whose message describeError shows as-is; .code keeps the RPC code. */
+function assertLaunchLinkOk<T extends { ok: true }>(res: T | LaunchLinkFailure): T {
+  if (!res || res.ok !== true) {
+    const f = (res ?? {}) as LaunchLinkFailure;
+    const err = new Error(launchLinkErrorMessage(f.error)) as Error & { code?: string; missing?: string[] };
+    err.code = f.error;
+    err.missing = f.missing;
+    throw err;
+  }
+  return res;
+}
+
+/** Everything that shows a card's launch, date or membership. */
+function useInvalidateLaunchLink() {
+  const qc = useQueryClient();
+  return (projectIds: readonly string[]) => {
+    qc.invalidateQueries({ queryKey: KEYS.board });
+    qc.invalidateQueries({ queryKey: LAUNCHES_KEY });
+    qc.invalidateQueries({ queryKey: LAUNCH_SKUS_UPCOMING_KEY });
+    for (const id of projectIds) {
+      qc.invalidateQueries({ queryKey: KEYS.project(id) });
+      qc.invalidateQueries({ queryKey: KEYS.events(id) });
+    }
+  };
+}
+
+/** Attach one card or a whole drop to a launch; every card follows the launch date. */
+export function useAttachLaunch() {
+  const invalidate = useInvalidateLaunchLink();
+  return useMutation({
+    mutationFn: async (params: { projectIds: string[]; launchId: string }) => {
+      const { data, error } = await supabase.rpc("rpc_pd_attach_launch", {
+        p_project_ids: params.projectIds,
+        p_launch_id: params.launchId,
+      });
+      if (error) throw error;
+      return assertLaunchLinkOk(data as unknown as PdAttachLaunchResult | LaunchLinkFailure);
+    },
+    onSuccess: (_d, v) => invalidate(v.projectIds),
+  });
+}
+
+/** Detach a card: it keeps its current date as its own; its member row is removed or released. */
+export function useDetachLaunch() {
+  const invalidate = useInvalidateLaunchLink();
+  return useMutation({
+    mutationFn: async (params: { projectId: string }) => {
+      const { data, error } = await supabase.rpc("rpc_pd_detach_launch", { p_project_id: params.projectId });
+      if (error) throw error;
+      return assertLaunchLinkOk(data as unknown as PdDetachLaunchResult | LaunchLinkFailure);
+    },
+    onSuccess: (_d, v) => invalidate([v.projectId]),
+  });
+}
+
+/**
+ * "Use own date" (override true; `date` sets it, else the current date is
+ * kept) / "Use launch date" (override false; snaps back to the launch date).
+ */
+export function useSetLaunchOverride() {
+  const invalidate = useInvalidateLaunchLink();
+  return useMutation({
+    mutationFn: async (params: { projectId: string; override: boolean; date?: string | null }) => {
+      const { data, error } = await supabase.rpc("rpc_pd_set_launch_override", {
+        p_project_id: params.projectId,
+        p_override: params.override,
+        ...(params.date ? { p_date: params.date } : {}),
+      });
+      if (error) throw error;
+      return assertLaunchLinkOk(data as unknown as PdSetLaunchOverrideResult | LaunchLinkFailure);
+    },
+    onSuccess: (_d, v) => invalidate([v.projectId]),
   });
 }

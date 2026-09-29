@@ -9,10 +9,25 @@ import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { PdCardSheet, PdMoveSheet } from "@/components/marketing/pd";
+import {
+  PdAttachDropDialog,
+  PdCardSheet,
+  PdCreateLaunchDialog,
+  PdLaunchPicker,
+  PdMoveSheet,
+} from "@/components/marketing/pd";
 import { PdCard } from "@/components/marketing/pd/PdCard";
 import { PdPhotoUrlContext } from "@/components/marketing/pd/pd-photo-context";
 import { coverPhotoPath, dropSummaries, toCardLike } from "@/components/marketing/pd/pd-field-utils";
+import {
+  LAUNCH_CHIP_CLASS,
+  LAUNCH_DOT_CLASS,
+  dropLaunchState,
+  launchChipText,
+  launchFormPrefill,
+  type LaunchFormPrefill,
+} from "@/components/marketing/pd/pd-launch-utils";
+import type { MktLaunchWithMembers } from "@/lib/hooks/use-marketing";
 import { dropColorFor, dropColorMap } from "@/lib/marketing/drop-colors";
 import {
   usePdBoard,
@@ -263,7 +278,8 @@ function Rail({
 // ── Page ────────────────────────────────────────────────────────────────────
 export default function ProductDevelopment() {
   const [todayIso] = useState(() => new Date().toISOString().slice(0, 10));
-  const { user, profile } = useAuth();
+  const { user, profile, isAdmin, isManager } = useAuth();
+  const canCreateLaunch = isAdmin || isManager;
   const uid = user?.id ?? profile?.id ?? null;
   const { toast } = useToast();
   const { data: board = [], isLoading } = usePdBoard();
@@ -317,6 +333,11 @@ export default function ProductDevelopment() {
   // A drop that no longer exists on the board can't stay selected.
   const activeDrop = filters.drop && drops.some((d) => d.tag === filters.drop) ? filters.drop : null;
   const dropMembers = useMemo(() => (activeDrop ? board.filter((p) => p.drop_tag === activeDrop) : []), [board, activeDrop]);
+  const dropLaunch = useMemo(() => dropLaunchState(dropMembers), [dropMembers]);
+  // Drop actions: the launch picked for "Attach to launch" (confirm open while set),
+  // and the launch-form prefill for "Create launch" (snapshotted at click).
+  const [attachTarget, setAttachTarget] = useState<MktLaunchWithMembers | null>(null);
+  const [createPrefill, setCreatePrefill] = useState<LaunchFormPrefill | null>(null);
 
   // Card covers: one batched signed-URL call for every card that has a photo.
   const coverPaths = useMemo(() => board.map(coverPhotoPath).filter((x): x is string => !!x), [board]);
@@ -444,10 +465,10 @@ export default function ProductDevelopment() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-baseline gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
           <h1 className="text-2xl font-bold">Product Development</h1>
-          <span className="rounded-full border border-border px-2.5 py-0.5 text-xs tabular-nums text-muted-foreground">
+          <span className="whitespace-nowrap rounded-full border border-border px-2.5 py-0.5 text-xs tabular-nums text-muted-foreground">
             {activeDrop ? (
               <>
                 {activeDrop} · {dropMembers.filter((p) => p.stage === "ordered").length} of {dropMembers.length} ordered
@@ -459,6 +480,31 @@ export default function ProductDevelopment() {
               </>
             )}
           </span>
+          {activeDrop && dropMembers.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 self-center">
+              <PdLaunchPicker
+                todayIso={todayIso}
+                dropTag={activeDrop}
+                currentLaunchId={dropLaunch.shared?.id ?? null}
+                onPick={setAttachTarget}
+              >
+                <button type="button" className={cn(LAUNCH_CHIP_CLASS, "px-3 py-1 text-sm")}>
+                  <span className={LAUNCH_DOT_CLASS} />
+                  {dropLaunch.shared ? launchChipText(dropLaunch.shared) : "Attach to launch"}
+                </button>
+              </PdLaunchPicker>
+              {canCreateLaunch && !dropLaunch.anyAttached && (
+                <button
+                  type="button"
+                  className={cn(LAUNCH_CHIP_CLASS, "px-3 py-1 text-sm")}
+                  onClick={() => setCreatePrefill(launchFormPrefill(activeDrop, dropMembers))}
+                >
+                  <span className={LAUNCH_DOT_CLASS} />
+                  Create launch
+                </button>
+              )}
+            </div>
+          )}
         </div>
         <Button onClick={() => setNewOpen(true)}>
           <Plus className="mr-2 h-4 w-4" /> New idea
@@ -641,6 +687,17 @@ export default function ProductDevelopment() {
         onRequestArchive={() => selected && setMove({ id: selected.id, to: "purgatory", mode: "archive" })}
         todayIso={todayIso}
       />
+
+      {activeDrop && (
+        <PdAttachDropDialog
+          dropTag={activeDrop}
+          launch={attachTarget}
+          cards={dropMembers}
+          todayIso={todayIso}
+          onClose={() => setAttachTarget(null)}
+        />
+      )}
+      <PdCreateLaunchDialog prefill={createPrefill} onClose={() => setCreatePrefill(null)} />
 
       {move && moveTarget && (
         <PdMoveSheet
