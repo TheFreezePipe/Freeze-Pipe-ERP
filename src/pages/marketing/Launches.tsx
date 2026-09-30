@@ -178,6 +178,13 @@ export default function Launches() {
   // render, remounting every row (and dropping keyboard focus) on each expand toggle.
   function renderRow(l: MktLaunchWithMembers) {
     const memberLabels = l.skus.map((m) => m.product?.sku || m.planned_name || "?");
+    // The subtitle names at most two products; the full list is one click away
+    // in the expanded product rows. A long list here used to force the whole
+    // table wider than the page (Status and Confirm ended up off-screen).
+    const memberSummary =
+      memberLabels.length <= 2
+        ? memberLabels.join(", ")
+        : `${memberLabels.slice(0, 2).join(", ")} +${memberLabels.length - 2} more`;
     const realMembers = l.skus.filter((m) => m.sku_id);
     const soldCount = realMembers.filter((m) => (onHandBySku.get(m.sku_id!) ?? 0) <= 0).length;
     const total = realMembers.length;
@@ -215,7 +222,7 @@ export default function Launches() {
           </p>
           <p className="mt-0.5 truncate text-xs text-muted-foreground" title={memberLabels.join(", ")}>
             <span>{launchKindLabel(l.kind)}</span>
-            {memberLabels.length > 0 && <> · {memberLabels.join(", ")}</>}
+            {memberLabels.length > 0 && <> · {memberSummary}</>}
           </p>
         </td>
         <td className="whitespace-nowrap px-4 py-3 tabular-nums">
@@ -353,7 +360,19 @@ export default function Launches() {
       ) : (
         <Card>
           <CardContent className="overflow-x-auto p-0">
-            <table className="w-full text-sm">
+            {/* Fixed layout: every column but Launch has a set width, so the
+                table fits any page 1,024px and wider and the Launch cell
+                truncates instead of stretching the row. Below 880px the
+                card scrolls sideways as a fallback. */}
+            <table className="w-full min-w-[860px] table-fixed text-sm">
+              <colgroup>
+                <col />
+                <col className="w-[140px]" />
+                <col className="w-[160px]" />
+                <col className="w-[176px]" />
+                <col className="w-[108px]" />
+                <col className="w-[76px]" />
+              </colgroup>
               <thead className="border-b border-border/50 text-left text-muted-foreground">
                 <tr>
                   <th className="px-4 py-2.5 font-medium">Launch</th>
