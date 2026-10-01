@@ -3,7 +3,15 @@ import { Link } from "react-router-dom";
 import { Plus, Rocket, Pencil, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useLaunches, useDeleteLaunch, useInventory, useFactoryOrders, useFreightShipments, useFreightLineItems, usePdBoard, type MktLaunchWithMembers } from "@/lib/hooks";
+import {
+  useLaunches,
+  useDeleteLaunch,
+  useInventory,
+  useFactoryOrders,
+  useLaunchInbound,
+  usePdBoard,
+  type MktLaunchWithMembers,
+} from "@/lib/hooks";
 import { useSetLaunchApproval } from "@/lib/hooks/use-marketing-signals";
 import { useAuth } from "@/lib/auth-context";
 import { LaunchFormDialog } from "@/components/marketing/LaunchFormDialog";
@@ -11,68 +19,57 @@ import { ConfirmCell } from "@/components/marketing/ConfirmCell";
 import { AddProductsDialog } from "@/components/marketing/AddProductsDialog";
 import { LaunchMemberList } from "@/components/marketing/LaunchMemberList";
 import { RiskDotMark } from "@/components/marketing/LaunchLinkParts";
-import { launchKindLabel } from "@/components/marketing/launch-format";
+import { launchKindLabel, stockSignal, type StockSignal } from "@/components/marketing/launch-format";
 import { launchPhase, LAUNCH_PHASE_COLOR, LAUNCH_PHASE_LABEL, isPastKey, dayKeyOf } from "@/lib/marketing-format";
 import { toast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
-import { format, parseISO, addDays } from "date-fns";
+import { format, parseISO } from "date-fns";
 import {
+  EMPTY_INBOUND,
+  incomingDatesBySku,
   launchHealth,
   launchHealthText,
   launchOrderBy,
   launchReadyBy,
+  launchSkuIds,
+  memberStocked,
 } from "@/lib/marketing/launch-link";
-import { launchProductCount, taggedDropHints } from "@/components/marketing/launch-members";
+import { launchMemberItems, taggedDropHints } from "@/components/marketing/launch-members";
 
 function fmt(d: string | null): string {
   if (!d) return "—";
   try { return format(parseISO(d), "MMM d, yyyy"); } catch { return d; }
 }
 
-/**
- * The single most urgent stock signal for an upcoming launch, in priority
- * order: SKUs the incoming pipeline won't cover → order window passed →
- * order-by inside 14d → covered by incoming freight/orders → stock on hand
- * (the order-by date itself sits in the Date column). One chip per row.
- */
-function stockSignal(
-  l: MktLaunchWithMembers,
-  realMembers: MktLaunchWithMembers["skus"],
-  onHandBySku: Map<string, number>,
-  incomingBySku: Map<string, string>,
-  todayKey: string,
-): ReactNode {
-  const launchDay = l.launch_date;
-  const orderBy = launchOrderBy(l);
-  const dry = launchDay ? realMembers.filter((m) => (onHandBySku.get(m.sku_id!) ?? 0) <= 0) : [];
-  const uncovered = dry.filter((m) => {
-    const eta = incomingBySku.get(m.sku_id!);
-    return !eta || (launchDay && eta > launchDay);
-  });
+const CHIP = "w-fit whitespace-nowrap rounded border px-1.5 py-0.5 text-[10px]";
+const CHIP_RED = `${CHIP} border-red-500/40 bg-red-500/10 text-red-400`;
+const CHIP_AMBER = `${CHIP} border-amber-500/40 bg-amber-500/10 text-amber-400`;
+const CHIP_CYAN = `${CHIP} border-cyan-500/30 bg-cyan-500/10 text-cyan-300`;
+const CHIP_GREEN = `${CHIP} border-green-500/30 bg-green-500/10 text-green-400`;
 
-  if (launchDay && realMembers.length > 0 && uncovered.length > 0) {
-    return (
-      <span className="w-fit whitespace-nowrap rounded border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-400"
-        title={uncovered.map((m) => m.product?.sku ?? m.planned_name ?? "?").join(", ")}>
-        ⚠ {uncovered.length} SKU{uncovered.length > 1 ? "s" : ""} not covered by launch
-      </span>
-    );
+/** One chip per upcoming launch: the stock signal (launch-format's stockSignal) as the Status cell shows it. */
+function stockSignalChip(s: StockSignal): ReactNode {
+  switch (s?.kind) {
+    case "uncovered":
+      return (
+        <span className={CHIP_RED} title={s.skus.join(", ")}>
+          ⚠ {s.skus.length} SKU{s.skus.length > 1 ? "s" : ""} not covered by launch
+        </span>
+      );
+    case "window_passed":
+      return <span className={CHIP_RED}>order window passed ({fmt(s.orderBy)})</span>;
+    case "order_by":
+      return <span className={CHIP_AMBER}>order by {fmt(s.orderBy)}</span>;
+    case "incoming_overdue":
+      return <span className={CHIP_AMBER}>incoming overdue ({fmt(s.date)})</span>;
+    case "incoming":
+      return <span className={CHIP_CYAN}>incoming by {fmt(s.date)}</span>;
+    case "stocked":
+      return <span className={CHIP_GREEN}>stock on hand</span>;
+    default:
+      // A quiet order-by date needs no chip: the Date column shows it while it can still be acted on.
+      return null;
   }
-  if (orderBy && todayKey > orderBy && dry.some((m) => !incomingBySku.has(m.sku_id!))) {
-    return <span className="w-fit whitespace-nowrap rounded border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-400">order window passed ({fmt(orderBy)})</span>;
-  }
-  if (orderBy && todayKey <= orderBy && format(addDays(new Date(), 14), "yyyy-MM-dd") >= orderBy) {
-    return <span className="w-fit whitespace-nowrap rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400">order by {fmt(orderBy)}</span>;
-  }
-  if (launchDay && dry.length > 0) {
-    const latest = dry.map((m) => incomingBySku.get(m.sku_id!)!).sort().pop()!;
-    return <span className="w-fit whitespace-nowrap rounded border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] text-cyan-300">incoming by {fmt(latest)}</span>;
-  }
-  if (launchDay && realMembers.length > 0) {
-    return <span className="w-fit whitespace-nowrap rounded border border-green-500/30 bg-green-500/10 px-1.5 py-0.5 text-[10px] text-green-400">stock on hand</span>;
-  }
-  // A quiet order-by date needs no chip: the Date column shows it while it can still be acted on.
-  return null;
 }
 
 export default function Launches() {
@@ -126,30 +123,16 @@ export default function Launches() {
   const { data: board = [] } = usePdBoard();
   const taggedHints = useMemo(() => taggedDropHints(board, launches, todayKey), [board, launches, todayKey]);
 
-  // Earliest incoming date per SKU — open factory-order expected completion
-  // or in-transit freight ETA. Drives the derived stock-readiness chips
-  // (no manual linking; consistent with the derived-signals philosophy).
+  // Inbound freight for every SKU on a launch (one query): an ordered product
+  // with units on the water reads Shipped, judged by its ETA.
+  const skuIds = useMemo(() => launchSkuIds(launches), [launches]);
+  const { data: inbound = EMPTY_INBOUND } = useLaunchInbound(skuIds);
+
+  // The Status chip's incoming date per SKU — the same date the product rows
+  // show (the freight ETA once units are on the water, else the open factory
+  // order's due date), from the same inbound map, so chip and rows agree.
   const { data: factoryOrders = [] } = useFactoryOrders();
-  const { data: freightShipments = [] } = useFreightShipments();
-  const { data: freightLines = [] } = useFreightLineItems();
-  const incomingBySku = useMemo(() => {
-    const m = new Map<string, string>();
-    const consider = (sku: string | null, date: string | null | undefined) => {
-      if (!sku || !date) return;
-      const cur = m.get(sku);
-      if (!cur || date < cur) m.set(sku, date);
-    };
-    for (const fo of factoryOrders) {
-      if (fo.status === "shipped" || fo.status === "canceled") continue;
-      for (const it of fo.items ?? []) consider(it.sku_id, fo.expected_completion);
-    }
-    const live = new Set(freightShipments.filter((s) => s.status !== "delivered").map((s) => s.id));
-    for (const li of freightLines) {
-      if (!li.sku_id || !live.has(li.freight_shipment_id)) continue;
-      consider(li.sku_id, freightShipments.find((s) => s.id === li.freight_shipment_id)?.eta);
-    }
-    return m;
-  }, [factoryOrders, freightShipments, freightLines]);
+  const incomingBySku = useMemo(() => incomingDatesBySku(skuIds, inbound, factoryOrders), [skuIds, inbound, factoryOrders]);
 
   // Upcoming first (soonest on top, undated leading — they need a date),
   // then past newest-first under a quiet divider.
@@ -177,7 +160,11 @@ export default function Launches() {
   // A render function, not a nested component: a component declared here would be a new type every
   // render, remounting every row (and dropping keyboard focus) on each expand toggle.
   function renderRow(l: MktLaunchWithMembers) {
-    const memberLabels = l.skus.map((m) => m.product?.sku || m.planned_name || "?");
+    // The products as every screen counts them: member rows minus halted cards' rows.
+    const items = launchMemberItems(l);
+    const memberLabels = items.map((it) =>
+      it.kind === "card" ? it.row?.product?.sku || it.card.name : it.sku || it.name || "?",
+    );
     // The subtitle names at most two products; the full list is one click away
     // in the expanded product rows. A long list here used to force the whole
     // table wider than the page (Status and Confirm ended up off-screen).
@@ -185,23 +172,25 @@ export default function Launches() {
       memberLabels.length <= 2
         ? memberLabels.join(", ")
         : `${memberLabels.slice(0, 2).join(", ")} +${memberLabels.length - 2} more`;
-    const realMembers = l.skus.filter((m) => m.sku_id);
+    const rows = items.map((it) => it.row).filter((r): r is NonNullable<typeof r> => !!r);
+    const realMembers = rows.filter((m) => m.sku_id);
     const soldCount = realMembers.filter((m) => (onHandBySku.get(m.sku_id!) ?? 0) <= 0).length;
     const total = realMembers.length;
     const allSold = total > 0 && soldCount === total;
     const phase = launchPhase(l.launch_date, todayKey, allSold, l.early_access_date);
     const isOpen = expanded.has(l.id);
-    const health = launchHealth(l.cards, todayKey);
-    const productCount = launchProductCount(l);
+    // health.count is launchProductCount(l) — the one product count every screen uses.
+    const health = launchHealth(l, inbound, todayKey);
     const readyBy = launchReadyBy(l);
     const orderBy = launchOrderBy(l);
+    const signal = phase === "upcoming" ? stockSignal(realMembers, l, onHandBySku, incomingBySku, todayKey) : null;
     // The order-by date matters only while it can still be acted on: upcoming, and either still
-    // ahead or with dry SKUs nothing incoming covers (stockSignal's "window passed").
+    // ahead or with short SKUs nothing incoming covers (stockSignal's "window passed").
     const showOrderBy =
       !!orderBy &&
       phase === "upcoming" &&
       (todayKey <= orderBy ||
-        realMembers.some((m) => (onHandBySku.get(m.sku_id!) ?? 0) <= 0 && !incomingBySku.has(m.sku_id!)));
+        realMembers.some((m) => !memberStocked(m, onHandBySku.get(m.sku_id!) ?? 0) && !incomingBySku.has(m.sku_id!)));
     const hints = taggedHints.get(l.id) ?? [];
     return (
       <Fragment key={l.id}>
@@ -245,7 +234,7 @@ export default function Launches() {
             className="inline-flex items-center gap-1.5 whitespace-nowrap rounded px-1 py-0.5 text-xs hover:bg-muted/40"
           >
             <RiskDotMark dot={health.worst} />
-            {launchHealthText({ ...health, count: productCount })}
+            {launchHealthText(health)}
             {isOpen ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
           </button>
           {canEdit && hints.map((h) => (
@@ -268,7 +257,7 @@ export default function Launches() {
               {phase === "launched" && soldCount > 0 && (
                 <span className="text-[10px] text-amber-400/80">{soldCount} of {total} sold out</span>
               )}
-              {phase === "upcoming" && stockSignal(l, realMembers, onHandBySku, incomingBySku, todayKey)}
+              {stockSignalChip(signal)}
               {/* Outcomes once the 30d window has elapsed */}
               {phase !== "upcoming" && realMembers.some((m) => m.actual_first_30d_units != null || m.sold_out_at) && (
                 <div className="text-[10px] text-muted-foreground space-y-0">
@@ -312,7 +301,14 @@ export default function Launches() {
       {isOpen && (
         <tr className="bg-muted/10">
           <td colSpan={6} className="px-4 pb-4 pt-0">
-            <LaunchMemberList launch={l} todayIso={todayKey} canEdit={canEdit} onAddProducts={() => openAddProducts(l.id)} />
+            <LaunchMemberList
+              launch={l}
+              todayIso={todayKey}
+              canEdit={canEdit}
+              inbound={inbound}
+              onHandBySku={onHandBySku}
+              onAddProducts={() => openAddProducts(l.id)}
+            />
           </td>
         </tr>
       )}

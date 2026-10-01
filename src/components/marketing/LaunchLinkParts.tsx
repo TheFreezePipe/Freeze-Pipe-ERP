@@ -25,9 +25,18 @@ export function DateShift({ from, to }: { from: string | null | undefined; to: s
   );
 }
 
-export function StageChip({ label }: { label: string }) {
+/** Chip tone: the PD stage look, green for an arrived product, dimmed for a skipped (halted) card. */
+export type StageChipTone = "default" | "ok" | "muted";
+
+const STAGE_CHIP_TONE: Record<StageChipTone, string> = {
+  default: "border-border text-muted-foreground",
+  ok: "border-green-500/50 bg-green-500/10 text-green-400",
+  muted: "border-border/60 text-muted-foreground/50",
+};
+
+export function StageChip({ label, tone = "default" }: { label: string; tone?: StageChipTone }) {
   return (
-    <span className="inline-flex h-5 items-center whitespace-nowrap rounded border border-border px-1.5 text-[11px] text-muted-foreground">
+    <span className={cn("inline-flex h-5 items-center whitespace-nowrap rounded border px-1.5 text-[11px]", STAGE_CHIP_TONE[tone])}>
       {label}
     </span>
   );

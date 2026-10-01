@@ -10,7 +10,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { Database, Json } from "@/lib/database.types";
 import type { PdLaunchRef } from "@/lib/marketing/pd";
-import { keepCurrentCardMembers } from "@/lib/marketing/launch-link";
+import {
+  inboundBySku,
+  keepCurrentCardMembers,
+  type InboundLine,
+  type InboundMap,
+  type LaunchCardFactoryOrder,
+} from "@/lib/marketing/launch-link";
 
 type Tables = Database["public"]["Tables"];
 export type MktSale = Tables["mkt_sales"]["Row"];
@@ -37,9 +43,11 @@ type PdProjectRow = Tables["mkt_pd_projects"]["Row"];
 
 /**
  * A PD card attached to a launch (mkt_pd_projects.linked_launch_id), with
- * what the deadline chain / risk dot / launch-link previews read. `launch`
- * is the parent launch's dates, so deadlineChain(card, today) and
- * riskDot(card, today) anchor on it without passing it.
+ * what the deadline chain / risk dot / launch-link previews / memberState
+ * read. `launch` is the parent launch's dates, so deadlineChain(card, today)
+ * and riskDot(card, today) anchor on it without passing it. `factory_order`
+ * is the card's linked factory order (status, expected completion, its items
+ * with the SKU's alternate date) — what an Ordered product's state reads.
  */
 export type MktLaunchCard = Pick<
   PdProjectRow,
@@ -56,13 +64,16 @@ export type MktLaunchCard = Pick<
   | "linked_sku_id"
   | "linked_factory_order_id"
   | "archived_at"
+  | "archive_reason"
+  | "ordered_at"
   | "created_at"
-> & { launch: PdLaunchRef };
+> & { launch: PdLaunchRef; factory_order: LaunchCardFactoryOrder | null };
 
 /**
  * skus: member rows (each carries pd_project_id when it stands for a card).
- * cards: attached PD cards, archived ones included (the follow trigger moves
- * them too), ordered by their member row's position, then name.
+ * cards: attached PD cards, archived (arrived) ones included — they stay on
+ * their launch, frozen — ordered by their member row's position, then name.
+ * Halted cards are never attached (trg_pd_halt_detaches).
  */
 export type MktLaunchWithMembers = MktLaunch & { skus: MktLaunchMember[]; cards: MktLaunchCard[] };
 
@@ -75,11 +86,21 @@ export interface LaunchMemberInput {
   planner_confidence: number | null;
   /**
    * The PD card this row stands for. rpc_save_launch attaches a card that is
-   * not on the launch yet (create-launch-from-drop is one call) and never
-   * deletes card-backed rows.
+   * not on the launch yet (create-launch-from-drop is one call; a SKU pick
+   * whose SKU belongs to a live card is sent WITH the card's id so the row
+   * becomes the card line) and skips halted cards (no row). A newly picked
+   * plain SKU is auto-linked to its one live card server-side anyway.
    */
   pd_project_id?: string | null;
 }
+
+/**
+ * The launch fields an edit save may carry besides the mkt_launches columns.
+ * `detach_pd_project_ids`: cards whose row the form removed (the X on a card
+ * row) — rpc_save_launch processes them LAST through the unified detach
+ * rule, deleting the row unless it has actuals.
+ */
+export type LaunchSaveInput = Partial<MktLaunchInsert> & { detach_pd_project_ids?: string[] };
 
 export type MktBroadcastWithLinks = MktBroadcast & {
   sale: { id: string; name: string } | null;
@@ -250,11 +271,22 @@ export function useSetOfferSkus() {
 }
 
 // ===================== Launches =====================
+/**
+ * The card columns the launches query embeds, plus the card's linked factory
+ * order (FK hint: mkt_pd_projects reaches factory_orders only by
+ * linked_factory_order_id, the hint just makes that explicit) with its items
+ * — memberState reads the SKU's alternate completion and quantity ordered.
+ */
 const LAUNCH_CARD_COLUMNS =
   "id, name, stage, drop_tag, display_category, target_launch_date, launch_date_override, linked_launch_id, " +
-  "spec_sent_at, stage_entered_at, linked_sku_id, linked_factory_order_id, archived_at, created_at";
+  "spec_sent_at, stage_entered_at, linked_sku_id, linked_factory_order_id, archived_at, archive_reason, ordered_at, created_at, " +
+  "factory_order:factory_orders!mkt_pd_projects_linked_factory_order_id_fkey(id, order_number, status, expected_completion, " +
+  "items:factory_order_items(id, sku_id, quantity_ordered, quantity_consumed_by_parent, alternate_expected_completion))";
 
-type LaunchRowRaw = MktLaunch & { skus: MktLaunchMember[] | null; cards: Omit<MktLaunchCard, "launch">[] | null };
+type LaunchRowRaw = MktLaunch & {
+  skus: MktLaunchMember[] | null;
+  cards: (Omit<MktLaunchCard, "launch" | "factory_order"> & { factory_order?: LaunchCardFactoryOrder | null })[] | null;
+};
 
 /** Cards get their parent launch's dates; ordered like the member rows (then name). */
 function normalizeLaunch(row: LaunchRowRaw): MktLaunchWithMembers {
@@ -269,8 +301,8 @@ function normalizeLaunch(row: LaunchRowRaw): MktLaunchWithMembers {
     early_access_date: row.early_access_date,
     inventory_ready_by: row.inventory_ready_by,
   };
-  const cards = (row.cards ?? [])
-    .map((c) => ({ ...c, launch }))
+  const cards: MktLaunchCard[] = (row.cards ?? [])
+    .map((c) => ({ ...c, launch, factory_order: c.factory_order ?? null }))
     .sort(
       (a, b) =>
         (pos.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (pos.get(b.id) ?? Number.MAX_SAFE_INTEGER) ||
@@ -301,14 +333,50 @@ export function useLaunches() {
 }
 
 /**
- * A launch save can move cards (trg_pd_follow_launch writes their date and a
- * 'launch_moved' activity event) and attach cards (card-backed members), so
- * it refreshes the PD board and card activity as well as the launches.
+ * Inbound freight for a set of SKUs, grouped by SKU: every freight line on a
+ * shipment whose receipt is not confirmed (fn_pd_evaluate_arrival's INBOUND
+ * test), with its shipment's number, ETA and status. ONE query per page —
+ * pass launchSkuIds(launches) and hand the map to memberState / launchHealth
+ * for every row. Cache key ["launch-inbound", <sorted sku ids joined by |>];
+ * freight check-ins are a different module, so the 2-minute staleTime (and a
+ * remount) is what refreshes it. Returns EMPTY_INBOUND-shaped data (an empty
+ * Map) when no SKU is passed.
+ */
+export const LAUNCH_INBOUND_KEY = ["launch-inbound"] as const;
+
+export function useLaunchInbound(skuIds: readonly string[]) {
+  const ids = [...new Set(skuIds)].sort();
+  return useQuery({
+    queryKey: [...LAUNCH_INBOUND_KEY, ids.join("|")],
+    queryFn: async (): Promise<InboundMap> => {
+      if (ids.length === 0) return new Map();
+      const { data, error } = await supabase
+        .from("freight_line_items")
+        .select(
+          "sku_id, quantity, quantity_received, source_factory_order_item_id, " +
+            "shipment:freight_shipments!inner(id, shipment_number, eta, status, receipt_confirmed_at)",
+        )
+        .in("sku_id", ids)
+        .is("shipment.receipt_confirmed_at", null);
+      if (error) throw error;
+      return inboundBySku((data ?? []) as unknown as InboundLine[]);
+    },
+    staleTime: STALE,
+  });
+}
+
+/**
+ * A launch save can move cards (fn_pd_follow_launch writes their date and a
+ * 'launch_moved' activity event), attach cards (card-backed members, SKU
+ * picks that belong to a card) and detach them (detach_pd_project_ids), so it
+ * refreshes the PD board, the drop lists and card activity as well as the
+ * launches.
  */
 function invalidateLaunchWrite(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ["mkt-launches"] });
   qc.invalidateQueries({ queryKey: ["mkt-launch-skus-upcoming"] });
   qc.invalidateQueries({ queryKey: ["pd-board"] });
+  qc.invalidateQueries({ queryKey: ["pd-drop"] });
   qc.invalidateQueries({ queryKey: ["pd-events"] });
   qc.invalidateQueries({ queryKey: ["pd-project"] });
 }
@@ -340,10 +408,23 @@ export function useUpdateLaunch() {
   return useMutation({
     // members omitted (e.g. a calendar drag that only shifts dates) → members
     // untouched (RPC leaves them alone when p_members is null).
-    mutationFn: async ({ id, updates, members }: { id: string; updates: Partial<MktLaunchInsert>; members?: LaunchMemberInput[] }) => {
-      // A form opened before a card was detached still carries that card's
-      // row; rpc_save_launch would re-attach it. Send only cards that still
-      // have a member row on this launch (the edit form never adds cards).
+    // openedWithCardIds: the cards that had a row when the form opened. A card
+    // among them that lost its row meanwhile (detached while the form was
+    // open) is dropped from the payload — rpc_save_launch would re-attach it.
+    // Card rows NOT in that set are new picks (a SKU that belongs to a card)
+    // and go through. Omitted → every card row without a current row is
+    // dropped (the pre-2026-10 form, which never added cards).
+    mutationFn: async ({
+      id,
+      updates,
+      members,
+      openedWithCardIds,
+    }: {
+      id: string;
+      updates: LaunchSaveInput;
+      members?: LaunchMemberInput[];
+      openedWithCardIds?: readonly string[];
+    }) => {
       let payload = members ?? null;
       if (payload?.some((m) => m.pd_project_id)) {
         const { data: rows, error: rowsError } = await supabase
@@ -353,7 +434,7 @@ export function useUpdateLaunch() {
           .not("pd_project_id", "is", null);
         if (rowsError) throw rowsError;
         const current = new Set((rows ?? []).map((r) => r.pd_project_id).filter((v): v is string => !!v));
-        payload = keepCurrentCardMembers(payload, current);
+        payload = keepCurrentCardMembers(payload, current, openedWithCardIds ? new Set(openedWithCardIds) : undefined);
       }
       const { error } = await supabase.rpc("rpc_save_launch", {
         p_id: id,

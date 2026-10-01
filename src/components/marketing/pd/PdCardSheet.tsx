@@ -3,6 +3,11 @@
  * save, toast on error); Advance (and Archive, Purgatory-only) are admin-only
  * and hand off to the Move sheet; recycle/kill are the board's drag gestures.
  * Gate preview comes from gateMissing (pd.ts) and paints missing values red.
+ *
+ * Launch link (launch-product-rules): a halted card never rides a launch (no
+ * picker); an archived card is frozen — its launch chip is static, its dates
+ * stay, no own-date / launch-date switch. "Link existing SKU" (card without a
+ * SKU) and "Mark arrived" (Ordered card) are admin / manager actions.
  */
 import { useMemo, useState, type ReactElement, type ReactNode } from "react";
 import { Link } from "react-router-dom";
@@ -23,36 +28,40 @@ import {
   cardFlags,
   deadlineChain,
   gateMissing,
+  isArrived,
   nextDeadline,
   nextStage,
-  pdStageLabel,
+  pdArchiveReasonLabel,
   type DeadlineRow,
   type PdStage,
 } from "@/lib/marketing/pd";
-import { launchMovedDates, launchReadyBy } from "@/lib/marketing/launch-link";
+import { launchNameMap, launchReadyBy, type LaunchNameMap } from "@/lib/marketing/launch-link";
 import { fmtDayLong } from "@/components/marketing/launch-format";
 import {
   useAddPdNote,
   useAttachLaunch,
   useDetachLaunch,
-  usePdBoard,
+  usePdDropCards,
   usePdProjectEvents,
   usePdProjectNotes,
   useSetLaunchOverride,
   type PdProjectWithRefs,
 } from "@/lib/hooks/use-pd";
-import type { MktLaunchWithMembers } from "@/lib/hooks/use-marketing";
+import { useLaunches, type MktLaunchWithMembers } from "@/lib/hooks/use-marketing";
 import { useSuppliers } from "@/lib/hooks/use-suppliers";
 import { useProducts } from "@/lib/hooks/use-products";
 import { CostBasisEditor, EditableValue, FieldRow, MarginLine, SectionTitle, type EditableOption } from "./PdFields";
 import { PdSamplesBlock } from "./PdSamples";
 import { PdDropPicker } from "./PdDropPicker";
 import { PdCreateLaunchDialog, PdLaunchPicker } from "./PdLaunchPicker";
+import { PdLinkSkuDialog, PdMarkArrivedDialog } from "./PdCardActions";
+import { eventText } from "./pd-activity";
 import { fmtDate, relDays, toCardLike, usePdFieldSave } from "./pd-field-utils";
 import {
   LAUNCH_CHIP_CLASS,
   LAUNCH_DOT_CLASS,
   dropLaunchState,
+  dropOnUpcomingLaunch,
   launchChipText,
   launchFormPrefill,
   type LaunchFormPrefill,
@@ -181,31 +190,49 @@ function SheetBody({ project: p, onRequestMove, onRequestArchive, todayIso }: Bo
   const flags = cardFlags(card, todayIso, { hasFactoryOrderLine: !!p.linked_factory_order_id });
   const branded = brandedSpecRequired(card);
   const [costsOpen, setCostsOpen] = useState(false);
+  const [linkSkuOpen, setLinkSkuOpen] = useState(false);
+  const [markArrivedOpen, setMarkArrivedOpen] = useState(false);
 
-  // Launch link: the launch is the date authority for a following card.
-  const { data: board = [] } = usePdBoard();
+  // Launch link: the launch is the date authority for a following card. An
+  // archived card is frozen (its launch chip is static, no date switch); a
+  // halted card never rides a launch.
   const attach = useAttachLaunch();
   const detach = useDetachLaunch();
   const setOverride = useSetLaunchOverride();
   const [createPrefill, setCreatePrefill] = useState<LaunchFormPrefill | null>(null);
   const launch = p.launch;
+  const archived = !!p.archived_at;
+  const arrived = isArrived(p);
+  const halted = stage === "halted";
+  const canLinkLaunch = !archived && !halted;
   const attached = !!p.linked_launch_id && !!launch;
-  const following = attached && !p.launch_date_override;
+  const following = attached && !archived && !p.launch_date_override;
   const readyBy = launch && following ? launchReadyBy(launch) : null;
   const dropTag = p.drop_tag?.trim() || null;
-  const dropCards = dropTag ? board.filter((c) => c.drop_tag?.trim() === dropTag) : [];
-  // Same rule as the drop header: a drop with any card on a launch is never re-launched from here
-  // (rpc_save_launch would pull those cards off their launch).
-  const canCreateLaunch = (isAdmin || isManager) && !!dropTag && !dropLaunchState(dropCards).anyAttached;
+  // The drop's cards, live and arrived (the board alone would miss the arrived ones).
+  const { data: dropCards = [] } = usePdDropCards(dropTag);
+  const { data: launches = [], isLoading: launchesLoading } = useLaunches();
+  const launchNames = useMemo(() => launchNameMap(launches), [launches]);
+  const dropState = dropLaunchState(dropCards);
+  // Same rule as the drop header: no "Create launch" while an upcoming launch already carries a card of the drop.
+  const canCreateLaunch =
+    (isAdmin || isManager) && !!dropTag && !launchesLoading && !dropOnUpcomingLaunch(dropState, launches, todayIso);
+  const canMarkArrived = (isAdmin || isManager) && stage === "ordered" && !archived;
+  const canLinkSku = (isAdmin || isManager) && !p.linked_sku_id && !archived && !halted;
 
   async function attachTo(l: MktLaunchWithMembers) {
     if (l.id === p.linked_launch_id && following) return;
     try {
       const res = await attach.mutateAsync({ projectIds: [p.id], launchId: l.id });
       const c = res.cards[0];
+      if (!c) {
+        const skipped = res.skipped.map((s) => s.name).join(", ");
+        toast({ title: "Not attached", description: skipped ? `Skipped · ${skipped}` : undefined, variant: "destructive" });
+        return;
+      }
       toast({
         title: `Attached to ${l.name}`,
-        description: c && c.old_target !== c.new_target ? `Target ${fmtDate(c.old_target)} → ${fmtDate(c.new_target)}` : undefined,
+        description: c.old_target !== c.new_target ? `Target ${fmtDate(c.old_target)} → ${fmtDate(c.new_target)}` : undefined,
       });
     } catch (e) {
       toast({ title: "Not attached", description: describeError(e), variant: "destructive" });
@@ -222,7 +249,8 @@ function SheetBody({ project: p, onRequestMove, onRequestArchive, todayIso }: Bo
     try {
       await setOverride.mutateAsync({ projectId: p.id, override, date: date ?? null });
     } catch (e) {
-      toast({ title: "Not saved", description: describeError(e), variant: "destructive" });
+      const frozen = (e as { code?: string } | null)?.code === "archived";
+      toast({ title: frozen ? "Dates frozen" : "Not saved", description: describeError(e), variant: "destructive" });
     }
   }
   /** A date typed on the launch-link chips: the launch date means "follow", anything else is the card's own date. */
@@ -240,14 +268,21 @@ function SheetBody({ project: p, onRequestMove, onRequestArchive, todayIso }: Bo
     <PdLaunchPicker
       todayIso={todayIso}
       dropTag={dropTag}
+      dropCards={dropCards}
       currentLaunchId={p.linked_launch_id}
-      createCount={dropCards.length}
+      createCount={dropState.count}
       onPick={(l) => void attachTo(l)}
       onCreate={canCreateLaunch && dropTag ? () => setCreatePrefill(launchFormPrefill(dropTag, dropCards)) : undefined}
       onDetach={p.linked_launch_id ? () => void detachLaunch() : undefined}
     >
       {trigger}
     </PdLaunchPicker>
+  );
+  const launchChip = (
+    <span className={cn(LAUNCH_CHIP_CLASS, "hover:bg-transparent")} aria-label={launch ? `Launch: ${launchChipText(launch)}` : undefined}>
+      <span className={LAUNCH_DOT_CLASS} />
+      {launch ? launchChipText(launch) : ""}
+    </span>
   );
 
   const supplierOptions = useMemo<EditableOption[]>(
@@ -292,10 +327,11 @@ function SheetBody({ project: p, onRequestMove, onRequestArchive, todayIso }: Bo
 
         {/* Decisions: Advance lives here; recycle/kill are the board's drag
             gestures (drop on an earlier lane / the Halted rail). Archive is
-            Purgatory-only and has no lane to drag to, so it stays. */}
-        {isAdmin && (
+            Purgatory-only and has no lane to drag to, so it stays. Mark
+            arrived files an Ordered card by hand (admin / manager). */}
+        {(isAdmin || isManager) && !archived && (
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            {next && (
+            {isAdmin && next && (
               <Button
                 size="sm"
                 disabled={advanceBlocked(next, gate)}
@@ -306,7 +342,12 @@ function SheetBody({ project: p, onRequestMove, onRequestArchive, todayIso }: Bo
                 {PD_STAGE_LABEL[next]}
               </Button>
             )}
-            {showArchive && (
+            {canMarkArrived && (
+              <Button size="sm" onClick={() => setMarkArrivedOpen(true)}>
+                Mark arrived
+              </Button>
+            )}
+            {isAdmin && showArchive && (
               <Button size="sm" variant="outline" onClick={onRequestArchive}>
                 Archive
               </Button>
@@ -348,7 +389,23 @@ function SheetBody({ project: p, onRequestMove, onRequestArchive, todayIso }: Bo
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <SectionTitle>Deadlines</SectionTitle>
-          {attached && launch ? (
+          {archived ? (
+            // Frozen: the launch chip is static, the date stays where it landed. The one place the sheet names the archive reason.
+            <>
+              {attached && launch && launchChip}
+              <span
+                className={cn(
+                  "inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium tabular-nums",
+                  arrived ? "border-green-500/60 text-green-400" : "border-border text-muted-foreground",
+                )}
+              >
+                {pdArchiveReasonLabel(p.archive_reason)} · {fmtDayLong(p.archived_at)}
+              </span>
+              {p.target_launch_date && (
+                <span className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">target {fmtDayLong(p.target_launch_date)}</span>
+              )}
+            </>
+          ) : attached && launch && !halted ? (
             <>
               {launchPicker(
                 <button type="button" className={LAUNCH_CHIP_CLASS} aria-label={`Launch: ${launchChipText(launch)}`}>
@@ -390,15 +447,17 @@ function SheetBody({ project: p, onRequestMove, onRequestArchive, todayIso }: Bo
                 onCommit={(v) => void save({ target_launch_date: str(v) })}
                 className="text-xs"
               />
-              {launchPicker(
-                <button type="button" className={DASHED_CHIP}>
-                  + launch
-                </button>,
-              )}
+              {canLinkLaunch &&
+                launchPicker(
+                  <button type="button" className={DASHED_CHIP}>
+                    + launch
+                  </button>,
+                )}
             </>
           )}
         </div>
-        {chain ? (
+        {/* A halted card is stopped: its date stays, its deadlines are never rated (same as the board's dot). */}
+        {archived || halted ? null : chain ? (
           <div className="grid grid-cols-5 gap-2">
             {chain.map((row) => (
               <div
@@ -494,6 +553,14 @@ function SheetBody({ project: p, onRequestMove, onRequestArchive, todayIso }: Bo
                   {p.linked_sku?.sku ?? p.sku_code ?? "SKU"}
                 </Link>
               </span>
+            ) : canLinkSku ? (
+              <button
+                type="button"
+                onClick={() => setLinkSkuOpen(true)}
+                className={cn(DASHED_CHIP, missing.has("product_created") && "border-red-500/60 text-red-400")}
+              >
+                Link existing SKU
+              </button>
             ) : (
               <span className={missing.has("product_created") ? "text-red-400" : "text-muted-foreground/60"}>—</span>
             )}
@@ -655,9 +722,11 @@ function SheetBody({ project: p, onRequestMove, onRequestArchive, todayIso }: Bo
       </div>
 
       {/* Activity */}
-      <Activity projectId={p.id} todayIso={todayIso} />
+      <Activity projectId={p.id} todayIso={todayIso} launchNames={launchNames} />
 
       <PdCreateLaunchDialog prefill={createPrefill} onClose={() => setCreatePrefill(null)} />
+      {canLinkSku && <PdLinkSkuDialog project={p} open={linkSkuOpen} onOpenChange={setLinkSkuOpen} />}
+      {canMarkArrived && <PdMarkArrivedDialog project={p} open={markArrivedOpen} onOpenChange={setMarkArrivedOpen} />}
     </div>
   );
 }
@@ -694,38 +763,7 @@ interface ActivityItem {
   logged?: string; // ISO date when a note was back-dated
 }
 
-function eventText(e: {
-  outcome: string;
-  from_stage: string | null;
-  to_stage: string | null;
-  reason: string | null;
-  meta: unknown;
-}): string {
-  const label = (s: string | null) => (s ? pdStageLabel(s) : "—");
-  const reason = e.reason ? ` · ${e.reason}` : "";
-  switch (e.outcome) {
-    case "advance":
-      return `advanced ${label(e.from_stage)} → ${label(e.to_stage)}`;
-    case "recycle":
-      return `recycled → ${label(e.to_stage)}${reason}`;
-    case "revive":
-      return `revived → ${label(e.to_stage)}${reason}`;
-    case "kill":
-      return `killed${reason}`;
-    case "archive":
-      return `archived${reason}`;
-    case "link_fo":
-      return "linked factory order";
-    case "launch_moved": {
-      const d = launchMovedDates(e.meta);
-      return d ? `Launch moved ${fmtDate(d.oldDate)} → ${fmtDate(d.newDate)}` : "Launch moved";
-    }
-    default:
-      return `${e.outcome}${reason}`;
-  }
-}
-
-function Activity({ projectId, todayIso }: { projectId: string; todayIso: string }) {
+function Activity({ projectId, todayIso, launchNames }: { projectId: string; todayIso: string; launchNames: LaunchNameMap }) {
   const { user } = useAuth();
   const { data: events = [] } = usePdProjectEvents(projectId);
   const { data: notes = [] } = usePdProjectNotes(projectId);
@@ -741,7 +779,7 @@ function Activity({ projectId, todayIso }: { projectId: string; todayIso: string
         day: e.decided_at.slice(0, 10),
         ts: e.decided_at,
         author: e.decider?.full_name ?? "—",
-        text: eventText(e),
+        text: eventText(e, launchNames),
       });
     }
     for (const n of notes) {
@@ -757,7 +795,7 @@ function Activity({ projectId, todayIso }: { projectId: string; todayIso: string
     }
     out.sort((a, b) => (a.day === b.day ? (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0) : a.day < b.day ? 1 : -1));
     return out;
-  }, [events, notes]);
+  }, [events, notes, launchNames]);
 
   async function post() {
     const body = text.trim();

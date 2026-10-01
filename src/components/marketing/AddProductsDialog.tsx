@@ -1,8 +1,11 @@
 /**
  * Launches page — "Add products": attach PD cards to a launch. Cards are
- * grouped by drop; the drop whose name matches the launch starts ticked.
- * Each ticked card shows its target old -> new (attachPreview, the same rules
- * as rpc_pd_attach_launch) and the placeholder product it takes over.
+ * grouped by drop; the drop the launch means (launchSuggestion: a drop whose
+ * cards already ride it, else the name match) starts ticked, its arrived
+ * cards included (link only, dates frozen). Halted cards are listed greyed
+ * and cannot be ticked — the attach skips them (attachPlan, the same rules as
+ * rpc_pd_attach_launch). Each ticked card shows its target old -> new and the
+ * placeholder product it takes over.
  */
 import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
@@ -20,9 +23,9 @@ import { Input } from "@/components/ui/input";
 import { toast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
 import { dropColorFor } from "@/lib/marketing/drop-colors";
-import { attachPreview, launchReadyBy, pdStageLabel } from "@/lib/marketing/launch-link";
-import { useAttachLaunch, usePdBoard, type MktLaunchWithMembers } from "@/lib/hooks";
-import { fmtDay, fmtDayLong } from "./launch-format";
+import { attachPlan, isArrived, launchReadyBy, pdStageLabel, MEMBER_STATE_LABEL } from "@/lib/marketing/launch-link";
+import { useAttachLaunch, usePdBoard, usePdDropCards, type MktLaunchWithMembers } from "@/lib/hooks";
+import { fmtDay, fmtDayLong, withArrivedDropCards } from "./launch-format";
 import { DateShift, StageChip } from "./LaunchLinkParts";
 import { useDropColors } from "./pd/pd-field-utils";
 import { addProductGroups, defaultAddPick } from "./launch-members";
@@ -49,6 +52,8 @@ export function AddProductsDialog({ open, launch, todayIso, onClose }: Props) {
 
 const NO_DROP = "";
 
+const isHalted = (c: { stage: string }) => c.stage === "halted";
+
 function AddProductsBody({
   launch,
   todayIso,
@@ -65,7 +70,11 @@ function AddProductsBody({
   // null = the default pick (the matching drop); a Set once the user ticks anything.
   const [picked, setPicked] = useState<Set<string> | null>(null);
 
-  const groups = useMemo(() => addProductGroups(board, launch), [board, launch]);
+  const boardGroups = useMemo(() => addProductGroups(board, launch), [board, launch]);
+  // The matching drop's arrived cards are off the board; fetch that one drop.
+  const suggestedTag = boardGroups.find((g) => g.suggested)?.tag ?? "";
+  const { data: dropCards = [] } = usePdDropCards(suggestedTag);
+  const groups = useMemo(() => withArrivedDropCards(boardGroups, dropCards, launch.id), [boardGroups, dropCards, launch.id]);
   const defaultPick = useMemo(() => defaultAddPick(groups), [groups]);
 
   const selected = picked ?? defaultPick;
@@ -84,13 +93,13 @@ function AddProductsBody({
     [groups, q],
   );
 
-  // Ticked cards in display order — the order the RPC attaches them in.
+  // Ticked cards in display order — the order the RPC attaches them in (halted cards are never ticked).
   const ordered = useMemo(
-    () => groups.flatMap((g) => g.cards).filter((c) => selected.has(c.id)),
+    () => groups.flatMap((g) => g.cards).filter((c) => selected.has(c.id) && !isHalted(c)),
     [groups, selected],
   );
   const preview = useMemo(
-    () => new Map(attachPreview(ordered, launch, todayIso).map((r) => [r.id, r])),
+    () => new Map(attachPlan(ordered, launch, todayIso).rows.map((r) => [r.id, r])),
     [ordered, launch, todayIso],
   );
 
@@ -148,7 +157,8 @@ function AddProductsBody({
           </thead>
           <tbody>
             {visible.map((g) => {
-              const ids = g.cards.map((c) => c.id);
+              // The group tick covers only the cards that can attach.
+              const ids = g.cards.filter((c) => !isHalted(c)).map((c) => c.id);
               const on = ids.filter((id) => selected.has(id)).length;
               const color = g.tag !== NO_DROP ? dropColorFor(dropColors, g.tag) : undefined;
               return [
@@ -156,6 +166,7 @@ function AddProductsBody({
                   <td className="py-2 pr-2 align-middle">
                     <Checkbox
                       checked={on === 0 ? false : on === ids.length ? true : "indeterminate"}
+                      disabled={ids.length === 0}
                       onCheckedChange={(v) => toggle(ids, v === true)}
                       aria-label={g.tag || "No drop"}
                     />
@@ -171,11 +182,18 @@ function AddProductsBody({
                   </td>
                 </tr>,
                 ...g.cards.map((c) => {
+                  const halted = isHalted(c);
+                  const arrived = isArrived(c);
                   const row = preview.get(c.id);
                   return (
-                    <tr key={c.id} className="border-b border-border/30">
+                    <tr key={c.id} className={`border-b border-border/30 ${halted ? "text-muted-foreground/50" : ""}`}>
                       <td className="py-1.5 pr-2 align-middle">
-                        <Checkbox checked={selected.has(c.id)} onCheckedChange={(v) => toggle([c.id], v === true)} aria-label={c.name} />
+                        <Checkbox
+                          checked={!halted && selected.has(c.id)}
+                          disabled={halted}
+                          onCheckedChange={(v) => toggle([c.id], v === true)}
+                          aria-label={c.name}
+                        />
                       </td>
                       <td className="py-1.5 pr-3">
                         <span>{c.name}</span>
@@ -185,9 +203,17 @@ function AddProductsBody({
                           </span>
                         )}
                       </td>
-                      <td className="py-1.5 pr-3"><StageChip label={pdStageLabel(c.stage)} /></td>
+                      <td className="py-1.5 pr-3">
+                        {arrived ? (
+                          <StageChip label={MEMBER_STATE_LABEL.arrived} tone="ok" />
+                        ) : (
+                          <StageChip label={pdStageLabel(c.stage)} tone={halted ? "muted" : "default"} />
+                        )}
+                      </td>
                       <td className="py-1.5">
-                        {row ? (
+                        {halted ? (
+                          <span className="whitespace-nowrap text-xs">skipped</span>
+                        ) : row ? (
                           <span className="flex flex-col">
                             <DateShift from={row.oldTarget} to={row.newTarget} />
                             {row.fromLaunch && (

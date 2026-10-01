@@ -11,6 +11,11 @@ import {
   marginTone,
   nextStage,
   sampleVerdictOk,
+  followsLaunch,
+  chainAnchor,
+  isArrived,
+  launchShipBy,
+  pdArchiveReasonLabel,
   type PdCardLike,
   type PdSampleLike,
 } from "./pd";
@@ -218,5 +223,38 @@ describe("aging / chain / risk / flags", () => {
     expect(marginTone(0.45)).toBe("amber");
     expect(marginTone(0.3)).toBe("red");
     expect(marginTone(null)).toBeNull();
+  });
+});
+
+describe("frozen cards and archive reasons", () => {
+  const launch = {
+    id: "L",
+    name: "Northern Lights Studio drop",
+    kind: "studio_drop",
+    launch_date: "2026-11-16",
+    early_access_date: "2026-11-09",
+    inventory_ready_by: "2026-10-20",
+  };
+
+  it("an arrived card does not follow its launch: its own (frozen) date anchors the chain", () => {
+    const live = card({ stage: "ordered", target_launch_date: "2026-11-16", linked_launch_id: "L", launch, launch_date_override: false });
+    expect(followsLaunch(live)).toBe(true);
+    expect(chainAnchor(live)).toMatchObject({ followsLaunch: true, launchDate: "2026-11-16", arrivalBufferDays: 27 });
+    const arrived = { ...live, target_launch_date: "2026-11-05", archived_at: "2026-09-22T00:00:00Z", archive_reason: "arrived" };
+    expect(followsLaunch(arrived)).toBe(false);
+    expect(chainAnchor(arrived)).toEqual({ followsLaunch: false, launchDate: "2026-11-05", arrivalBufferDays: 20 });
+    expect(followsLaunch({ ...live, stage: "halted" })).toBe(false);
+    expect(isArrived(arrived)).toBe(true);
+    expect(isArrived({ ...arrived, archive_reason: "shelved" })).toBe(false);
+    expect(isArrived({ archived_at: null, archive_reason: "arrived" })).toBe(false);
+  });
+
+  it("ship-by is ready-by minus the sea transit; archive reasons are labelled, never raw", () => {
+    expect(launchShipBy(launch)).toBe("2026-09-15");
+    expect(launchShipBy({ ...launch, inventory_ready_by: null })).toBe("2026-09-15"); // EA 11-09 − 20 = 10-20
+    expect(launchShipBy({ launch_date: null, early_access_date: null, inventory_ready_by: null })).toBeNull();
+    expect(pdArchiveReasonLabel("arrived")).toBe("Arrived");
+    expect(pdArchiveReasonLabel("some_reason")).toBe("Some reason");
+    expect(pdArchiveReasonLabel(null)).toBe("Archived");
   });
 });

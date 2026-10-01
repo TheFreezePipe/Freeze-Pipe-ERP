@@ -54,41 +54,41 @@ describe("launch-format", () => {
 });
 
 describe("launchMemberItems", () => {
-  it("lists members in sort order, cards as cards, and skips archived cards", () => {
+  it("lists members in sort order, cards as cards (arrived ones kept), halted dropped, each with its row", () => {
     const items = launchMemberItems({
       skus: [
-        member({ id: "m3", sort_order: 2, pd_project_id: "c-arch" }),
+        member({ id: "m3", sort_order: 2, pd_project_id: "c-arrived", sku_id: "s2" }),
         member({ id: "m2", sort_order: 1, sku_id: "s1", product: { sku: "NB3M", product_name: "Mini Bong" } }),
         member({ id: "m1", sort_order: 0, pd_project_id: "c1", planned_name: "BW58" }),
         member({ id: "m4", sort_order: 3, planned_name: "Placeholder" }),
+        member({ id: "m5", sort_order: 4, pd_project_id: "c-halted" }),
       ],
       cards: [
-        { id: "c1", archived_at: null },
-        { id: "c-arch", archived_at: "2026-09-01T00:00:00Z" },
-        { id: "c-norow", archived_at: null },
+        { id: "c1", stage: "ready_to_begin", archived_at: null },
+        { id: "c-arrived", stage: "ordered", archived_at: "2026-09-01T00:00:00Z" },
+        { id: "c-halted", stage: "halted", archived_at: null },
+        { id: "c-norow", stage: "good_ideas", archived_at: null },
       ],
     });
-    expect(items.map((i) => (i.kind === "card" ? `card:${i.card.id}` : `plain:${i.sku ?? ""}:${i.name}`))).toEqual([
-      "card:c1",
-      "plain:NB3M:Mini Bong",
-      "plain::Placeholder",
-      "card:c-norow",
+    expect(items.map((i) => (i.kind === "card" ? `card:${i.card.id}:${i.row?.id ?? "-"}` : `plain:${i.sku ?? ""}:${i.name}:${i.row.id}`))).toEqual([
+      "card:c1:m1",
+      "plain:NB3M:Mini Bong:m2",
+      "card:c-arrived:m3",
+      "plain::Placeholder:m4",
+      "card:c-norow:-",
     ]);
   });
 });
 
-describe("launchProductCount", () => {
-  it("counts member rows except archived cards' rows", () => {
+describe("launchProductCount (re-export of launch-link's one definition)", () => {
+  it("counts member rows except halted cards' rows; arrived rows count; cards without a row do not", () => {
     expect(
       launchProductCount({
-        skus: [{ pd_project_id: "c1" }, { pd_project_id: "c-arch" }, { pd_project_id: null }],
-        cards: [{ id: "c1" }, { id: "c-arch", archived_at: "2026-09-01" }],
+        skus: [{ pd_project_id: "c1" }, { pd_project_id: "c-halted" }, { pd_project_id: "c-arrived" }, { pd_project_id: null }],
+        cards: [{ id: "c1" }, { id: "c-halted", stage: "halted" }, { id: "c-arrived", stage: "ordered" }],
       }),
-    ).toBe(2);
-  });
-
-  it("never reports fewer products than live attached cards", () => {
-    expect(launchProductCount({ skus: [], cards: [{ id: "c1" }, { id: "c2" }] })).toBe(2);
+    ).toBe(3);
+    expect(launchProductCount({ skus: [], cards: [{ id: "c1" }, { id: "c2" }] })).toBe(0);
     expect(launchProductCount({ skus: [], cards: [] })).toBe(0);
   });
 });
@@ -122,6 +122,24 @@ describe("addProductGroups / defaultAddPick", () => {
   it("ticks nothing when no drop matches", () => {
     expect(defaultAddPick(addProductGroups(board, { id: "L-x", name: "Holiday Bundle", launch_date: null })).size).toBe(0);
   });
+
+  it("a drop whose other cards already ride the launch is the matching drop, whatever the names", () => {
+    const nl = { id: "L-nl", name: "Northern Lights Studio drop", launch_date: "2026-11-16" };
+    const groups = addProductGroups(
+      [
+        card({ id: "q1", name: "Q4 Studio - NB2", drop_tag: "Q4 Studio", stage: "ordered", linked_launch_id: "L-nl" }),
+        card({ id: "q2", name: "Q4 Studio - NB6", drop_tag: "Q4 Studio", stage: "ordered" }),
+        card({ id: "q3", name: "Q4 Studio - BW20", drop_tag: "Q4 Studio", stage: "halted" }),
+        card({ id: "p1", name: "Puffco Pivot Attachment", drop_tag: "Puffco" }),
+      ],
+      nl,
+    );
+    expect(groups.map((g) => [g.tag, g.suggested, g.cards.map((c) => c.id)])).toEqual([
+      ["Q4 Studio", true, ["q3", "q2"]],
+      ["Puffco", false, ["p1"]],
+    ]);
+    expect([...defaultAddPick(groups)]).toEqual(["q2"]);
+  });
 });
 
 describe("taggedDropHints", () => {
@@ -150,5 +168,17 @@ describe("taggedDropHints", () => {
       "L-alien": [{ tag: "Alien Studio", count: 2 }],
       "L-pirate": [{ tag: "Pirate Studio", count: 1 }],
     });
+  });
+
+  it("an unattached card of a drop that already rides a launch hints under that launch, not a name match", () => {
+    const hints = taggedDropHints(
+      [
+        card({ id: "q1", drop_tag: "Q4 Studio", stage: "ordered", linked_launch_id: "L-nl" }),
+        card({ id: "q2", drop_tag: "Q4 Studio", stage: "ordered" }),
+      ],
+      [...launches, { id: "L-nl", name: "Northern Lights Studio drop", launch_date: "2026-11-16" }],
+      TODAY,
+    );
+    expect(Object.fromEntries(hints)).toEqual({ "L-nl": [{ tag: "Q4 Studio", count: 1 }] });
   });
 });

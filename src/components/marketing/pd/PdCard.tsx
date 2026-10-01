@@ -44,9 +44,10 @@ export function PdCard({ project, todayIso, selected, dragging, onOpen, onDragSt
   const card = toCardLike(project);
   const age = aging(card, todayIso);
   // A card that follows a launch shows the launch's date (violet) and its launch-anchored risk.
+  // A halted card is stopped: its date stays, its risk is never rated.
   const following = !!project.launch && followsLaunch(card);
   const shownDate = (following ? project.launch?.launch_date : null) ?? project.target_launch_date;
-  const dot = shownDate ? riskDot(card, todayIso) : null;
+  const dot = shownDate && card.stage !== "halted" ? riskDot(card, todayIso) : null;
   const flags = cardFlags(card, todayIso);
   const factory = project.supplier?.code ?? null;
   const newest = project.samples[0] ?? null;

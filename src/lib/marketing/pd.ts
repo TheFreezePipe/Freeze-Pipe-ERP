@@ -7,11 +7,13 @@
 import { humanizeEnum } from "@/lib/utils";
 import {
   workback,
+  addDaysIso,
   daysBetween,
   deadlineState,
   readyByDefault,
   orderByFromReadyBy,
   IN_WAREHOUSE_LEAD_DAYS,
+  WORKBACK,
   type WorkbackChain,
 } from "./workback";
 
@@ -89,6 +91,11 @@ export interface PdCardLike {
   launch_date_override?: boolean;
   /** The attached launch's dates (embedded by usePdBoard; toCardLike carries it). */
   launch?: PdLaunchRef | null;
+  archived_at?: string | null;
+  /** 'arrived' = the whole order landed (auto rule or Mark arrived); such cards stay on their launch. */
+  archive_reason?: string | null;
+  /** When the card entered Ordered (the "date placed" an ordered product shows). */
+  ordered_at?: string | null;
 }
 
 /** The slice of mkt_launches the card chain needs. */
@@ -109,11 +116,38 @@ export type PdChainCard = {
   linked_launch_id?: string | null;
   launch_date_override?: boolean;
   launch?: PdLaunchRef | null;
+  /** Archived cards (arrived ones stay on their launch) are frozen: they never follow the launch. */
+  archived_at?: string | null;
 };
 
-/** Attached to a launch and not on its own date: the launch's date is the card's date. */
-export function followsLaunch(card: Pick<PdChainCard, "linked_launch_id" | "launch_date_override">): boolean {
+/**
+ * Attached to a launch and not on its own date: the launch's date is the
+ * card's date. Archived and halted cards never follow (fn_pd_follow_launch
+ * skips them; fn_pd_launch_date_guard freezes an archived card's dates), so
+ * an arrived card on a launch reads as frozen, not as "own date".
+ */
+export function followsLaunch(
+  card: Pick<PdChainCard, "linked_launch_id" | "launch_date_override"> & Partial<Pick<PdChainCard, "archived_at" | "stage">>,
+): boolean {
+  if (card.archived_at || card.stage === "halted") return false;
   return !!card.linked_launch_id && !card.launch_date_override;
+}
+
+/** mkt_pd_projects.archive_reason values the UI names (anything else is humanized). */
+export const PD_ARCHIVE_REASON_LABEL: Readonly<Record<string, string>> = {
+  arrived: "Arrived",
+  launched: "Launched",
+  shelved: "Shelved",
+};
+
+export function pdArchiveReasonLabel(reason: string | null | undefined): string {
+  if (!reason) return "Archived";
+  return PD_ARCHIVE_REASON_LABEL[reason] ?? humanizeEnum(reason);
+}
+
+/** The card was filed because its whole order landed (auto rule or "Mark arrived"). */
+export function isArrived(card: { archived_at?: string | null; archive_reason?: string | null }): boolean {
+  return !!card.archived_at && card.archive_reason === "arrived";
 }
 
 /**
@@ -134,6 +168,17 @@ export function launchOrderBy(
 ): string | null {
   const r = launchReadyBy(launch);
   return r ? orderByFromReadyBy(r) : null;
+}
+
+/**
+ * The launch's ship-by: ready-by minus the sea transit (35 days). An ordered
+ * product whose factory date is later than this cannot sail in time.
+ */
+export function launchShipBy(
+  launch: Pick<PdLaunchRef, "launch_date" | "early_access_date" | "inventory_ready_by">,
+): string | null {
+  const r = launchReadyBy(launch);
+  return r ? addDaysIso(r, -WORKBACK.seaTransitDays) : null;
 }
 
 /** Stage label for any stage string (label map; never the raw enum). */

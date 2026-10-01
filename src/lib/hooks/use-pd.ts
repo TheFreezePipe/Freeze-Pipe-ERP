@@ -55,13 +55,22 @@ function normalizeProject(row: PdProjectWithRefs): PdProjectWithRefs {
   return { ...row, samples, launch: row.launch ?? null };
 }
 
-const KEYS = {
+/**
+ * Query keys. board = live (unarchived) cards; drop(tag) = a drop's live AND
+ * arrived cards (the board pill and "Attach to launch" offer arrived cards
+ * too); project(id) = one card, archived or not (the sheet opened from a
+ * launch's Arrived row). Every launch-link write invalidates all three.
+ */
+export const PD_KEYS = {
   board: ["pd-board"] as const,
+  skuOwners: ["pd-sku-owners"] as const,
+  drop: (tag: string) => ["pd-drop", tag] as const,
   project: (id: string) => ["pd-project", id] as const,
   events: (id: string) => ["pd-events", id] as const,
   notes: (id: string) => ["pd-notes", id] as const,
   config: ["pd-stage-config"] as const,
 };
+const KEYS = PD_KEYS;
 
 export function usePdBoard() {
   return useQuery({
@@ -76,6 +85,80 @@ export function usePdBoard() {
         .order("created_at", { ascending: true });
       if (error) throw error;
       return ((data ?? []) as unknown as PdProjectWithRefs[]).map(normalizeProject);
+    },
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * One card by id, archived or not — the card sheet reached from a launch's
+ * product list (an Arrived card is off the board but still on its launch).
+ * Null when the id does not exist (or RLS hides it).
+ */
+export function usePdCard(id: string | null | undefined) {
+  return useQuery({
+    queryKey: KEYS.project(id ?? "none"),
+    enabled: !!id,
+    queryFn: async (): Promise<PdProjectWithRefs | null> => {
+      const { data, error } = await supabase.from("mkt_pd_projects").select(PROJECT_SELECT).eq("id", id!).maybeSingle();
+      if (error) throw error;
+      return data ? normalizeProject(data as unknown as PdProjectWithRefs) : null;
+    },
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * A drop's cards for the board pill: live cards plus cards archived as
+ * ARRIVED (they stay on their launch and may be attached — link only);
+ * cards archived for other reasons are left out. Board order (stage, sort
+ * index, created). Empty tag → disabled, [].
+ */
+export function usePdDropCards(tag: string | null | undefined) {
+  const t = tag?.trim() ?? "";
+  return useQuery({
+    queryKey: KEYS.drop(t),
+    enabled: t !== "",
+    queryFn: async (): Promise<PdProjectWithRefs[]> => {
+      const { data, error } = await supabase
+        .from("mkt_pd_projects")
+        .select(PROJECT_SELECT)
+        .eq("drop_tag", t)
+        .or("archived_at.is.null,archive_reason.eq.arrived")
+        .order("stage", { ascending: true })
+        .order("sort_index", { ascending: true })
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return ((data ?? []) as unknown as PdProjectWithRefs[]).map(normalizeProject);
+    },
+    staleTime: 60_000,
+  });
+}
+
+/** A card that owns a SKU (mkt_pd_projects.linked_sku_id), archived or not. */
+export interface PdSkuOwner {
+  id: string;
+  name: string;
+  linked_sku_id: string;
+  archived_at: string | null;
+}
+
+/**
+ * Every card that owns a SKU — live AND archived (an arrived card keeps its
+ * SKU for good). "Link existing SKU" greys these: rpc_pd_link_sku refuses a
+ * SKU any other card owns (sku_owned_by_other_card), the board alone would
+ * miss the archived owners.
+ */
+export function usePdSkuOwners() {
+  return useQuery({
+    queryKey: KEYS.skuOwners,
+    queryFn: async (): Promise<PdSkuOwner[]> => {
+      const { data, error } = await supabase
+        .from("mkt_pd_projects")
+        .select("id, name, linked_sku_id, archived_at")
+        .not("linked_sku_id", "is", null);
+      if (error) throw error;
+      return (data ?? []) as PdSkuOwner[];
     },
     staleTime: 60_000,
   });
@@ -139,9 +222,14 @@ function useInvalidateBoard() {
   const qc = useQueryClient();
   return (projectId?: string) => {
     qc.invalidateQueries({ queryKey: KEYS.board });
-    // card names, stages and dates show on the Launches page member lists
+    qc.invalidateQueries({ queryKey: KEYS.skuOwners });
+    qc.invalidateQueries({ queryKey: ["pd-drop"] });
+    // card names, stages and dates show on the Launches page member lists;
+    // halting a card deletes its member row (trg_pd_halt_detaches)
     qc.invalidateQueries({ queryKey: LAUNCHES_KEY });
+    qc.invalidateQueries({ queryKey: LAUNCH_SKUS_UPCOMING_KEY });
     if (projectId) {
+      qc.invalidateQueries({ queryKey: KEYS.project(projectId) });
       qc.invalidateQueries({ queryKey: KEYS.events(projectId) });
       qc.invalidateQueries({ queryKey: KEYS.notes(projectId) });
     }
@@ -463,7 +551,8 @@ export function useAddPdNote() {
 }
 
 // ---------------------------------------------------------------------------
-// Launch link — cards attach to launches (20260928000001_pd_launch_attach)
+// Launch link — cards attach to launches (20260928000001_pd_launch_attach,
+// 20260930000002_launch_one_product_one_row)
 // ---------------------------------------------------------------------------
 
 /** How the card's launch member row was found (rpc_pd_attach_launch rules a-e). */
@@ -478,14 +567,25 @@ export interface PdAttachLaunchCard {
   from_launch_id: string | null;
   old_target: string | null;
   new_target: string | null;
+  /** An archived (arrived) card: linked only, its dates untouched. */
+  archived: boolean;
+}
+
+/** A card the attach refused (halted cards are never on a launch). */
+export interface PdAttachSkipped {
+  id: string;
+  name: string;
+  reason: "halted";
 }
 
 export interface PdAttachLaunchResult {
   ok: true;
+  /** Cards attached (skipped ones excluded). */
   attached: number;
   launch_id: string;
   launch_date: string | null;
   cards: PdAttachLaunchCard[];
+  skipped: PdAttachSkipped[];
 }
 
 export interface PdDetachLaunchResult {
@@ -494,6 +594,23 @@ export interface PdDetachLaunchResult {
   launch_id?: string | null;
   target_launch_date?: string | null;
   member?: "deleted" | "released" | "none";
+}
+
+/** How rpc_pd_link_sku placed the SKU on the card's launch (none when the card is unattached). */
+export type PdLinkSkuMember = "merged" | "placeholder_promoted" | "kept" | "none";
+
+export interface PdLinkSkuResult {
+  ok: true;
+  sku_id: string;
+  sku: string;
+  launch_id: string | null;
+  member_id: string | null;
+  member: PdLinkSkuMember;
+}
+
+export interface PdMarkArrivedResult {
+  ok: true;
+  launch_id: string | null;
 }
 
 export interface PdSetLaunchOverrideResult {
@@ -521,6 +638,8 @@ function useInvalidateLaunchLink() {
   const qc = useQueryClient();
   return (projectIds: readonly string[]) => {
     qc.invalidateQueries({ queryKey: KEYS.board });
+    qc.invalidateQueries({ queryKey: KEYS.skuOwners });
+    qc.invalidateQueries({ queryKey: ["pd-drop"] });
     qc.invalidateQueries({ queryKey: LAUNCHES_KEY });
     qc.invalidateQueries({ queryKey: LAUNCH_SKUS_UPCOMING_KEY });
     for (const id of projectIds) {
@@ -530,7 +649,11 @@ function useInvalidateLaunchLink() {
   };
 }
 
-/** Attach one card or a whole drop to a launch; every card follows the launch date. */
+/**
+ * Attach one card or a whole drop to a launch; every live card follows the
+ * launch date, an arrived card is linked only, halted cards come back in
+ * `skipped` (never attached).
+ */
 export function useAttachLaunch() {
   const invalidate = useInvalidateLaunchLink();
   return useMutation({
@@ -562,6 +685,7 @@ export function useDetachLaunch() {
 /**
  * "Use own date" (override true; `date` sets it, else the current date is
  * kept) / "Use launch date" (override false; snaps back to the launch date).
+ * Refused for archived cards (error 'archived': their dates are frozen).
  */
 export function useSetLaunchOverride() {
   const invalidate = useInvalidateLaunchLink();
@@ -574,6 +698,51 @@ export function useSetLaunchOverride() {
       });
       if (error) throw error;
       return assertLaunchLinkOk(data as unknown as PdSetLaunchOverrideResult | LaunchLinkFailure);
+    },
+    onSuccess: (_d, v) => invalidate([v.projectId]),
+  });
+}
+
+/**
+ * "Link existing SKU" on a card that has none (admin/manager). When the card
+ * is on a launch that already lists that SKU as a plain row, the two merge
+ * into the card's row (member 'merged'); otherwise the card's placeholder
+ * takes the SKU ('placeholder_promoted'). Errors (launchLinkErrorMessage):
+ * admin_or_manager_required, sku_required, not_found, already_linked,
+ * sku_not_found, sku_owned_by_other_card.
+ */
+export function useLinkSku() {
+  const invalidate = useInvalidateLaunchLink();
+  return useMutation({
+    mutationFn: async (params: { projectId: string; skuId: string }) => {
+      const { data, error } = await supabase.rpc("rpc_pd_link_sku", {
+        p_project_id: params.projectId,
+        p_sku_id: params.skuId,
+      });
+      if (error) throw error;
+      return assertLaunchLinkOk(data as unknown as PdLinkSkuResult | LaunchLinkFailure);
+    },
+    onSuccess: (_d, v) => invalidate([v.projectId]),
+  });
+}
+
+/**
+ * "Mark arrived" on an Ordered card (admin/manager): archives it as arrived
+ * by hand; its launch link, date and override are untouched, so it stays on
+ * its launch as an Arrived product. Errors: admin_or_manager_required,
+ * not_found, already_archived, not_ordered.
+ */
+export function useMarkArrived() {
+  const invalidate = useInvalidateLaunchLink();
+  return useMutation({
+    mutationFn: async (params: { projectId: string; note?: string | null }) => {
+      const note = params.note?.trim();
+      const { data, error } = await supabase.rpc("rpc_pd_mark_arrived", {
+        p_project_id: params.projectId,
+        ...(note ? { p_note: note } : {}),
+      });
+      if (error) throw error;
+      return assertLaunchLinkOk(data as unknown as PdMarkArrivedResult | LaunchLinkFailure);
     },
     onSuccess: (_d, v) => invalidate([v.projectId]),
   });

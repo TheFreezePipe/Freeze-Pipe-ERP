@@ -1,10 +1,12 @@
 /**
  * Product Development — launch picker, drop attach confirm, create-launch
  * wrapper. The picker is PdDropPicker's twin for launches: type-ahead, a
- * Suggested row for the launch whose name matches the card's drop, upcoming
- * launches (kind · date · product count), "Create launch" when the drop has
- * no launch, "Detach from launch". The launch is the date authority: a card
- * that attaches follows the launch date (rpc_pd_attach_launch).
+ * Suggested row for the launch that already carries a card of the drop (else
+ * the one whose name matches it), upcoming launches (kind · date · product
+ * count), "Create launch" when the drop has no launch, "Detach from launch".
+ * The launch is the date authority: a card that attaches follows the launch
+ * date (rpc_pd_attach_launch). Halted cards never attach: the drop confirm
+ * lists them greyed as Skipped and sends only the live rows.
  */
 import { useState, type KeyboardEvent, type MouseEvent, type ReactElement } from "react";
 import { Check, X } from "lucide-react";
@@ -15,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
-import { attachPreview, launchReadyBy } from "@/lib/marketing/launch-link";
+import { MEMBER_STATE_LABEL, attachPlan, launchReadyBy, type DropCardRef } from "@/lib/marketing/launch-link";
 import { useLaunches, type MktLaunchWithMembers } from "@/lib/hooks/use-marketing";
 import { useAttachLaunch, type PdProjectWithRefs } from "@/lib/hooks/use-pd";
 import { LaunchFormDialog } from "@/components/marketing/LaunchFormDialog";
@@ -30,6 +32,8 @@ export interface PdLaunchPickerProps {
   todayIso: string;
   /** The card's / drop's tag: drives the Suggested row and the Create row. */
   dropTag: string | null;
+  /** The drop's cards (live + arrived): a launch already carrying one is suggested first and hides Create. */
+  dropCards?: readonly DropCardRef[];
   /** The launch the card rides now (checked in the list). */
   currentLaunchId?: string | null;
   /** Cards "Create launch" would carry; the Create row shows only with onCreate. */
@@ -45,6 +49,7 @@ export interface PdLaunchPickerProps {
 export function PdLaunchPicker({
   todayIso,
   dropTag,
+  dropCards,
   currentLaunchId,
   createCount = 0,
   onPick,
@@ -56,7 +61,7 @@ export function PdLaunchPicker({
   const { data: launches = [], isLoading, isError } = useLaunches();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
-  const { suggested, upcoming, offerCreate } = launchPickerSections(launches, { query: draft, dropTag, todayIso });
+  const { suggested, upcoming, offerCreate } = launchPickerSections(launches, { query: draft, dropTag, todayIso, dropCards });
   const tag = dropTag?.trim() || null;
   // Never offer Create before the launches are known: a matching launch may still be loading.
   const showCreate = !isLoading && !isError && !!onCreate && offerCreate && !!tag && createCount > 0;
@@ -164,12 +169,14 @@ export function PdLaunchPicker({
 }
 
 // ---------------------------------------------------------------------------
-// Attach a whole drop: confirm with one row per card (+ the placeholder row)
+// Attach a whole drop: confirm with one row per card (+ the placeholder row);
+// halted cards greyed as Skipped, arrived cards link only (dates frozen)
 // ---------------------------------------------------------------------------
 
 export interface PdAttachDropDialogProps {
   dropTag: string;
   launch: MktLaunchWithMembers | null;
+  /** The drop's cards (live + arrived; usePdDropCards). */
   cards: readonly PdProjectWithRefs[];
   todayIso: string;
   onClose: () => void;
@@ -177,14 +184,19 @@ export interface PdAttachDropDialogProps {
 
 export function PdAttachDropDialog({ dropTag, launch, cards, todayIso, onClose }: PdAttachDropDialogProps) {
   const attach = useAttachLaunch();
-  const rows = launch ? attachPreview(cards, launch, todayIso) : [];
+  const plan = launch ? attachPlan(cards, launch, todayIso) : { rows: [], skipped: [] };
+  const { rows, skipped } = plan;
   const readyBy = launch ? launchReadyBy(launch) : null;
 
   async function confirm() {
     if (!launch || rows.length === 0 || attach.isPending) return;
     try {
       const res = await attach.mutateAsync({ projectIds: rows.map((r) => r.id), launchId: launch.id });
-      toast({ title: `${cardCount(res.attached)} attached to ${launch.name}` });
+      const skippedNames = res.skipped.map((s) => s.name);
+      toast({
+        title: `${cardCount(res.attached)} attached to ${launch.name}`,
+        description: skippedNames.length > 0 ? `Skipped · ${skippedNames.join(", ")}` : undefined,
+      });
       onClose();
     } catch (e) {
       toast({ title: "Not attached", description: describeError(e), variant: "destructive" });
@@ -230,7 +242,7 @@ export function PdAttachDropDialog({ dropTag, launch, cards, todayIso, onClose }
                         )}
                       </td>
                       <td className="py-1.5 pr-2">
-                        <StageChip label={r.stageLabel} />
+                        <StageChip label={r.archived ? MEMBER_STATE_LABEL.arrived : r.stageLabel} />
                       </td>
                       <td className="py-1.5 pr-2">
                         <DateShift from={r.oldTarget} to={r.newTarget} />
@@ -253,6 +265,17 @@ export function PdAttachDropDialog({ dropTag, launch, cards, todayIso, onClose }
                         </td>
                       </tr>
                     ))}
+                  {skipped.map((s) => (
+                    <tr key={`skip-${s.id}`} className="border-b border-border align-middle opacity-50">
+                      <td className="py-1.5 pr-2 text-muted-foreground">{s.name}</td>
+                      <td className="py-1.5 pr-2">
+                        <StageChip label={s.stageLabel} />
+                      </td>
+                      <td colSpan={2} className="py-1.5 text-muted-foreground">
+                        Skipped
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

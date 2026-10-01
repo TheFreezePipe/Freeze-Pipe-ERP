@@ -85,6 +85,35 @@ interface ReportData {
   receiving_outstanding?: ReceivingRow[];
 }
 
+// ---- label maps (never print a raw enum) ----
+// mkt_launches.kind — same labels as the app's LAUNCH_KINDS (launch-format.ts).
+const LAUNCH_KIND_LABEL: Record<string, string> = {
+  launch: "Launch",
+  drop: "Drop",
+  studio_drop: "Studio drop",
+  restock: "Restock",
+};
+// mkt_sales / mkt_launches.approval_status — the app's binary model
+// (marketing-format.ts APPROVAL_LABEL): confirmed, else Unconfirmed
+// (legacy 'proposed' rows included).
+const APPROVAL_LABEL: Record<string, string> = {
+  draft: "Unconfirmed",
+  proposed: "Unconfirmed",
+  confirmed: "Confirmed",
+};
+// awaiting_confirmation[].type
+const AWAITING_TYPE_LABEL: Record<string, string> = {
+  sale: "Sale",
+  launch: "Launch",
+};
+/** "studio_drop" -> "Studio drop"; an unknown value is humanized, never shown raw. */
+const humanize = (v: string) => v.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+const launchKindLabel = (kind: string | null | undefined) => (kind ? LAUNCH_KIND_LABEL[kind] ?? humanize(kind) : "Launch");
+const approvalLabel = (approval: string | null | undefined) => (approval ? APPROVAL_LABEL[approval] ?? humanize(approval) : "Unconfirmed");
+const awaitingTypeLabel = (type: string) => AWAITING_TYPE_LABEL[type] ?? humanize(type);
+/** "1 product" / "3 products" — sku_count is the one product count (member rows minus halted cards' rows). */
+const productCount = (n: number) => `${num(n)} ${Number(n) === 1 ? "product" : "products"}`;
+
 function sectionLabel(text: string): string {
   return `<div style="${EYEBROW}margin:30px 0 12px;">${text}</div>`;
 }
@@ -244,10 +273,11 @@ function renderMarketing(d: ReportData): string {
     return sectionLabel("Marketing · next 14 days") +
       `<div style="font-family:${FONT};color:${TER};font-size:13px;">No sales, launches, or broadcasts scheduled.</div>`;
   }
+  // Confirmed rows carry no chip; anything else reads through APPROVAL_LABEL (never the raw status).
   const approvalChip = (approval: string) =>
     approval === "confirmed"
       ? ""
-      : ` <span style="color:${AMBER};font-size:11px;">· ${esc(approval)} — not ops-confirmed</span>`;
+      : ` <span style="color:${AMBER};font-size:11px;">· ${esc(approvalLabel(approval))}</span>`;
   const line = (body: string) =>
     `<div style="font-family:${FONT};font-size:13px;color:${SEC};margin-top:5px;">${body}</div>`;
   // Violet "EA <date>" ahead of the public dates when early access is set.
@@ -255,17 +285,18 @@ function renderMarketing(d: ReportData): string {
     ea ? `<span style="color:#a78bfa;">EA ${fmtDate(ea, { month: "short", day: "numeric" })}</span> · ` : "";
   let out = sectionLabel("Marketing · next 14 days");
   for (const s of m.sales) {
-    out += line(`<span style="color:${WHITE};font-weight:700;">SALE</span> ${esc(s.name)} <span style="color:${TER};">· ${eaChip(s.early_access)}${fmtDate(s.starts_at, { month: "short", day: "numeric" })}–${fmtDate(s.ends_at, { month: "short", day: "numeric" })} · ${num(s.sku_count)} SKUs</span>${approvalChip(s.approval)}`);
+    out += line(`<span style="color:${WHITE};font-weight:700;">SALE</span> ${esc(s.name)} <span style="color:${TER};">· ${eaChip(s.early_access)}${fmtDate(s.starts_at, { month: "short", day: "numeric" })}–${fmtDate(s.ends_at, { month: "short", day: "numeric" })} · ${productCount(s.sku_count)}</span>${approvalChip(s.approval)}`);
   }
   for (const l of m.launches) {
-    out += line(`<span style="color:${BLUE};font-weight:700;">LAUNCH</span> ${esc(l.name)} <span style="color:${TER};">· ${eaChip(l.early_access)}${fmtDate(l.launch_date, { month: "short", day: "numeric" })} · ${num(l.sku_count)} SKU${l.sku_count === 1 ? "" : "s"}</span>${approvalChip(l.approval)}`);
+    // The tag is the launch kind's label (LAUNCH / DROP / STUDIO DROP / RESTOCK).
+    out += line(`<span style="color:${BLUE};font-weight:700;">${esc(launchKindLabel(l.kind)).toUpperCase()}</span> ${esc(l.name)} <span style="color:${TER};">· ${eaChip(l.early_access)}${fmtDate(l.launch_date, { month: "short", day: "numeric" })} · ${productCount(l.sku_count)}</span>${approvalChip(l.approval)}`);
   }
   for (const b of m.broadcasts) {
     out += line(`<span style="color:${GREEN};font-weight:700;">${esc(b.channel).toUpperCase()}</span> ${esc(b.name)} <span style="color:${TER};">· ${fmtDate(b.scheduled_at, { month: "short", day: "numeric" })}</span>`);
   }
   if (m.awaiting_confirmation.length) {
     out += `<div style="margin-top:10px;padding:8px 12px;background:#2C2413;border-radius:6px;font-family:${FONT};font-size:12px;color:${AMBER};">
-      Awaiting ops confirmation: ${m.awaiting_confirmation.map((a) => `${esc(a.name)} (${esc(a.type)}, ${fmtDate(a.date, { month: "short", day: "numeric" })})`).join(" · ")}
+      Awaiting ops confirmation: ${m.awaiting_confirmation.map((a) => `${esc(a.name)} (${esc(awaitingTypeLabel(a.type))}, ${fmtDate(a.date, { month: "short", day: "numeric" })})`).join(" · ")}
     </div>`;
   }
   return out;

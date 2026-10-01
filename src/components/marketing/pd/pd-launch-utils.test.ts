@@ -4,6 +4,9 @@ import type { LaunchLinkCard } from "@/lib/marketing/launch-link";
 import {
   cardCount,
   dropLaunchState,
+  dropOnUpcomingLaunch,
+  dropPillText,
+  isDropProduct,
   launchChipText,
   launchFormPrefill,
   launchPickerSections,
@@ -38,8 +41,12 @@ const card = (over: Partial<LaunchLinkCard> & { id: string }): LaunchLinkCard =>
   display_category: "Studio",
   linked_sku_id: null,
   archived_at: null,
+  archive_reason: null,
   ...over,
 });
+
+const arrived = (over: Partial<LaunchLinkCard> & { id: string }): LaunchLinkCard =>
+  card({ stage: "ordered", archived_at: "2026-09-22T10:00:00Z", archive_reason: "arrived", ...over });
 
 describe("launchChipText / cardCount", () => {
   it("chip is name · date, or the name alone when undated", () => {
@@ -65,6 +72,27 @@ describe("launchPickerSections", () => {
     expect(s.upcoming).toHaveLength(3);
     expect(s.offerCreate).toBe(true);
   });
+  it("a launch already carrying a card of the drop is suggested first and hides Create, whatever its name", () => {
+    const s = launchPickerSections(launches, {
+      query: "",
+      dropTag: "Q4 Studio",
+      todayIso: TODAY,
+      dropCards: [card({ id: "a", linked_launch_id: mini.id }), card({ id: "b" })],
+    });
+    expect(s.suggested?.id).toBe("l-mini");
+    expect(s.upcoming.map((l) => l.id)).toEqual(["l-heady", "l-alien"]);
+    expect(s.offerCreate).toBe(false);
+  });
+  it("a halted card's launch does not count as carrying the drop", () => {
+    const s = launchPickerSections(launches, {
+      query: "",
+      dropTag: "Q4 Studio",
+      todayIso: TODAY,
+      dropCards: [card({ id: "a", stage: "halted", linked_launch_id: mini.id })],
+    });
+    expect(s.suggested).toBeNull();
+    expect(s.offerCreate).toBe(true);
+  });
   it("no drop tag: no suggestion, no Create", () => {
     const s = launchPickerSections(launches, { query: "", dropTag: null, todayIso: TODAY });
     expect(s.suggested).toBeNull();
@@ -81,30 +109,75 @@ describe("launchPickerSections", () => {
   });
 });
 
+describe("isDropProduct", () => {
+  it("live cards and arrived cards are products; halted and otherwise-archived cards are not", () => {
+    expect(isDropProduct(card({ id: "a" }))).toBe(true);
+    expect(isDropProduct(arrived({ id: "b" }))).toBe(true);
+    expect(isDropProduct(card({ id: "c", stage: "halted" }))).toBe(false);
+    expect(isDropProduct(card({ id: "d", archived_at: "2026-09-01T00:00:00Z", archive_reason: "shelved" }))).toBe(false);
+  });
+});
+
 describe("dropLaunchState", () => {
   it("unattached drop", () => {
-    expect(dropLaunchState([card({ id: "a" }), card({ id: "b" })])).toEqual({ shared: null, anyAttached: false, count: 2 });
+    expect(dropLaunchState([card({ id: "a" }), card({ id: "b" })])).toEqual({
+      shared: null,
+      anyAttached: false,
+      launchIds: [],
+      count: 2,
+      ordered: 0,
+      arrived: 0,
+      halted: 0,
+    });
   });
-  it("every card on one launch shares it", () => {
+  it("every product on one launch shares it", () => {
     const s = dropLaunchState([
       card({ id: "a", linked_launch_id: heady.id, launch: heady }),
       card({ id: "b", linked_launch_id: heady.id, launch: heady, launch_date_override: true }),
     ]);
     expect(s.shared?.id).toBe("l-heady");
     expect(s.anyAttached).toBe(true);
+    expect(s.launchIds).toEqual(["l-heady"]);
   });
   it("mixed drop: nothing shared, but attached", () => {
     const s = dropLaunchState([card({ id: "a", linked_launch_id: heady.id, launch: heady }), card({ id: "b" })]);
     expect(s.shared).toBeNull();
     expect(s.anyAttached).toBe(true);
   });
-  it("archived cards are ignored", () => {
+  it("a halted sibling never breaks the shared launch and is counted apart (Q4 Studio: 3 of 3 ordered · 1 halted)", () => {
     const s = dropLaunchState([
-      card({ id: "a", linked_launch_id: heady.id, launch: heady }),
-      card({ id: "b", archived_at: "2026-09-01T00:00:00Z" }),
+      card({ id: "nb2", stage: "ordered", linked_launch_id: mini.id, launch: mini }),
+      card({ id: "nb6", stage: "ordered", linked_launch_id: mini.id, launch: mini }),
+      card({ id: "bw20dna", stage: "ordered", linked_launch_id: mini.id, launch: mini }),
+      card({ id: "bw20", stage: "halted" }),
+    ]);
+    expect(s.shared?.id).toBe("l-mini");
+    expect(s.count).toBe(3);
+    expect(s.ordered).toBe(3);
+    expect(s.halted).toBe(1);
+    expect(dropPillText("Q4 Studio", s)).toBe("Q4 Studio · 3 of 3 ordered · 1 halted");
+  });
+  it("arrived cards are products (ordered, on their launch) and counted separately; other archived cards are ignored", () => {
+    const s = dropLaunchState([
+      card({ id: "a", stage: "ordered", linked_launch_id: heady.id, launch: heady }),
+      arrived({ id: "b", linked_launch_id: heady.id, launch: heady }),
+      card({ id: "c", archived_at: "2026-09-01T00:00:00Z", archive_reason: "shelved" }),
     ]);
     expect(s.shared?.id).toBe("l-heady");
-    expect(s.count).toBe(1);
+    expect(s.count).toBe(2);
+    expect(s.ordered).toBe(2);
+    expect(s.arrived).toBe(1);
+    expect(dropPillText("Heady Studio", s)).toBe("Heady Studio · 2 of 2 ordered · 1 arrived");
+  });
+});
+
+describe("dropOnUpcomingLaunch", () => {
+  it("true only when a carried launch is upcoming", () => {
+    const up = dropLaunchState([card({ id: "a", linked_launch_id: heady.id, launch: heady })]);
+    expect(dropOnUpcomingLaunch(up, launches, TODAY)).toBe(true);
+    const gone = dropLaunchState([arrived({ id: "a", linked_launch_id: past.id, launch: past })]);
+    expect(dropOnUpcomingLaunch(gone, launches, TODAY)).toBe(false);
+    expect(dropOnUpcomingLaunch(dropLaunchState([card({ id: "a" })]), launches, TODAY)).toBe(false);
   });
 });
 
@@ -119,10 +192,62 @@ describe("launchFormPrefill", () => {
       kind: "studio_drop",
       launchDate: "2026-11-05",
       members: [
-        { pd_project_id: "a", planned_name: "Q4 Studio - NB2", included: true },
-        { pd_project_id: "b", planned_name: "Q4 Studio - BW20", included: false },
+        {
+          pd_project_id: "a",
+          planned_name: "Q4 Studio - NB2",
+          included: true,
+          stage: "ready_to_begin",
+          arrived: false,
+          target_launch_date: "2026-11-05",
+          sku: null,
+        },
+        {
+          pd_project_id: "b",
+          planned_name: "Q4 Studio - BW20",
+          included: false,
+          stage: "halted",
+          arrived: false,
+          target_launch_date: "2026-12-01",
+          sku: null,
+        },
       ],
     });
+  });
+  it("an arrived card is offered: ticked when it rides no launch, unticked when it already does", () => {
+    const p = launchFormPrefill("Q4 Studio", [
+      card({ id: "a", name: "NB2", target_launch_date: "2026-11-05" }),
+      arrived({ id: "b", name: "NB6", target_launch_date: "2026-11-05" }),
+      arrived({ id: "c", name: "BW20DNA", target_launch_date: "2026-11-05", linked_launch_id: past.id, launch: past }),
+    ]);
+    expect(p.members.map((m) => [m.pd_project_id, m.included])).toEqual([
+      ["a", true],
+      ["b", true],
+      ["c", false],
+    ]);
+  });
+  it("an arrived card's member carries the card facts the form row shows: Arrived, its frozen target, its SKU", () => {
+    const p = launchFormPrefill("Q4 Studio", [
+      card({ id: "a", name: "NB2", target_launch_date: "2026-11-16" }),
+      arrived({
+        id: "b",
+        name: "NB6",
+        target_launch_date: "2026-11-05",
+        linked_sku_id: "sku-nb6",
+        linked_sku: { sku: "S04-NB6" },
+      }),
+    ]);
+    // The live card sets the launch date; the arrived card keeps its own, frozen.
+    expect(p.launchDate).toBe("2026-11-16");
+    expect(p.members[1]).toEqual({
+      pd_project_id: "b",
+      planned_name: "NB6",
+      included: true,
+      stage: "ordered",
+      arrived: true,
+      target_launch_date: "2026-11-05",
+      sku: "S04-NB6",
+    });
+    expect(p.members[0]).toMatchObject({ arrived: false, stage: "ready_to_begin", sku: null });
   });
   it("non-studio cards make a plain launch; differing dates leave the date empty", () => {
     const p = launchFormPrefill("Puffco", [

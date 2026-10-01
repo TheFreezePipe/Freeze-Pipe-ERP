@@ -2,7 +2,14 @@
  * Product Development board — six working lanes between two rails (Purgatory
  * left, Halted right). Drag never commits a stage change by itself: a drop
  * opens the Move sheet (the one exception is Purgatory → Good Ideas). Card
- * open state lives in `?card=` so a deep link lands on the sheet.
+ * open state lives in `?card=` so a deep link lands on the sheet — an archived
+ * (arrived) card is off the board, so the deep link fetches it on its own and
+ * the sheet shows it frozen.
+ *
+ * Drop pill (launch-product-rules): reads the drop's cards live + arrived
+ * (usePdDropCards), counts halted cards apart, offers "Attach to launch" with
+ * the launch already carrying the drop suggested first, and hides "Create
+ * launch" while an upcoming launch carries a card of the drop.
  */
 import { useEffect, useMemo, useState, type DragEvent, type FormEvent, type ReactNode } from "react";
 import { Plus } from "lucide-react";
@@ -23,14 +30,18 @@ import {
   LAUNCH_CHIP_CLASS,
   LAUNCH_DOT_CLASS,
   dropLaunchState,
+  dropOnUpcomingLaunch,
+  dropPillText,
   launchChipText,
   launchFormPrefill,
   type LaunchFormPrefill,
 } from "@/components/marketing/pd/pd-launch-utils";
-import type { MktLaunchWithMembers } from "@/lib/hooks/use-marketing";
+import { useLaunches, type MktLaunchWithMembers } from "@/lib/hooks/use-marketing";
 import { dropColorFor, dropColorMap } from "@/lib/marketing/drop-colors";
 import {
   usePdBoard,
+  usePdCard,
+  usePdDropCards,
   useCreatePdProject,
   useMovePdProject,
   useReorderPdProject,
@@ -287,9 +298,12 @@ export default function ProductDevelopment() {
   const moveProject = useMovePdProject();
   const reorderProject = useReorderPdProject();
 
-  // Open card = URL (deep-linkable); the Move sheet stacks on top.
+  // Open card = URL (deep-linkable); the Move sheet stacks on top. A card the
+  // board does not carry (archived as arrived) is fetched on its own.
   const [cardParam, setCardParam] = useUrlFilter<string>("card", "");
-  const selected = useMemo(() => board.find((p) => p.id === cardParam) ?? null, [board, cardParam]);
+  const onBoard = useMemo(() => board.find((p) => p.id === cardParam) ?? null, [board, cardParam]);
+  const { data: offBoard = null } = usePdCard(cardParam && !isLoading && !onBoard ? cardParam : null);
+  const selected = onBoard ?? (offBoard?.id === cardParam ? offBoard : null);
   const [move, setMove] = useState<MoveReq | null>(null);
   const moveTarget = useMemo(() => (move ? board.find((p) => p.id === move.id) ?? null : null), [board, move]);
 
@@ -333,7 +347,15 @@ export default function ProductDevelopment() {
   // A drop that no longer exists on the board can't stay selected.
   const activeDrop = filters.drop && drops.some((d) => d.tag === filters.drop) ? filters.drop : null;
   const dropMembers = useMemo(() => (activeDrop ? board.filter((p) => p.drop_tag === activeDrop) : []), [board, activeDrop]);
-  const dropLaunch = useMemo(() => dropLaunchState(dropMembers), [dropMembers]);
+  // The pill and its actions read the drop's cards live + arrived; the board's
+  // own rows stand in until that query lands.
+  const { data: dropCardsData } = usePdDropCards(activeDrop);
+  const dropCards = dropCardsData ?? dropMembers;
+  const dropLaunch = useMemo(() => dropLaunchState(dropCards), [dropCards]);
+  const { data: launches = [], isLoading: launchesLoading } = useLaunches();
+  // No "Create launch" while an upcoming launch already carries a card of the drop.
+  const offerCreateLaunch =
+    canCreateLaunch && !!activeDrop && !launchesLoading && !dropOnUpcomingLaunch(dropLaunch, launches, todayIso);
   // Drop actions: the launch picked for "Attach to launch" (confirm open while set),
   // and the launch-form prefill for "Create launch" (snapshotted at click).
   const [attachTarget, setAttachTarget] = useState<MktLaunchWithMembers | null>(null);
@@ -470,21 +492,19 @@ export default function ProductDevelopment() {
           <h1 className="text-2xl font-bold">Product Development</h1>
           <span className="whitespace-nowrap rounded-full border border-border px-2.5 py-0.5 text-xs tabular-nums text-muted-foreground">
             {activeDrop ? (
-              <>
-                {activeDrop} · {dropMembers.filter((p) => p.stage === "ordered").length} of {dropMembers.length} ordered
-                {dropMembers.some((p) => p.stage === "halted") && <> · {dropMembers.filter((p) => p.stage === "halted").length} halted</>}
-              </>
+              dropPillText(activeDrop, dropLaunch)
             ) : (
               <>
                 {counts.inFlight} in flight · {counts.parked} ideas parked
               </>
             )}
           </span>
-          {activeDrop && dropMembers.length > 0 && (
+          {activeDrop && dropCards.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 self-center">
               <PdLaunchPicker
                 todayIso={todayIso}
                 dropTag={activeDrop}
+                dropCards={dropCards}
                 currentLaunchId={dropLaunch.shared?.id ?? null}
                 onPick={setAttachTarget}
               >
@@ -493,11 +513,11 @@ export default function ProductDevelopment() {
                   {dropLaunch.shared ? launchChipText(dropLaunch.shared) : "Attach to launch"}
                 </button>
               </PdLaunchPicker>
-              {canCreateLaunch && !dropLaunch.anyAttached && (
+              {offerCreateLaunch && (
                 <button
                   type="button"
                   className={cn(LAUNCH_CHIP_CLASS, "px-3 py-1 text-sm")}
-                  onClick={() => setCreatePrefill(launchFormPrefill(activeDrop, dropMembers))}
+                  onClick={() => setCreatePrefill(launchFormPrefill(activeDrop, dropCards))}
                 >
                   <span className={LAUNCH_DOT_CLASS} />
                   Create launch
@@ -692,7 +712,7 @@ export default function ProductDevelopment() {
         <PdAttachDropDialog
           dropTag={activeDrop}
           launch={attachTarget}
-          cards={dropMembers}
+          cards={dropCards}
           todayIso={todayIso}
           onClose={() => setAttachTarget(null)}
         />

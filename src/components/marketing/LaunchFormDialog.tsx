@@ -1,3 +1,13 @@
+/**
+ * Launch / drop form (create, edit, create-from-drop). One product, one row:
+ * a SKU pick whose SKU belongs to a live PD card turns the row into the
+ * card's row on the spot — card name, stage and the date change it will get
+ * — and is saved WITH the card (pd_project_id), so the card attaches in the
+ * same rpc_save_launch. The X on a card row removes the product; on an
+ * attached card that is a detach (detach_pd_project_ids, processed last by
+ * the server). Halted cards are never shown: stopped cards do not ride a
+ * launch. Arrived (archived) cards stay listed, frozen.
+ */
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
@@ -25,12 +35,21 @@ import { ChevronRight, Plus, X } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
 import { readyByDefault } from "@/lib/marketing/workback";
-import { followsLaunch, movePreview, pdStageLabel, type MovePreview } from "@/lib/marketing/launch-link";
+import {
+  followsLaunch,
+  isArrived,
+  movePreview,
+  pdStageLabel,
+  MEMBER_STATE_LABEL,
+  type MovePreview,
+} from "@/lib/marketing/launch-link";
 import {
   useCreateLaunch,
   useUpdateLaunch,
   useProducts,
   usePdBoard,
+  type LaunchSaveInput,
+  type MktLaunchInsert,
   type MktLaunchWithMembers,
   type LaunchMemberInput,
 } from "@/lib/hooks";
@@ -43,7 +62,16 @@ export interface LaunchFormPrefillInput {
   name: string;
   kind: string;
   launchDate: string | null;
-  members: Array<{ pd_project_id: string; planned_name: string; included: boolean }>;
+  members: Array<{
+    pd_project_id: string;
+    planned_name: string;
+    included: boolean;
+    /** Optional card facts for cards the board does not list (arrived cards): what the row shows. */
+    stage?: string;
+    arrived?: boolean;
+    target_launch_date?: string | null;
+    sku?: string | null;
+  }>;
 }
 
 interface Props {
@@ -68,6 +96,8 @@ const numOrNull = (s: string): number | null => {
 };
 
 type MemberRow = {
+  /** Stable React key (rows are added and removed by key, never by index). */
+  key: string;
   sku_id: string;
   planned_name: string;
   expected: string;
@@ -79,8 +109,11 @@ type MemberRow = {
   included: boolean;
   /** Shows the tick box (create-from-drop rows). */
   optional: boolean;
+  /** The row existed when the form opened (edit): removing it detaches the card. */
+  fromOpen: boolean;
 };
-const emptyMember = (): MemberRow => ({
+const emptyMember = (key: string): MemberRow => ({
+  key,
   sku_id: NONE,
   planned_name: "",
   expected: "",
@@ -89,7 +122,9 @@ const emptyMember = (): MemberRow => ({
   pd_project_id: null,
   included: true,
   optional: false,
+  fromOpen: false,
 });
+const newKey = () => `row-${crypto.randomUUID()}`;
 
 export function LaunchFormDialog(props: Props) {
   const { open, onOpenChange, launch, defaultDate } = props;
@@ -105,10 +140,13 @@ export function LaunchFormDialog(props: Props) {
 
 function initialMembers(launch: MktLaunchWithMembers | null | undefined, prefill: LaunchFormPrefillInput | undefined): MemberRow[] {
   if (launch) {
+    const halted = new Set(launch.cards.filter((c) => c.stage === "halted").map((c) => c.id));
     const rows = (launch.skus ?? [])
       .slice()
       .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-      .map((s): MemberRow => ({
+      .filter((s) => !s.pd_project_id || !halted.has(s.pd_project_id))
+      .map((s, i): MemberRow => ({
+        key: `open-${i}`,
         sku_id: s.sku_id ?? NONE,
         planned_name: s.planned_name ?? "",
         expected: s.expected_first_30d_units != null ? String(s.expected_first_30d_units) : "",
@@ -117,19 +155,20 @@ function initialMembers(launch: MktLaunchWithMembers | null | undefined, prefill
         pd_project_id: s.pd_project_id ?? null,
         included: true,
         optional: false,
+        fromOpen: true,
       }));
-    return rows.length > 0 ? rows : [emptyMember()];
+    return rows.length > 0 ? rows : [emptyMember("open-0")];
   }
   if (prefill && prefill.members.length > 0) {
-    return prefill.members.map((m) => ({
-      ...emptyMember(),
+    return prefill.members.map((m, i) => ({
+      ...emptyMember(`prefill-${i}`),
       planned_name: m.planned_name,
       pd_project_id: m.pd_project_id,
       included: m.included,
       optional: true,
     }));
   }
-  return [emptyMember()];
+  return [emptyMember("open-0")];
 }
 
 interface CardInfo {
@@ -138,6 +177,12 @@ interface CardInfo {
   target: string | null;
   /** Attached to the launch being edited and on its own date. */
   ownDate: boolean;
+  /** Archived as arrived: frozen, no date change. */
+  arrived: boolean;
+  /** Halted: never on a launch (the row is hidden). */
+  halted: boolean;
+  /** The other launch the card rides now (it leaves it when this one saves). */
+  otherLaunch: string | null;
   sku: string | null;
 }
 
@@ -147,7 +192,6 @@ function LaunchFormBody({ onOpenChange, launch, defaultDate, datesLocked, prefil
   const create = useCreateLaunch();
   const update = useUpdateLaunch();
   const editing = !!launch;
-  const fromDrop = !launch && !!prefill;
 
   const [name, setName] = useState(() => launch?.name ?? prefill?.name ?? "");
   const [kind, setKind] = useState<string>(() => launch?.kind ?? prefill?.kind ?? "launch");
@@ -161,6 +205,15 @@ function LaunchFormBody({ onOpenChange, launch, defaultDate, datesLocked, prefil
   const [readyByTouched, setReadyByTouched] = useState(() => !!launch?.inventory_ready_by);
   const [notes, setNotes] = useState(() => launch?.notes ?? "");
   const [members, setMembers] = useState<MemberRow[]>(() => initialMembers(launch, prefill));
+  // Cards whose row the X removed (edit): detached by the save, last.
+  const [detached, setDetached] = useState<string[]>([]);
+  // The cards that had a row at open: only these can be dropped by the save's
+  // detached-while-open guard; a card picked in this session goes through.
+  const [openedWithCardIds] = useState<string[]>(() =>
+    initialMembers(launch, prefill)
+      .map((m) => m.pd_project_id)
+      .filter((id): id is string => !!id && !!launch),
+  );
   // The move confirm keeps its last preview while it animates closed.
   const [move, setMove] = useState<MovePreview | null>(null);
   const [moveOpen, setMoveOpen] = useState(false);
@@ -168,29 +221,100 @@ function LaunchFormBody({ onOpenChange, launch, defaultDate, datesLocked, prefil
   // What a card-backed product shows: the card's name, stage, date and SKU.
   const cardInfo = useMemo(() => {
     const m = new Map<string, CardInfo>();
+    for (const p of prefill?.members ?? []) {
+      m.set(p.pd_project_id, {
+        name: p.planned_name,
+        stage: p.stage ?? "",
+        target: p.target_launch_date ?? null,
+        ownDate: false,
+        arrived: !!p.arrived,
+        halted: p.stage === "halted",
+        otherLaunch: null,
+        sku: p.sku ?? null,
+      });
+    }
     for (const c of board) {
-      m.set(c.id, { name: c.name, stage: c.stage, target: c.target_launch_date, ownDate: false, sku: c.linked_sku?.sku ?? null });
+      m.set(c.id, {
+        name: c.name,
+        stage: c.stage,
+        target: c.target_launch_date,
+        ownDate: false,
+        arrived: false,
+        halted: c.stage === "halted",
+        otherLaunch: c.linked_launch_id && c.linked_launch_id !== launch?.id ? c.launch?.name ?? "another launch" : null,
+        sku: c.linked_sku?.sku ?? null,
+      });
     }
     for (const c of launch?.cards ?? []) {
       const sku = launch?.skus.find((s) => s.pd_project_id === c.id)?.product?.sku ?? m.get(c.id)?.sku ?? null;
-      m.set(c.id, { name: c.name, stage: c.stage, target: c.target_launch_date, ownDate: !followsLaunch(c), sku });
+      m.set(c.id, {
+        name: c.name,
+        stage: c.stage,
+        target: c.target_launch_date,
+        ownDate: !isArrived(c) && !followsLaunch(c),
+        arrived: isArrived(c),
+        halted: c.stage === "halted",
+        otherLaunch: null,
+        sku,
+      });
     }
     return m;
-  }, [board, launch]);
+  }, [board, launch, prefill]);
+
+  // Stopped cards never ride a launch: their rows are hidden and never saved.
+  const rows = useMemo(() => members.filter((m) => !m.pd_project_id || !cardInfo.get(m.pd_project_id)?.halted), [members, cardInfo]);
 
   const pending = create.isPending || update.isPending;
   const isStudio = kind === "studio_drop";
 
   const effectiveReadyBy = readyByTouched ? readyBy : readyByDefault(earlyAccess, launchDate);
   const earlyAccessAfterLaunch = !!earlyAccess && !!launchDate && earlyAccess > launchDate;
-  const includedCount = members.filter((m) => m.included).length;
+  const includedCount = rows.filter((m) => m.included).length;
 
-  function updateMember(i: number, patch: Partial<MemberRow>) {
-    setMembers((prev) => prev.map((m, idx) => (idx === i ? { ...m, ...patch } : m)));
+  function updateMember(key: string, patch: Partial<MemberRow>) {
+    setMembers((prev) => prev.map((m) => (m.key === key ? { ...m, ...patch } : m)));
+  }
+
+  /** The live, unhalted card that owns a SKU (the board; an attached card on this launch counts too). */
+  function cardForSku(skuId: string) {
+    const onBoard = board.find((c) => c.linked_sku_id === skuId && c.stage !== "halted");
+    if (onBoard) return { id: onBoard.id };
+    const attached = launch?.cards.find((c) => c.linked_sku_id === skuId && c.stage !== "halted" && !c.archived_at);
+    return attached ? { id: attached.id } : null;
+  }
+
+  /** A SKU pick: the row becomes the owning card's row when the SKU has a live card. One product, one row. */
+  function pickSku(key: string, skuId: string) {
+    if (skuId === NONE) {
+      updateMember(key, { sku_id: NONE });
+      return;
+    }
+    const card = cardForSku(skuId);
+    const already = rows.some((m) => m.key !== key && m.included && (m.sku_id === skuId || (card != null && m.pd_project_id === card.id)));
+    if (already) {
+      toast({ title: "Already on this launch", variant: "destructive" });
+      return;
+    }
+    if (!card) {
+      updateMember(key, { sku_id: skuId });
+      return;
+    }
+    const wasDetached = detached.includes(card.id);
+    if (wasDetached) setDetached((prev) => prev.filter((id) => id !== card.id));
+    updateMember(key, { sku_id: skuId, pd_project_id: card.id, planned_name: "", fromOpen: wasDetached });
+  }
+
+  /** Remove a product row; an attached card's row is detached by the save. */
+  function removeMember(key: string) {
+    const m = members.find((r) => r.key === key);
+    if (m?.pd_project_id && m.fromOpen && !detached.includes(m.pd_project_id)) {
+      setDetached((prev) => [...prev, m.pd_project_id!]);
+    }
+    setMembers((prev) => prev.filter((r) => r.key !== key));
   }
 
   async function save() {
-    const memberPayload: LaunchMemberInput[] = members
+    const memberPayload: LaunchMemberInput[] = rows
       .filter((m) => m.included)
       .map((m) => ({
         sku_id: m.sku_id === NONE ? null : m.sku_id,
@@ -200,7 +324,7 @@ function LaunchFormBody({ onOpenChange, launch, defaultDate, datesLocked, prefil
         planner_confidence: m.confidence === NONE ? null : Number(m.confidence),
         pd_project_id: m.pd_project_id,
       }));
-    const launchPayload = {
+    const launchPayload: MktLaunchInsert = {
       name: name.trim(),
       kind,
       launch_date: launchDate || null,
@@ -210,7 +334,9 @@ function LaunchFormBody({ onOpenChange, launch, defaultDate, datesLocked, prefil
     };
     try {
       if (editing && launch) {
-        await update.mutateAsync({ id: launch.id, updates: launchPayload, members: memberPayload });
+        // Cards whose row the X removed detach last, server-side (their row goes unless it has actuals).
+        const updates: LaunchSaveInput = detached.length > 0 ? { ...launchPayload, detach_pd_project_ids: detached } : launchPayload;
+        await update.mutateAsync({ id: launch.id, updates, members: memberPayload, openedWithCardIds });
         toast({ title: "Launch updated" });
       } else {
         await create.mutateAsync({ launch: launchPayload, members: memberPayload });
@@ -237,7 +363,7 @@ function LaunchFormBody({ onOpenChange, launch, defaultDate, datesLocked, prefil
       return;
     }
     // Each member must identify a product (existing SKU or a working name).
-    for (const m of members) {
+    for (const m of rows) {
       if (!m.included || m.pd_project_id) continue;
       if (m.sku_id === NONE && !m.planned_name.trim()) {
         toast({ title: "Identify each product", description: "Pick a SKU or enter a working name for every product row.", variant: "destructive" });
@@ -327,16 +453,17 @@ function LaunchFormBody({ onOpenChange, launch, defaultDate, datesLocked, prefil
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label className="text-base">Products <span className="text-xs font-normal text-muted-foreground">({includedCount})</span></Label>
-            <Button type="button" variant="outline" size="sm" onClick={() => setMembers((prev) => [...prev, emptyMember()])}>
+            <Button type="button" variant="outline" size="sm" onClick={() => setMembers((prev) => [...prev, emptyMember(newKey())])}>
               <Plus className="mr-1.5 h-3.5 w-3.5" /> Add product
             </Button>
           </div>
 
-          {members.map((m, i) => {
+          {rows.map((m, i) => {
             const info = m.pd_project_id ? cardInfo.get(m.pd_project_id) : undefined;
+            const removable = m.pd_project_id ? !m.optional : rows.length > 1;
             return (
               <div
-                key={m.pd_project_id ?? `row-${i}`}
+                key={m.key}
                 className={`space-y-3 rounded-lg border p-3 ${m.pd_project_id ? "border-violet-500/30" : "border-border/50"} ${m.included ? "" : "opacity-60"}`}
               >
                 {m.pd_project_id ? (
@@ -344,7 +471,7 @@ function LaunchFormBody({ onOpenChange, launch, defaultDate, datesLocked, prefil
                     {m.optional && (
                       <Checkbox
                         checked={m.included}
-                        onCheckedChange={(v) => updateMember(i, { included: v === true })}
+                        onCheckedChange={(v) => updateMember(m.key, { included: v === true })}
                         aria-label={info?.name ?? m.planned_name}
                       />
                     )}
@@ -352,13 +479,20 @@ function LaunchFormBody({ onOpenChange, launch, defaultDate, datesLocked, prefil
                       {info?.name ?? (m.planned_name || "—")}
                       {info?.sku && <span className="ml-2 font-mono text-xs font-normal text-muted-foreground">{info.sku}</span>}
                     </span>
-                    {info && <StageChip label={pdStageLabel(info.stage)} />}
-                    {info && m.included && (
+                    {info && (info.arrived ? (
+                      <StageChip label={MEMBER_STATE_LABEL.arrived} tone="ok" />
+                    ) : info.stage ? (
+                      <StageChip label={pdStageLabel(info.stage)} />
+                    ) : null)}
+                    {info && m.included && !info.arrived && (
                       info.ownDate ? (
                         <OwnDateChip date={info.target} />
                       ) : (
                         <span className="text-xs"><DateShift from={info.target} to={launchDate || info.target} /></span>
                       )
+                    )}
+                    {info?.otherLaunch && m.included && (
+                      <span className="whitespace-nowrap text-[10px] text-muted-foreground">leaves {info.otherLaunch}</span>
                     )}
                     {editing && (
                       <Link
@@ -368,13 +502,18 @@ function LaunchFormBody({ onOpenChange, launch, defaultDate, datesLocked, prefil
                         Open <ChevronRight className="h-3 w-3" />
                       </Link>
                     )}
+                    {removable && (
+                      <button type="button" onClick={() => removeMember(m.key)} className="text-muted-foreground hover:text-foreground" aria-label={`Remove ${info?.name ?? m.planned_name}`}>
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <>
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-medium text-muted-foreground">Product {i + 1}</span>
-                      {members.length > 1 && (
-                        <button type="button" onClick={() => setMembers((prev) => prev.filter((_, idx) => idx !== i))} className="text-muted-foreground hover:text-foreground">
+                      {removable && (
+                        <button type="button" onClick={() => removeMember(m.key)} className="text-muted-foreground hover:text-foreground" aria-label={`Remove product ${i + 1}`}>
                           <X className="h-3.5 w-3.5" />
                         </button>
                       )}
@@ -382,7 +521,7 @@ function LaunchFormBody({ onOpenChange, launch, defaultDate, datesLocked, prefil
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1.5">
                         <Label className="text-xs">Existing SKU</Label>
-                        <Select value={m.sku_id} onValueChange={(v) => updateMember(i, { sku_id: v })}>
+                        <Select value={m.sku_id} onValueChange={(v) => pickSku(m.key, v)}>
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value={NONE}>— new / planned —</SelectItem>
@@ -399,7 +538,7 @@ function LaunchFormBody({ onOpenChange, launch, defaultDate, datesLocked, prefil
                         <Label className="text-xs">Working name <span className="text-muted-foreground/60">if new</span></Label>
                         <Input
                           value={m.planned_name}
-                          onChange={(e) => updateMember(i, { planned_name: e.target.value })}
+                          onChange={(e) => updateMember(m.key, { planned_name: e.target.value })}
                           placeholder="not-yet-created product"
                           disabled={m.sku_id !== NONE}
                         />
@@ -407,19 +546,19 @@ function LaunchFormBody({ onOpenChange, launch, defaultDate, datesLocked, prefil
                     </div>
                   </>
                 )}
-                {m.included && !(m.pd_project_id && fromDrop) && (
+                {m.included && (
                   <div className="grid grid-cols-3 gap-3">
                     <div className="space-y-1.5">
                       <Label className="text-xs">Exp. 1st-30d units</Label>
-                      <Input type="number" min={0} value={m.expected} onChange={(e) => updateMember(i, { expected: e.target.value })} />
+                      <Input type="number" min={0} value={m.expected} onChange={(e) => updateMember(m.key, { expected: e.target.value })} />
                     </div>
                     <div className="space-y-1.5">
                       <Label className="text-xs">Limited qty</Label>
-                      <Input type="number" min={0} value={m.limited} onChange={(e) => updateMember(i, { limited: e.target.value })} />
+                      <Input type="number" min={0} value={m.limited} onChange={(e) => updateMember(m.key, { limited: e.target.value })} />
                     </div>
                     <div className="space-y-1.5">
                       <Label className="text-xs">Confidence (1–5)</Label>
-                      <Select value={m.confidence} onValueChange={(v) => updateMember(i, { confidence: v })}>
+                      <Select value={m.confidence} onValueChange={(v) => updateMember(m.key, { confidence: v })}>
                         <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value={NONE}>—</SelectItem>
