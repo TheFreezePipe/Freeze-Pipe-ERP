@@ -4722,9 +4722,38 @@ export type Database = {
       }
       fire_daily_report: { Args: never; Returns: undefined }
       fire_youtube_summary: { Args: never; Returns: undefined }
+      fn_pd_detach_member: {
+        Args: { p_launch_id: string; p_project_id: string; p_via: string }
+        Returns: Json
+      }
+      fn_pd_evaluate_arrival: {
+        Args: {
+          p_line_id: string
+          p_shipment_id: string
+          p_sku_id: string
+          p_via?: string
+        }
+        Returns: number
+      }
       fn_pd_gate_missing: {
         Args: { p_project_id: string; p_to_stage: string }
         Returns: string[]
+      }
+      fn_pd_launch_moved_event: {
+        Args: {
+          p_extra?: Json
+          p_launch_id: string
+          p_new_date: string
+          p_old_date: string
+          p_project_id: string
+          p_stage: string
+          p_via: string
+        }
+        Returns: string
+      }
+      fn_pd_release_member_rows: {
+        Args: { p_launch_id: string; p_project_id: string }
+        Returns: Json
       }
       jwt_is_admin: { Args: never; Returns: boolean }
       jwt_is_internal: { Args: never; Returns: boolean }
@@ -4939,6 +4968,14 @@ export type Database = {
       }
       rpc_pd_link_factory_order: {
         Args: { p_factory_order_id: string; p_project_id: string }
+        Returns: Json
+      }
+      rpc_pd_link_sku: {
+        Args: { p_project_id: string; p_sku_id: string }
+        Returns: Json
+      }
+      rpc_pd_mark_arrived: {
+        Args: { p_note?: string; p_project_id: string }
         Returns: Json
       }
       rpc_pd_move: {
