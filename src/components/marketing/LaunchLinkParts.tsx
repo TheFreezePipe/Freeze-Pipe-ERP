@@ -1,10 +1,11 @@
 /**
  * Small pieces the launch-link dialogs and lists share: a date that shifts
- * (old struck through -> new), the PD stage chip, the risk dot and the
- * own-date chip. Same chip vocabulary as the PD board.
+ * (old struck through -> new), the PD stage chip, the risk dot, the supply
+ * verdict's shape and the own-date chip. Same chip vocabulary as the PD board.
  */
 import { cn } from "@/lib/utils";
 import type { RiskDot } from "@/lib/marketing/pd";
+import type { Tone } from "@/lib/marketing/launch-supply";
 import { fmtDay } from "./launch-format";
 
 /** Old -> new, old struck through; just the date when it does not change. */
@@ -55,6 +56,15 @@ export function RiskDotMark({ dot, className }: { dot: RiskDot; className?: stri
       aria-hidden
       className={cn("inline-block h-1.5 w-1.5 shrink-0 rounded-full", dot ? DOT_CLASS[dot] : "bg-muted-foreground/40", className)}
     />
+  );
+}
+
+/** The supply verdict's shape beside its word — a filled circle (green), a triangle (amber), a diamond (red) — so colour never carries the state alone. */
+export function VerdictMark({ tone, className }: { tone: Tone; className?: string }) {
+  return (
+    <svg aria-hidden viewBox="0 0 10 10" fill="currentColor" className={cn("inline-block h-[9px] w-[9px] shrink-0", className)}>
+      {tone === "g" ? <circle cx={5} cy={5} r={4} /> : tone === "a" ? <path d="M5 0.5 9.5 9.5H0.5z" /> : <path d="M5 0.3 9.7 5 5 9.7 0.3 5z" />}
+    </svg>
   );
 }
 

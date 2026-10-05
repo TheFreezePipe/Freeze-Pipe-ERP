@@ -1,5 +1,6 @@
 import { StatCard } from "@/components/shared/StatCard";
-import { Warehouse, Ship, Factory, Pencil, X, Save, Search, Plane, DollarSign, ShoppingCart, Trash2, ArrowRight, Megaphone } from "lucide-react";
+import { ModeTile } from "@/components/shared/ModeTile";
+import { Warehouse, Ship, Factory, Pencil, X, Save, Search, DollarSign, ShoppingCart, Trash2, ArrowRight, Megaphone } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format, parseISO, differenceInDays } from "date-fns";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -143,7 +144,6 @@ function TransitBreakdownPopover({
           <div className="divide-y divide-border/50">
             {shipments.map(({ shipment, remaining, received, shipped }) => {
               const isAir = shipment.freight_type === "air";
-              const Icon = isAir ? Plane : Ship;
               const daysLeft = shipment.eta ? differenceInDays(parseISO(shipment.eta), new Date()) : null;
               // Fall back to a neutral chip for any status the map doesn't
               // cover so a future schema addition doesn't render a blank.
@@ -155,9 +155,7 @@ function TransitBreakdownPopover({
                 };
               return (
                 <div key={shipment.id} className="flex items-center gap-3 px-3 py-2">
-                  <div className={`flex h-8 w-8 items-center justify-center rounded-md ${isAir ? "bg-cyan-400/10 text-cyan-400" : "bg-blue-400/10 text-blue-400"}`}>
-                    <Icon className="h-4 w-4" />
-                  </div>
+                  <ModeTile mode={isAir ? "air" : "sea"} size="md" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium truncate">{shipment.shipment_number}</p>
                     <p className="text-[10px] text-muted-foreground">
@@ -339,9 +337,7 @@ function OnOrderBreakdownPopover({
                   };
                 return (
                   <div key={order.id} className="flex items-center gap-3 px-3 py-2">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-md bg-orange-400/10 text-orange-400">
-                      <Factory className="h-4 w-4" />
-                    </div>
+                    <ModeTile mode="factory" size="md" />
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-medium truncate">
                         {order.order_number ?? order.supplier?.code ?? "Awaiting #"}

@@ -12,8 +12,6 @@ import {
   attachPlan,
   attachPreview,
   movePreview,
-  launchHealth,
-  launchHealthText,
   launchProductCount,
   dropLaunchPrefill,
   keepCurrentCardMembers,
@@ -23,16 +21,12 @@ import {
   launchLinkErrorMessage,
   LAUNCH_LINK_ERROR_LABEL,
   inboundBySku,
-  skuInbound,
   launchSkuIds,
-  incomingDatesBySku,
-  isOpenFactoryOrder,
   memberState,
   memberStocked,
   memberStockNeed,
-  timingRisk,
-  EMPTY_INBOUND,
   type InboundLine,
+  type InboundShipment,
   type LaunchLinkCard,
   type LaunchMemberCard,
   type LaunchMemberLike,
@@ -496,32 +490,9 @@ const ordered = (over: Partial<LaunchMemberCard> & { id: string; name: string })
   ...over,
 });
 
-const BW20DNA = ordered({
-  id: "c-bw20dna",
-  name: "Q4 Studio - BW20DNA",
-  linked_sku_id: SKU.bw20dna,
-  ordered_at: "2026-08-27T15:00:00Z",
-  linked_factory_order_id: "fo-as",
-  factory_order: {
-    id: "fo-as",
-    order_number: "AS082726BW",
-    status: "ordered",
-    expected_completion: "2026-09-27",
-    items: [{ id: ITEM.bw20dna, sku_id: SKU.bw20dna, quantity_ordered: 300, quantity_consumed_by_parent: 0, alternate_expected_completion: null }],
-  },
-});
-const YX = {
-  id: "fo-yx",
-  order_number: "YX-2026082802",
-  status: "ordered",
-  expected_completion: "2026-10-07",
-  items: [
-    { id: ITEM.nb2, sku_id: SKU.nb2, quantity_ordered: 200, quantity_consumed_by_parent: 0, alternate_expected_completion: null },
-    { id: ITEM.nb6, sku_id: SKU.nb6, quantity_ordered: 200, quantity_consumed_by_parent: 0, alternate_expected_completion: null },
-  ],
-};
-const NB2 = ordered({ id: "c-nb2", name: "Q4 Studio - NB2", linked_sku_id: SKU.nb2, ordered_at: "2026-09-01T12:00:00Z", linked_factory_order_id: "fo-yx", factory_order: YX });
-const NB6 = ordered({ id: "c-nb6", name: "Q4 Studio - NB6", linked_sku_id: SKU.nb6, ordered_at: "2026-09-01T12:00:00Z", linked_factory_order_id: "fo-yx", factory_order: YX });
+const BW20DNA = ordered({ id: "c-bw20dna", name: "Q4 Studio - BW20DNA", linked_sku_id: SKU.bw20dna, ordered_at: "2026-08-27T15:00:00Z", linked_factory_order_id: "fo-as" });
+const NB2 = ordered({ id: "c-nb2", name: "Q4 Studio - NB2", linked_sku_id: SKU.nb2, ordered_at: "2026-09-01T12:00:00Z", linked_factory_order_id: "fo-yx" });
+const NB6 = ordered({ id: "c-nb6", name: "Q4 Studio - NB6", linked_sku_id: SKU.nb6, ordered_at: "2026-09-01T12:00:00Z", linked_factory_order_id: "fo-yx" });
 
 const row = (over: Partial<LaunchMemberRow> & { id: string }): LaunchMemberRow => ({
   sku_id: null,
@@ -538,18 +509,25 @@ const NL_ROWS: LaunchMemberRow[] = [
   row({ id: "m3", sku_id: SKU.nb6, pd_project_id: NB6.id, limited_qty: 200, product: { sku: "S04-NB6", product_name: "NB6" } }),
 ];
 
-const ship = (shipment_number: string, eta: string | null, status: string, received: string | null = null): InboundLine["shipment"] => ({
+const ship = (shipment_number: string, eta: string | null, status: string, received: string | null = null): InboundShipment => ({
   id: `s-${shipment_number}`,
   shipment_number,
-  eta,
+  freight_type: shipment_number.startsWith("AIR") ? "air" : "sea",
   status,
+  eta,
+  eta_original: eta,
+  ship_date: null,
+  carrier_name: null,
   receipt_confirmed_at: received,
+  carton_groups: [],
 });
-const line = (sku_id: string, quantity: number, quantity_received: number, src: string | null, shipment: InboundLine["shipment"]): InboundLine => ({
+const line = (sku_id: string, quantity: number, quantity_received: number, src: string | null, shipment: InboundShipment | null): InboundLine => ({
   sku_id,
   quantity,
   quantity_received,
+  quantity_prefilled: 0,
   source_factory_order_item_id: src,
+  freight_shipment_id: shipment?.id ?? "s-none",
   shipment,
 });
 /** Live freight on 2026-10-01: sea 485 + 486 and air 268 for BW20DNA; AIR-266 (2 samples each of NB2/NB6) checked in and confirmed. */
@@ -572,183 +550,56 @@ describe("inbound freight", () => {
     expect(inboundBySku([{ ...line(SKU.nb2, 10, 0, null, ship("X", null, "pending")), sku_id: null }]).size).toBe(0);
   });
 
-  it("skuInbound: units to land, latest ETA, shipments soonest first; sourced lines win over strays", () => {
-    expect(skuInbound(NL_INBOUND, SKU.bw20dna)).toEqual({ units: 277, eta: "2026-10-30", shipments: ["AIR-268", "485", "486"] });
-    expect(skuInbound(NL_INBOUND, SKU.nb2)).toBeNull();
-    expect(skuInbound(NL_INBOUND, null)).toBeNull();
-    const withStray = inboundBySku([...NL_LINES, line(SKU.bw20dna, 500, 0, null, ship("RESTOCK", "2027-02-01", "pending"))]);
-    expect(skuInbound(withStray, SKU.bw20dna)?.units).toBe(777);
-    expect(skuInbound(withStray, SKU.bw20dna, new Set([ITEM.bw20dna]))).toMatchObject({ units: 277, eta: "2026-10-30" });
-    // no sourced line at all: every inbound line counts
-    expect(skuInbound(withStray, SKU.bw20dna, new Set(["other-item"]))?.units).toBe(777);
-    // partial receipt: only the remainder is on the way
-    expect(skuInbound(inboundBySku([line(SKU.nb2, 100, 40, null, ship("Y", null, "pending"))]), SKU.nb2)).toEqual({ units: 60, eta: null, shipments: ["Y"] });
-  });
-
   it("launchSkuIds: member rows and cards, deduped, sorted", () => {
     expect(launchSkuIds([NL_LAUNCH, { skus: [{ sku_id: "a" }, { sku_id: null }], cards: [{ linked_sku_id: SKU.nb2 }] }])).toEqual([
       "a", SKU.bw20dna, SKU.nb2, SKU.nb6,
     ]);
   });
-
-  it("timingRisk: red after the deadline, amber inside 7 days, else green", () => {
-    expect(timingRisk("2026-10-30", "2026-10-20")).toEqual({ risk: "r", slackDays: -10 });
-    expect(timingRisk("2026-10-20", "2026-10-20")).toEqual({ risk: "a", slackDays: 0 });
-    expect(timingRisk("2026-10-14", "2026-10-20")).toEqual({ risk: "a", slackDays: 6 });
-    expect(timingRisk("2026-10-13", "2026-10-20")).toEqual({ risk: "g", slackDays: 7 });
-  });
 });
 
-describe("incomingDatesBySku (Launches Status chip)", () => {
-  const SKUS = [SKU.bw20dna, SKU.nb2, SKU.nb6];
-  const FOS = [BW20DNA.factory_order!, YX];
-
-  it("Northern Lights: BW20DNA reads its freight ETA (Oct 30, the Shipped row's date), not the earlier factory date; NB2/NB6 their factory due", () => {
-    expect(incomingDatesBySku(SKUS, NL_INBOUND, FOS)).toEqual(
-      new Map([
-        [SKU.bw20dna, "2026-10-30"],
-        [SKU.nb2, "2026-10-07"],
-        [SKU.nb6, "2026-10-07"],
-      ]),
-    );
-  });
-
-  it("a delivered-but-unconfirmed shipment is still inbound (the status never decides); a confirmed one is not", () => {
-    const limbo = inboundBySku([line(SKU.nb2, 162, 76, ITEM.nb2, ship("472", "2026-10-10", "delivered"))]);
-    expect(incomingDatesBySku([SKU.nb2], limbo, [])).toEqual(new Map([[SKU.nb2, "2026-10-10"]]));
-    const checkedIn = inboundBySku([line(SKU.nb2, 162, 162, ITEM.nb2, ship("472", "2026-10-10", "delivered", "2026-10-11T12:00:00Z"))]);
-    expect(incomingDatesBySku([SKU.nb2], checkedIn, [])).toEqual(new Map());
-  });
-
-  it("nothing shipped: the earliest factory due among open orders, the item's alternate date first; shipped / canceled orders and other SKUs ignored", () => {
-    const later = { status: "confirmed", expected_completion: "2026-11-01", items: [{ id: "i9", sku_id: SKU.nb2, quantity_ordered: 50, alternate_expected_completion: null }] };
-    const alt = { status: "ordered", expected_completion: "2026-12-01", items: [{ id: "i8", sku_id: SKU.nb6, quantity_ordered: 50, alternate_expected_completion: "2026-09-30" }] };
-    const gone = { status: "shipped", expected_completion: "2026-09-01", items: [{ id: "i7", sku_id: SKU.nb2, quantity_ordered: 50, alternate_expected_completion: null }] };
-    const dead = { status: "canceled", expected_completion: "2026-09-01", items: [{ id: "i6", sku_id: SKU.nb6, quantity_ordered: 50, alternate_expected_completion: null }] };
-    expect(incomingDatesBySku([SKU.nb2, SKU.nb6], EMPTY_INBOUND, [later, YX, alt, gone, dead])).toEqual(
-      new Map([
-        [SKU.nb2, "2026-10-07"],
-        [SKU.nb6, "2026-09-30"],
-      ]),
-    );
-    expect(incomingDatesBySku([SKU.nb2], EMPTY_INBOUND, [YX]).has(SKU.nb6)).toBe(false);
-    expect(isOpenFactoryOrder({ status: "shipped" })).toBe(false);
-    expect(isOpenFactoryOrder({ status: "ordered" })).toBe(true);
-  });
-
-  it("inbound units with no ETA fall back to the factory date", () => {
-    const undated = inboundBySku([line(SKU.nb2, 100, 0, ITEM.nb2, ship("Z", null, "pending"))]);
-    expect(incomingDatesBySku([SKU.nb2], undated, [YX])).toEqual(new Map([[SKU.nb2, "2026-10-07"]]));
-  });
-});
-
-describe("memberState", () => {
-  it("BW20DNA: 277 of 300 on the water, ETA Oct 30 vs ready-by Oct 20 → Shipped, red by 10 days", () => {
-    const s = memberState(NL_ROWS[0], NL_LAUNCH, NL_INBOUND, NL_TODAY);
-    expect(s).toEqual({
-      kind: "shipped",
-      label: "Shipped",
-      date: { label: "ETA", value: "2026-10-30", days: 29 },
-      risk: "r",
-      against: { label: "Ready by", value: "2026-10-20", slackDays: -10 },
-      detail: "277 of 300 units · AIR-268, 485, 486",
-      orderBy: null,
-      units: { inbound: 277, ordered: 300 },
-      shipments: ["AIR-268", "485", "486"],
-    });
-  });
-
-  it("NB2: factory due Oct 7, nothing inbound (samples confirmed) → Ordered, due vs ship-by Sep 15 → red; placed Sep 1", () => {
-    const s = memberState(NL_ROWS[1], NL_LAUNCH, NL_INBOUND, NL_TODAY);
-    expect(s).toEqual({
-      kind: "ordered",
-      label: "Ordered",
-      date: { label: "Factory due", value: "2026-10-07", days: 6 },
-      risk: "r",
-      against: { label: "Ship by", value: "2026-09-15", slackDays: -22 },
-      detail: "Placed Sep 1",
-      orderBy: null,
-      units: { inbound: 0, ordered: 200 },
-      shipments: [],
-    });
-    expect(memberState(NL_ROWS[2], NL_LAUNCH, NL_INBOUND, NL_TODAY)).toMatchObject({ kind: "ordered", risk: "r" });
-  });
-
-  it("ordered: the item's alternate date beats the order's; a factory date inside a week of ship-by is amber, earlier is green", () => {
-    const roomy = { ...NL_LAUNCH, inventory_ready_by: "2026-12-01" }; // ship by 2026-10-27
-    const alt = {
-      ...NB2,
-      factory_order: { ...YX, items: [{ ...YX.items[0], alternate_expected_completion: "2026-10-22" }, YX.items[1]] },
-    };
-    const s = memberState(NL_ROWS[1], { ...roomy, cards: [alt] }, EMPTY_INBOUND, NL_TODAY);
-    expect(s.date).toEqual({ label: "Factory due", value: "2026-10-22", days: 21 });
-    expect(s.risk).toBe("a");
-    expect(s.against).toEqual({ label: "Ship by", value: "2026-10-27", slackDays: 5 });
-    expect(memberState(NL_ROWS[2], { ...roomy, cards: [NB6] }, EMPTY_INBOUND, NL_TODAY)).toMatchObject({ risk: "g", date: { value: "2026-10-07" } });
-  });
-
-  it("ordered without a factory order / dated launch: Ordered, unrated; no inbound map yet reads as Ordered", () => {
-    const bare = memberState(NL_ROWS[1], { ...NL_LAUNCH, cards: [{ ...NB2, factory_order: null }] }, EMPTY_INBOUND, NL_TODAY);
-    expect(bare).toMatchObject({ kind: "ordered", date: null, risk: null, against: null, detail: "Placed Sep 1", units: null });
-    const undated = memberState(NL_ROWS[1], { ...NL_LAUNCH, launch_date: null, early_access_date: null, inventory_ready_by: null }, EMPTY_INBOUND, NL_TODAY);
-    expect(undated).toMatchObject({ kind: "ordered", date: { value: "2026-10-07" }, risk: null, against: null });
-    expect(memberState(NL_ROWS[0], NL_LAUNCH, EMPTY_INBOUND, NL_TODAY)).toMatchObject({ kind: "ordered", risk: "r", date: { value: "2026-09-27" } });
-  });
-
-  it("shipped: ETA inside a week of ready-by is amber, before it green; no ETA → unrated", () => {
-    const early = inboundBySku([line(SKU.bw20dna, 300, 0, ITEM.bw20dna, ship("485", "2026-10-15", "on_the_water"))]);
-    expect(memberState(NL_ROWS[0], NL_LAUNCH, early, NL_TODAY)).toMatchObject({ kind: "shipped", risk: "a", against: { slackDays: 5 } });
-    const sooner = inboundBySku([line(SKU.bw20dna, 300, 0, ITEM.bw20dna, ship("485", "2026-10-01", "on_the_water"))]);
-    expect(memberState(NL_ROWS[0], NL_LAUNCH, sooner, NL_TODAY)).toMatchObject({ kind: "shipped", risk: "g", against: { slackDays: 19 } });
-    const noEta = inboundBySku([line(SKU.bw20dna, 300, 0, ITEM.bw20dna, ship("485", null, "pending"))]);
-    expect(memberState(NL_ROWS[0], NL_LAUNCH, noEta, NL_TODAY)).toMatchObject({ kind: "shipped", date: null, risk: null, detail: "300 of 300 units · 485" });
-  });
-
+describe("memberState (rows without a SKU)", () => {
   it("arrived: green, frozen, the day it landed; halted: never rated", () => {
     const arrived = { ...NB2, archived_at: "2026-09-22T18:00:00Z", archive_reason: "arrived" };
-    expect(memberState(NL_ROWS[1], { ...NL_LAUNCH, cards: [arrived] }, NL_INBOUND, NL_TODAY)).toEqual({
+    expect(memberState(NL_ROWS[1], { ...NL_LAUNCH, cards: [arrived] }, NL_TODAY)).toEqual({
       kind: "arrived",
       label: "Arrived",
       date: { label: "Arrived", value: "2026-09-22", days: -9 },
       risk: "g",
-      against: null,
-      detail: null,
       orderBy: null,
-      units: null,
-      shipments: [],
     });
     const halted = { ...NB2, stage: "halted" };
-    expect(memberState(NL_ROWS[1], { ...NL_LAUNCH, cards: [halted] }, NL_INBOUND, NL_TODAY)).toMatchObject({ kind: "halted", label: "Halted", risk: null, date: null });
+    expect(memberState(NL_ROWS[1], { ...NL_LAUNCH, cards: [halted] }, NL_TODAY)).toMatchObject({ kind: "halted", label: "Halted", risk: null, date: null });
     // archived for another reason: stage label, nothing rated
     const shelved = { ...NB2, archived_at: "2026-09-22T18:00:00Z", archive_reason: "shelved" };
-    expect(memberState(NL_ROWS[1], { ...NL_LAUNCH, cards: [shelved] }, NL_INBOUND, NL_TODAY)).toMatchObject({ kind: "development", label: "Ordered", risk: null });
+    expect(memberState(NL_ROWS[1], { ...NL_LAUNCH, cards: [shelved] }, NL_TODAY)).toMatchObject({ kind: "development", label: "Ordered", risk: null });
   });
 
   it("development: the board's chain and risk dot anchored on the launch; order by exposed", () => {
     const dev = following({ id: "d", name: "Heady Studio Drop - BW58" });
-    const s = memberState(row({ id: "m", pd_project_id: "d", planned_name: "BW58" }), { ...HEADY, cards: [dev] }, EMPTY_INBOUND, TODAY);
+    const s = memberState(row({ id: "m", pd_project_id: "d", planned_name: "BW58" }), { ...HEADY, cards: [dev] }, TODAY);
     expect(s).toMatchObject({
       kind: "development",
       label: "Ready to Begin",
       date: { label: "Spec by", value: "2026-09-23", days: -6 },
       risk: "r",
-      against: null,
       orderBy: "2026-10-28",
     });
   });
 
-  it("plain rows: no card (or a card RLS hid) → unrated; inbound freight is reported", () => {
-    const plain = memberState(row({ id: "p", sku_id: SKU.bw20dna, product: { sku: "S04-BW20DNA", product_name: "x" } }), { ...NL, cards: [] }, NL_INBOUND, NL_TODAY);
-    expect(plain).toMatchObject({
+  it("an ordered card reads through the chain too: order by done, ship by (ready-by − 35) next", () => {
+    const s = memberState(NL_ROWS[1], NL_LAUNCH, NL_TODAY);
+    expect(s).toMatchObject({ kind: "development", label: "Ordered", date: { label: "Ship by", value: "2026-09-15" }, risk: "r", orderBy: "2026-08-16" });
+  });
+
+  it("plain rows: no card (or a card RLS hid) → unrated", () => {
+    expect(memberState(row({ id: "p", planned_name: "Someday" }), { ...NL, cards: [] }, NL_TODAY)).toEqual({
       kind: "plain",
       label: "",
+      date: null,
       risk: null,
-      date: { label: "ETA", value: "2026-10-30" },
-      units: { inbound: 277, ordered: null },
-      detail: "277 units · AIR-268, 485, 486",
+      orderBy: null,
     });
-    expect(memberState(row({ id: "p", planned_name: "Someday" }), { ...NL, cards: [] }, NL_INBOUND, NL_TODAY)).toMatchObject({ kind: "plain", date: null, detail: null });
-    expect(memberState(row({ id: "p", pd_project_id: "hidden" }), { ...NL, cards: [] }, EMPTY_INBOUND, NL_TODAY).kind).toBe("plain");
+    expect(memberState(row({ id: "p", pd_project_id: "hidden" }), { ...NL, cards: [] }, NL_TODAY).kind).toBe("plain");
   });
 
   it("stock reading: on hand must cover the limited qty / expected units, else any stock", () => {
@@ -762,14 +613,8 @@ describe("memberState", () => {
   });
 });
 
-describe("launchHealth / launchProductCount", () => {
-  it("Northern Lights: 3 products, all late (one shipped late by sea, two ordered past ship-by)", () => {
-    const h = launchHealth(NL_LAUNCH, NL_INBOUND, NL_TODAY);
-    expect(h).toEqual({ count: 3, late: 3, tight: 0, arrived: 0, worst: "r" });
-    expect(launchHealthText(h)).toBe("3 products · 3 late");
-  });
-
-  it("arrived rows count and read green; halted rows count for nothing; plain rows count but are not rated", () => {
+describe("launchProductCount", () => {
+  it("arrived rows count; halted rows count for nothing; plain rows count", () => {
     const arrived = { ...NB2, archived_at: "2026-11-01T00:00:00Z", archive_reason: "arrived" };
     const halted = { ...NB6, stage: "halted" };
     const l = {
@@ -778,29 +623,13 @@ describe("launchHealth / launchProductCount", () => {
       cards: [BW20DNA, arrived, halted],
     };
     expect(launchProductCount(l)).toBe(3);
-    const h = launchHealth(l, NL_INBOUND, NL_TODAY);
-    expect(h).toEqual({ count: 3, late: 1, tight: 0, arrived: 1, worst: "r" });
-    expect(launchHealthText(h)).toBe("3 products · 1 late");
-    const onlyArrived = launchHealth({ ...NL_LAUNCH, skus: [NL_ROWS[1]], cards: [arrived] }, EMPTY_INBOUND, NL_TODAY);
-    expect(onlyArrived).toEqual({ count: 1, late: 0, tight: 0, arrived: 1, worst: "g" });
-    expect(launchHealthText(launchHealth({ ...NL_LAUNCH, skus: [], cards: [] }, EMPTY_INBOUND, NL_TODAY))).toBe("no products");
-    expect(launchHealthText({ count: 3, late: 1, tight: 1, worst: "r" })).toBe("3 products · 1 late · 1 tight");
+    expect(launchProductCount({ ...NL_LAUNCH, skus: [], cards: [] })).toBe(0);
   });
 
-  it("launchProductCount: member rows minus halted cards' rows — rows, not cards", () => {
+  it("member rows minus halted cards' rows — rows, not cards", () => {
     expect(launchProductCount({ skus: [{ pd_project_id: "c1" }, { pd_project_id: "h" }, { pd_project_id: null }], cards: [{ id: "c1" }, { id: "h", stage: "halted" }] })).toBe(2);
     expect(launchProductCount({ skus: [{ pd_project_id: "arrived" }], cards: [{ id: "arrived", stage: "ordered" }] })).toBe(1);
     expect(launchProductCount({ skus: [], cards: [{ id: "c1" }, { id: "c2" }] })).toBe(0);
-  });
-
-  it("legacy card form still rates attached cards by the chain (arrived green, halted skipped)", () => {
-    const late = following({ id: "l1" }); // spec by 2026-09-23 passed → red
-    const ok = following({ id: "g1", stage: "china_working", spec_sent_at: "2026-09-01" }); // order by 10-28 → 29d
-    const halted = following({ id: "h", stage: "halted" });
-    const shelved = following({ id: "a", archived_at: "2026-09-01T00:00:00Z", archive_reason: "shelved" });
-    const arrived = following({ id: "ar", stage: "ordered", archived_at: "2026-09-01T00:00:00Z", archive_reason: "arrived" });
-    expect(launchHealth([late, ok, halted, shelved, arrived], TODAY)).toEqual({ count: 3, late: 1, tight: 0, arrived: 1, worst: "r" });
-    expect(launchHealth([], TODAY)).toEqual({ count: 0, late: 0, tight: 0, arrived: 0, worst: null });
   });
 });
 

@@ -10,13 +10,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { Database, Json } from "@/lib/database.types";
 import type { PdLaunchRef } from "@/lib/marketing/pd";
-import {
-  inboundBySku,
-  keepCurrentCardMembers,
-  type InboundLine,
-  type InboundMap,
-  type LaunchCardFactoryOrder,
-} from "@/lib/marketing/launch-link";
+import { inboundBySku, keepCurrentCardMembers, type InboundLine, type InboundMap } from "@/lib/marketing/launch-link";
+import type { LaunchFactorySupply, LaunchFactorySupplyItem, LaunchFactorySupplyOrder } from "@/lib/marketing/launch-supply";
 
 type Tables = Database["public"]["Tables"];
 export type MktSale = Tables["mkt_sales"]["Row"];
@@ -45,9 +40,9 @@ type PdProjectRow = Tables["mkt_pd_projects"]["Row"];
  * A PD card attached to a launch (mkt_pd_projects.linked_launch_id), with
  * what the deadline chain / risk dot / launch-link previews / memberState
  * read. `launch` is the parent launch's dates, so deadlineChain(card, today)
- * and riskDot(card, today) anchor on it without passing it. `factory_order`
- * is the card's linked factory order (status, expected completion, its items
- * with the SKU's alternate date) — what an Ordered product's state reads.
+ * and riskDot(card, today) anchor on it without passing it. Its supply is
+ * not here: the ledger reads the SKU's factory orders through
+ * useLaunchFactorySupply.
  */
 export type MktLaunchCard = Pick<
   PdProjectRow,
@@ -67,7 +62,7 @@ export type MktLaunchCard = Pick<
   | "archive_reason"
   | "ordered_at"
   | "created_at"
-> & { launch: PdLaunchRef; factory_order: LaunchCardFactoryOrder | null };
+> & { launch: PdLaunchRef };
 
 /**
  * skus: member rows (each carries pd_project_id when it stands for a card).
@@ -271,21 +266,14 @@ export function useSetOfferSkus() {
 }
 
 // ===================== Launches =====================
-/**
- * The card columns the launches query embeds, plus the card's linked factory
- * order (FK hint: mkt_pd_projects reaches factory_orders only by
- * linked_factory_order_id, the hint just makes that explicit) with its items
- * — memberState reads the SKU's alternate completion and quantity ordered.
- */
+/** The card columns the launches query embeds (MktLaunchCard minus the parent launch, added by normalizeLaunch). */
 const LAUNCH_CARD_COLUMNS =
   "id, name, stage, drop_tag, display_category, target_launch_date, launch_date_override, linked_launch_id, " +
-  "spec_sent_at, stage_entered_at, linked_sku_id, linked_factory_order_id, archived_at, archive_reason, ordered_at, created_at, " +
-  "factory_order:factory_orders!mkt_pd_projects_linked_factory_order_id_fkey(id, order_number, status, expected_completion, " +
-  "items:factory_order_items(id, sku_id, quantity_ordered, quantity_consumed_by_parent, alternate_expected_completion))";
+  "spec_sent_at, stage_entered_at, linked_sku_id, linked_factory_order_id, archived_at, archive_reason, ordered_at, created_at";
 
 type LaunchRowRaw = MktLaunch & {
   skus: MktLaunchMember[] | null;
-  cards: (Omit<MktLaunchCard, "launch" | "factory_order"> & { factory_order?: LaunchCardFactoryOrder | null })[] | null;
+  cards: Omit<MktLaunchCard, "launch">[] | null;
 };
 
 /** Cards get their parent launch's dates; ordered like the member rows (then name). */
@@ -302,7 +290,7 @@ function normalizeLaunch(row: LaunchRowRaw): MktLaunchWithMembers {
     inventory_ready_by: row.inventory_ready_by,
   };
   const cards: MktLaunchCard[] = (row.cards ?? [])
-    .map((c) => ({ ...c, launch, factory_order: c.factory_order ?? null }))
+    .map((c) => ({ ...c, launch }))
     .sort(
       (a, b) =>
         (pos.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (pos.get(b.id) ?? Number.MAX_SAFE_INTEGER) ||
@@ -335,9 +323,10 @@ export function useLaunches() {
 /**
  * Inbound freight for a set of SKUs, grouped by SKU: every freight line on a
  * shipment whose receipt is not confirmed (fn_pd_evaluate_arrival's INBOUND
- * test), with its shipment's number, ETA and status. ONE query per page —
- * pass launchSkuIds(launches) and hand the map to memberState / launchHealth
- * for every row. Cache key ["launch-inbound", <sorted sku ids joined by |>];
+ * test), with its shipment — number, type, status, ETA and original ETA,
+ * carrier — and the shipment's carton groups with the SKUs each carries (the
+ * supply ledger's cartons-to-land per SKU). ONE query per page — pass
+ * launchSkuIds(launches) and hand the map to launchProducts for every launch. Cache key ["launch-inbound", <sorted sku ids joined by |>];
  * freight check-ins are a different module, so the 2-minute staleTime (and a
  * remount) is what refreshes it. Returns EMPTY_INBOUND-shaped data (an empty
  * Map) when no SKU is passed.
@@ -353,13 +342,66 @@ export function useLaunchInbound(skuIds: readonly string[]) {
       const { data, error } = await supabase
         .from("freight_line_items")
         .select(
-          "sku_id, quantity, quantity_received, source_factory_order_item_id, " +
-            "shipment:freight_shipments!inner(id, shipment_number, eta, status, receipt_confirmed_at)",
+          "sku_id, quantity, quantity_received, quantity_prefilled, source_factory_order_item_id, freight_shipment_id, " +
+            "shipment:freight_shipments!inner(id, shipment_number, freight_type, status, eta, eta_original, ship_date, carrier_name, receipt_confirmed_at, " +
+            "carton_groups:freight_carton_groups(carton_qty, received_cartons, skus:freight_carton_group_skus(sku_id)))",
         )
         .in("sku_id", ids)
         .is("shipment.receipt_confirmed_at", null);
       if (error) throw error;
       return inboundBySku((data ?? []) as unknown as InboundLine[]);
+    },
+    staleTime: STALE,
+  });
+}
+
+/**
+ * Units still at the factory for a set of SKUs — the supply ledger's factory
+ * rows. Two queries in one: the open factory orders (status not shipped /
+ * canceled) with their items for these SKUs, then the freight lines sourced
+ * from those items over EVERY shipment status, summed per item into
+ * `shippedByItem` (units that left the factory stop being on order whether
+ * the shipment has landed or not — the same netting as buildOnOrderMap).
+ * ONE query per page — pass launchSkuIds(launches) and hand the result to
+ * launchProducts for every launch. Cache key
+ * ["launch-factory-supply", <sorted sku ids joined by |>]; the 2-minute
+ * staleTime (and a remount) refreshes it. Returns EMPTY_FACTORY_SUPPLY-shaped
+ * data when no SKU is passed.
+ */
+export const LAUNCH_FACTORY_SUPPLY_KEY = ["launch-factory-supply"] as const;
+
+export function useLaunchFactorySupply(skuIds: readonly string[]) {
+  const ids = [...new Set(skuIds)].sort();
+  return useQuery({
+    queryKey: [...LAUNCH_FACTORY_SUPPLY_KEY, ids.join("|")],
+    queryFn: async (): Promise<LaunchFactorySupply> => {
+      if (ids.length === 0) return { orders: [], shippedByItem: new Map() };
+      const { data: orderRows, error: ordersError } = await supabase
+        .from("factory_orders")
+        .select(
+          "id, order_number, status, expected_completion, " +
+            "items:factory_order_items!inner(id, sku_id, quantity_ordered, quantity_finished, quantity_breakage, quantity_shipped_manual, quantity_consumed_by_parent, alternate_expected_completion)",
+        )
+        .in("items.sku_id", ids)
+        .not("status", "in", "(shipped,canceled)");
+      if (ordersError) throw ordersError;
+      const orders = ((orderRows ?? []) as unknown as (Omit<LaunchFactorySupplyOrder, "items"> & { items: LaunchFactorySupplyItem[] | null })[]).map(
+        (o) => ({ ...o, items: o.items ?? [] }),
+      );
+      const itemIds = orders.flatMap((o) => o.items.map((it) => it.id));
+      const shippedByItem = new Map<string, number>();
+      if (itemIds.length > 0) {
+        const { data: lines, error: linesError } = await supabase
+          .from("freight_line_items")
+          .select("source_factory_order_item_id, quantity")
+          .in("source_factory_order_item_id", itemIds);
+        if (linesError) throw linesError;
+        for (const li of lines ?? []) {
+          if (!li.source_factory_order_item_id) continue;
+          shippedByItem.set(li.source_factory_order_item_id, (shippedByItem.get(li.source_factory_order_item_id) ?? 0) + (li.quantity ?? 0));
+        }
+      }
+      return { orders, shippedByItem };
     },
     staleTime: STALE,
   });

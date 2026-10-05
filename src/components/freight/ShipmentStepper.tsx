@@ -4,20 +4,14 @@ import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { FreightShipment } from "@/types/database";
+import { STAGE_LABELS, stageStates, type StageShipment, type StageState } from "./shipment-stages";
 
 // ---------------------------------------------------------------------------
 // ShipmentStepper — horizontal Created → Shipped → Customs → Ground → Received
 // stepper for the freight detail page (replaces the old status timeline card).
-//
-// Status → active stage mapping (owner-approved prototype):
-//   pending                    → Created done, Shipped still pending
-//   on_the_water / high_risk   → Shipped active (high_risk adds the red
-//                                customs-inspection note below)
-//   cleared_customs            → Customs active
-//   tracking / out_for_delivery→ Ground active
-//   delivered                  → Received when receipt_confirmed_at is set,
-//                                else Ground active + "awaiting dock
-//                                check-in" note
+// Which stage is done, current or future is stageStates' answer
+// (./shipment-stages); MiniStepper at the bottom of this file draws the same
+// answer as five dots for the launch supply ledger.
 //
 // Done = green dot with check, current = accent dot with halo, future =
 // hollow dot. Beneath the stepper a right-aligned "Scan history (N events)"
@@ -30,8 +24,6 @@ import type { FreightShipment } from "@/types/database";
 interface Props {
   shipment: FreightShipment;
 }
-
-type StageState = "done" | "current" | "future";
 
 interface Stage {
   label: string;
@@ -49,82 +41,25 @@ interface ScanEvent {
   detail?: string | null;
 }
 
-function stageStates(shipment: FreightShipment): { states: StageState[]; deliveredUnconfirmed: boolean } {
-  const confirmed = !!shipment.receipt_confirmed_at;
-  // Index of the CURRENT stage; everything before it is done.
-  // null = nothing active (pending: Created is done, Shipped not started;
-  // fully received: everything done).
-  let current: number | null;
-  let doneThrough: number; // stages with index < doneThrough render as done
-  let deliveredUnconfirmed = false;
-
-  switch (shipment.status) {
-    case "pending":
-      current = null;
-      doneThrough = 1; // Created
-      break;
-    case "on_the_water":
-    case "high_risk":
-      current = 1;
-      doneThrough = 1;
-      break;
-    case "cleared_customs":
-      current = 2;
-      doneThrough = 2;
-      break;
-    case "tracking":
-    case "out_for_delivery":
-      current = 3;
-      doneThrough = 3;
-      break;
-    case "delivered":
-      if (confirmed) {
-        current = null;
-        doneThrough = 5; // everything done
-      } else {
-        // Carrier says delivered but the dock hasn't confirmed receipt —
-        // stay on Ground with a note rather than showing Received.
-        current = 3;
-        doneThrough = 3;
-        deliveredUnconfirmed = true;
-      }
-      break;
-    default:
-      current = null;
-      doneThrough = 1;
-      break;
-  }
-
-  const states: StageState[] = [0, 1, 2, 3, 4].map((i) => {
-    if (i < doneThrough) return "done";
-    if (current !== null && i === current) return "current";
-    return "future";
-  });
-  return { states, deliveredUnconfirmed };
-}
-
 export function ShipmentStepper({ shipment }: Props) {
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const { states, deliveredUnconfirmed } = stageStates(shipment);
   const isHighRisk = shipment.status === "high_risk";
 
-  // Ground-phase knowledge: prefer an actual carrier piece scan, then the
-  // piece-count refresh, then the carrier-reported arrival date.
-  const groundDate =
-    shipment.carrier_last_piece_event_at ??
-    shipment.carrier_pieces_updated_at ??
-    shipment.actual_arrival_date;
-
-  const stages: Stage[] = [
-    { label: "Created", state: states[0], date: shipment.created_at },
-    { label: "Shipped", state: states[1], date: shipment.ship_date },
-    // No dedicated customs-cleared timestamp exists on the shipment row;
-    // the stage renders dateless until one is persisted.
-    { label: "Customs", state: states[2], date: null },
-    { label: "Ground", state: states[3], date: groundDate },
-    { label: "Received", state: states[4], date: shipment.receipt_confirmed_at },
+  // One date per stage, in STAGE_LABELS order. Ground-phase knowledge
+  // prefers an actual carrier piece scan, then the piece-count refresh, then
+  // the carrier-reported arrival date. No dedicated customs-cleared timestamp
+  // exists on the shipment row, so Customs renders dateless until one is
+  // persisted.
+  const dates: (string | null)[] = [
+    shipment.created_at,
+    shipment.ship_date,
+    null,
+    shipment.carrier_last_piece_event_at ?? shipment.carrier_pieces_updated_at ?? shipment.actual_arrival_date,
+    shipment.receipt_confirmed_at,
   ];
+  const stages: Stage[] = STAGE_LABELS.map((label, i) => ({ label, state: states[i], date: dates[i] }));
 
   const events = useMemo<ScanEvent[]>(() => {
     const list: ScanEvent[] = [];
@@ -282,5 +217,29 @@ export function ShipmentStepper({ shipment }: Props) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * The five stages as 6px dots — done filled green, current ringed, future
+ * hollow — for the launch supply ledger's Where cell, where a shipment has
+ * one line and no room for labels; the title names the stages in order.
+ */
+export function MiniStepper({ shipment }: { shipment: StageShipment }) {
+  const { states } = stageStates(shipment);
+  return (
+    <span className="inline-flex shrink-0 items-center gap-[3px]" title={STAGE_LABELS.join(" · ")}>
+      {states.map((state, i) => (
+        <span
+          key={STAGE_LABELS[i]}
+          className={cn(
+            "h-1.5 w-1.5 rounded-full border",
+            state === "done" && "border-green-400 bg-green-400",
+            state === "current" && "border-foreground ring-1 ring-inset ring-foreground",
+            state === "future" && "border-muted-foreground/30",
+          )}
+        />
+      ))}
+    </span>
   );
 }

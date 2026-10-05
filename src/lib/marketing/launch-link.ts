@@ -10,11 +10,11 @@
  *
  * Owner rules (launch-product-rules, 2026-09-30): one product, one row; a
  * halted card is never on a launch; an arrived card stays on its launch,
- * frozen, counted and green; an ordered product is judged by its order (the
- * factory date against the launch's ship-by), and once units are on a
- * freight shipment by its sea timing (the ETA against the launch's
- * ready-by); every screen counts products as member rows minus halted-card
- * rows (launchProductCount).
+ * frozen, counted and green; a product with a SKU is judged by its supply
+ * ledger (launch-supply: stock, inbound freight and open factory orders
+ * against the first selling day), a card still without one by its deadline
+ * chain (memberState); every screen counts products as member rows minus
+ * halted-card rows (launchProductCount).
  */
 import { addDaysIso, daysBetween, orderByFromReadyBy } from "./workback";
 import { fmtDay } from "./format-day";
@@ -23,7 +23,6 @@ import {
   followsLaunch,
   isArrived,
   launchReadyBy,
-  launchShipBy,
   nextDeadline,
   pdStageLabel,
   riskDot,
@@ -407,6 +406,28 @@ export function movePreview(
 // ---------------------------------------------------------------------------
 
 /**
+ * The shipment a freight line rides, with the carton groups that carry each
+ * SKU (the supply ledger counts the cartons still to land per SKU).
+ */
+export interface InboundShipment {
+  id: string;
+  shipment_number: string;
+  freight_type: string;
+  status: string;
+  eta: string | null;
+  /** The ETA as first entered; the ledger shows the drift from it. */
+  eta_original: string | null;
+  ship_date: string | null;
+  carrier_name: string | null;
+  receipt_confirmed_at: string | null;
+  carton_groups: readonly {
+    carton_qty: number;
+    received_cartons: number;
+    skus: readonly { sku_id: string }[];
+  }[];
+}
+
+/**
  * One freight line as useLaunchInbound returns it: freight_line_items joined
  * to its shipment. Only lines on a shipment whose receipt is NOT confirmed
  * are inbound (the same INBOUND test as fn_pd_evaluate_arrival).
@@ -415,14 +436,10 @@ export interface InboundLine {
   sku_id: string | null;
   quantity: number;
   quantity_received: number;
+  quantity_prefilled: number | null;
   source_factory_order_item_id: string | null;
-  shipment: {
-    id: string;
-    shipment_number: string;
-    eta: string | null;
-    status: string;
-    receipt_confirmed_at: string | null;
-  } | null;
+  freight_shipment_id: string;
+  shipment: InboundShipment | null;
 }
 
 /** sku_id -> its inbound lines. Built once per page (useLaunchInbound) and passed to every row. */
@@ -447,48 +464,6 @@ export function inboundBySku(lines: readonly InboundLine[]): Map<string, Inbound
   return m;
 }
 
-export interface InboundSummary {
-  /** Units still to land (quantity − quantity_received over the inbound lines). */
-  units: number;
-  /** The latest ETA among the inbound shipments; null when none carries one. */
-  eta: string | null;
-  /** Shipment numbers, by ETA (undated last), then number. */
-  shipments: string[];
-}
-
-/**
- * What is on the way for a SKU. When `sourceItemIds` (the SKU's factory
- * order items) is given and at least one inbound line is sourced from them,
- * only those lines count — a restock shipment of the same SKU on another
- * order does not make this order look shipped. Null when nothing is inbound.
- */
-export function skuInbound(
-  inbound: InboundMap,
-  skuId: string | null | undefined,
-  sourceItemIds?: ReadonlySet<string> | null,
-): InboundSummary | null {
-  if (!skuId) return null;
-  const all = inbound.get(skuId) ?? [];
-  const sourced = sourceItemIds?.size
-    ? all.filter((li) => li.source_factory_order_item_id && sourceItemIds.has(li.source_factory_order_item_id))
-    : [];
-  const lines = sourced.length > 0 ? sourced : all;
-  if (lines.length === 0) return null;
-  let units = 0;
-  let eta: string | null = null;
-  const byShipment = new Map<string, string | null>();
-  for (const li of lines) {
-    units += Math.max(li.quantity - li.quantity_received, 0);
-    const e = day(li.shipment?.eta);
-    if (e && (!eta || e > eta)) eta = e;
-    if (li.shipment) byShipment.set(li.shipment.shipment_number, e);
-  }
-  const shipments = [...byShipment.entries()]
-    .sort((a, b) => (a[1] ?? "9999-12-31").localeCompare(b[1] ?? "9999-12-31") || a[0].localeCompare(b[0]))
-    .map(([n]) => n);
-  return { units, eta, shipments };
-}
-
 /** Every SKU a set of launches lists (member rows and their cards) — the argument for useLaunchInbound. */
 export function launchSkuIds(
   launches: readonly { skus: readonly { sku_id: string | null }[]; cards?: readonly { linked_sku_id?: string | null }[] }[],
@@ -501,57 +476,8 @@ export function launchSkuIds(
   return [...s].sort();
 }
 
-/** The factory-order fields incomingDatesBySku reads (use-factory-orders rows and launch card embeds both fit). */
-export type IncomingFactoryOrder = Pick<LaunchCardFactoryOrder, "status" | "expected_completion" | "items">;
-
-/** Factory orders still to be made or collected: not shipped, not canceled. */
-export function isOpenFactoryOrder(fo: Pick<IncomingFactoryOrder, "status">): boolean {
-  return fo.status !== "shipped" && fo.status !== "canceled";
-}
-
-/**
- * The one incoming date per SKU the Launches Status chip reads — the SAME
- * date the product rows show, so the chip can never contradict them:
- *   units on inbound freight   the latest ETA among the inbound shipments
- *                              (skuInbound; the Shipped row's date)
- *   nothing shipped yet        the earliest factory due among the open
- *                              factory orders listing the SKU (the item's
- *                              alternate date, else the order's expected
- *                              completion; the Ordered row's date)
- * SKUs with neither are absent. Inbound follows isInboundLine (receipt not
- * confirmed, fewer received than booked), never the shipment's status, so a
- * delivered-but-unchecked shipment still counts as on its way.
- */
-export function incomingDatesBySku(
-  skuIds: readonly string[],
-  inbound: InboundMap,
-  factoryOrders: readonly IncomingFactoryOrder[],
-): Map<string, string> {
-  const m = new Map<string, string>();
-  const want = new Set(skuIds);
-  const shipped = new Set<string>();
-  for (const sku of want) {
-    const inb = skuInbound(inbound, sku);
-    if (inb && inb.units > 0 && inb.eta) {
-      m.set(sku, inb.eta);
-      shipped.add(sku);
-    }
-  }
-  for (const fo of factoryOrders) {
-    if (!isOpenFactoryOrder(fo)) continue;
-    for (const it of fo.items ?? []) {
-      if (!it.sku_id || !want.has(it.sku_id) || shipped.has(it.sku_id)) continue;
-      const due = day(it.alternate_expected_completion) ?? day(fo.expected_completion);
-      if (!due) continue;
-      const cur = m.get(it.sku_id);
-      if (!cur || due < cur) m.set(it.sku_id, due);
-    }
-  }
-  return m;
-}
-
 // ---------------------------------------------------------------------------
-// Member state (one product row on a launch)
+// Member state (one product row on a launch, while it has no SKU)
 // ---------------------------------------------------------------------------
 
 /** A launch member row as memberState reads it (use-marketing's MktLaunchMember fits). */
@@ -565,89 +491,37 @@ export interface LaunchMemberRow {
   product?: { sku: string; product_name: string } | null;
 }
 
-/** The factory order embedded on a card (use-marketing's launches query). */
-export interface LaunchCardFactoryOrder {
-  id: string;
-  order_number: string | null;
-  status: string;
-  expected_completion: string | null;
-  items?:
-    | readonly {
-        id: string;
-        sku_id: string;
-        quantity_ordered: number;
-        quantity_consumed_by_parent?: number | null;
-        alternate_expected_completion: string | null;
-      }[]
-    | null;
-}
-
 /** The card behind a member row (use-marketing's MktLaunchCard fits). */
 export interface LaunchMemberCard extends LaunchLinkCard {
   ordered_at?: string | null;
   linked_factory_order_id?: string | null;
-  factory_order?: LaunchCardFactoryOrder | null;
 }
 
-/** The launch memberState / launchHealth read: its dates and its attached cards. */
+/** The launch memberState reads: its dates and its attached cards. */
 export type MemberStateLaunch = Pick<PdLaunchRef, "launch_date" | "early_access_date" | "inventory_ready_by"> & {
   id?: string;
   cards: readonly LaunchMemberCard[];
 };
 
-export type MemberStateKind = "development" | "ordered" | "shipped" | "arrived" | "halted" | "plain";
+export type MemberStateKind = "development" | "arrived" | "halted" | "plain";
 
 /** Chip text per state (development rows show their stage label instead). */
 export const MEMBER_STATE_LABEL: Readonly<Record<MemberStateKind, string>> = {
   development: "In development",
-  ordered: "Ordered",
-  shipped: "Shipped",
   arrived: "Arrived",
   halted: "Halted",
   plain: "",
 };
 
-/** Days before the launch deadline inside which an ordered / shipped product reads amber. */
-export const TIMING_TIGHT_DAYS = 7;
-
 export interface MemberState {
   kind: MemberStateKind;
   /** Chip text: the stage label for development rows, MEMBER_STATE_LABEL otherwise ("" for plain rows). */
   label: string;
-  /** The one date the row shows (Factory due / ETA / Arrived / next deadline); `days` from today. */
+  /** The one date the row shows (the next deadline, or the day an arrived product landed); `days` from today. */
   date: { label: string; value: string; days: number } | null;
   risk: RiskDot;
-  /** The launch deadline `date` was judged against (ordered: Ship by; shipped: Ready by). slackDays < 0 = late. */
-  against: { label: string; value: string; slackDays: number } | null;
-  /** Plain words for the row: "Placed Aug 27", "277 of 300 units · 485, 486, AIR-268". */
-  detail: string | null;
   /** Development rows: the chain's order-by date. */
   orderBy: string | null;
-  /** Units on the way, against the order size when known (shipped rows; plain rows with inbound freight). */
-  units: { inbound: number; ordered: number | null } | null;
-  /** Inbound shipment numbers, soonest ETA first. */
-  shipments: string[];
-}
-
-/** Factory due for a SKU on an order: the item's alternate date, else the order's. */
-export function factoryDueFor(fo: LaunchCardFactoryOrder | null | undefined, skuId: string | null | undefined): string | null {
-  if (!fo) return null;
-  const alt = skuId ? fo.items?.find((it) => it.sku_id === skuId && it.alternate_expected_completion)?.alternate_expected_completion : null;
-  return day(alt) ?? day(fo.expected_completion);
-}
-
-/** Units ordered of a SKU on an order (minus units built into a parent), or null when the order lists none. */
-export function orderedUnitsFor(fo: LaunchCardFactoryOrder | null | undefined, skuId: string | null | undefined): number | null {
-  if (!fo || !skuId) return null;
-  const items = (fo.items ?? []).filter((it) => it.sku_id === skuId);
-  if (items.length === 0) return null;
-  return items.reduce((n, it) => n + it.quantity_ordered - (it.quantity_consumed_by_parent ?? 0), 0);
-}
-
-/** A product's date against a launch deadline: red after it, amber inside TIMING_TIGHT_DAYS, else green. */
-export function timingRisk(dateIso: string, deadlineIso: string): { risk: Exclude<RiskDot, null>; slackDays: number } {
-  const slackDays = daysBetween(dateIso, deadlineIso);
-  return { slackDays, risk: slackDays < 0 ? "r" : slackDays < TIMING_TIGHT_DAYS ? "a" : "g" };
 }
 
 const noState = (kind: MemberStateKind, label: string): MemberState => ({
@@ -655,52 +529,26 @@ const noState = (kind: MemberStateKind, label: string): MemberState => ({
   label,
   date: null,
   risk: null,
-  against: null,
-  detail: null,
   orderBy: null,
-  units: null,
-  shipments: [],
 });
 
 /**
- * How one product row on a launch reads today.
+ * How one product row on a launch reads while it has no SKU (a product with
+ * a SKU is judged by its supply ledger — launch-supply).
  *
  *  halted      the card is stopped (should not be on the launch; never rated)
  *  arrived     archived with reason 'arrived': green, date = the day it landed, frozen
- *  shipped     an ordered card with units on inbound freight: date = the latest
- *              ETA, judged against the launch's ready-by (red after it, amber
- *              inside 7 days); units booked of ordered
- *  ordered     an ordered card with nothing on the water: date = the factory
- *              due (item alternate date, else the order's expected completion),
- *              judged against the launch's ship-by (ready-by − 35 days);
- *              detail = the day the order was placed (card ordered_at)
- *  development every other card stage: the board's deadline chain and risk dot
- *  plain       a SKU / planned-name row with no card (its chip stays stock-based
- *              on the launch; inbound freight is reported, not rated)
+ *  development every other card stage (ordered included): the board's
+ *              deadline chain and risk dot, anchored on the launch
+ *  plain       a planned-name row with no card: nothing to rate
  *
  * A row whose card is not in `launch.cards` (RLS hides cards from non-internal
  * users) reads as plain.
  */
-export function memberState(
-  row: LaunchMemberRow,
-  launch: MemberStateLaunch,
-  inbound: InboundMap,
-  todayIso: string,
-): MemberState {
+export function memberState(row: LaunchMemberRow, launch: MemberStateLaunch, todayIso: string): MemberState {
   const card = row.pd_project_id ? launch.cards.find((c) => c.id === row.pd_project_id) : undefined;
-  const skuId = row.sku_id ?? card?.linked_sku_id ?? null;
 
-  if (!card) {
-    const inb = skuInbound(inbound, skuId);
-    const s = noState("plain", MEMBER_STATE_LABEL.plain);
-    if (inb) {
-      s.units = { inbound: inb.units, ordered: null };
-      s.shipments = inb.shipments;
-      s.detail = unitsText(inb.units, null, inb.shipments);
-      if (inb.eta) s.date = { label: "ETA", value: inb.eta, days: daysBetween(todayIso, inb.eta) };
-    }
-    return s;
-  }
+  if (!card) return noState("plain", MEMBER_STATE_LABEL.plain);
 
   if (card.stage === "halted") return noState("halted", MEMBER_STATE_LABEL.halted);
 
@@ -713,44 +561,6 @@ export function memberState(
   }
 
   if (card.archived_at) return noState("development", pdStageLabel(card.stage));
-
-  if (card.stage === "ordered") {
-    const fo = card.factory_order ?? null;
-    const itemIds = new Set((fo?.items ?? []).filter((it) => it.sku_id === skuId).map((it) => it.id));
-    const inb = skuInbound(inbound, skuId, itemIds);
-    const ordered = orderedUnitsFor(fo, skuId);
-    if (inb && inb.units > 0) {
-      const s = noState("shipped", MEMBER_STATE_LABEL.shipped);
-      s.units = { inbound: inb.units, ordered };
-      s.shipments = inb.shipments;
-      s.detail = unitsText(inb.units, ordered, inb.shipments);
-      if (inb.eta) {
-        s.date = { label: "ETA", value: inb.eta, days: daysBetween(todayIso, inb.eta) };
-        const readyBy = launchReadyBy(launch);
-        if (readyBy) {
-          const t = timingRisk(inb.eta, readyBy);
-          s.risk = t.risk;
-          s.against = { label: "Ready by", value: readyBy, slackDays: t.slackDays };
-        }
-      }
-      return s;
-    }
-    const s = noState("ordered", MEMBER_STATE_LABEL.ordered);
-    const placed = day(card.ordered_at);
-    s.detail = placed ? `Placed ${fmtDay(placed)}` : null;
-    if (ordered != null) s.units = { inbound: 0, ordered };
-    const due = factoryDueFor(fo, skuId);
-    if (due) {
-      s.date = { label: "Factory due", value: due, days: daysBetween(todayIso, due) };
-      const shipBy = launchShipBy(launch);
-      if (shipBy) {
-        const t = timingRisk(due, shipBy);
-        s.risk = t.risk;
-        s.against = { label: "Ship by", value: shipBy, slackDays: t.slackDays };
-      }
-    }
-    return s;
-  }
 
   const launchRef: PdLaunchRef = {
     id: launch.id ?? card.linked_launch_id ?? "",
@@ -771,13 +581,8 @@ export function memberState(
   return s;
 }
 
-function unitsText(inbound: number, ordered: number | null, shipments: readonly string[]): string {
-  const head = ordered != null ? `${inbound} of ${ordered} units` : `${inbound} units`;
-  return shipments.length > 0 ? `${head} · ${shipments.join(", ")}` : head;
-}
-
 // ---------------------------------------------------------------------------
-// Stock reading for plain SKU rows (Launches Status chip)
+// Stock need of a SKU row
 // ---------------------------------------------------------------------------
 
 /** Units a launch needs of a SKU row: its limited quantity, else its expected units, else null (any stock will do). */
@@ -796,7 +601,7 @@ export function memberStocked(row: Pick<LaunchMemberRow, "limited_qty" | "expect
 }
 
 // ---------------------------------------------------------------------------
-// Product count + Launches page health rollup
+// Product count
 // ---------------------------------------------------------------------------
 
 /**
@@ -810,94 +615,6 @@ export function launchProductCount(launch: {
 }): number {
   const halted = new Set(launch.cards.filter((c) => c.stage === "halted").map((c) => c.id));
   return launch.skus.filter((m) => !m.pd_project_id || !halted.has(m.pd_project_id)).length;
-}
-
-export interface LaunchHealth {
-  /** launchProductCount: member rows minus halted cards' rows. */
-  count: number;
-  /** Rows reading red: an ETA after ready-by, a factory date after ship-by, a passed deadline. */
-  late: number;
-  /** Rows reading amber. */
-  tight: number;
-  /** Arrived products (green, frozen). */
-  arrived: number;
-  /** Worst risk among the rated rows; null when none is rated. */
-  worst: RiskDot;
-}
-
-export type LaunchHealthInput = MemberStateLaunch & { skus: readonly LaunchMemberRow[] };
-
-/**
- * Health of a launch from its product rows (memberState for each): ordered
- * and shipped rows by their order / sea dates, arrived rows green, halted
- * rows never rated, development rows by the deadline chain, plain rows not
- * rated. `inbound` comes from useLaunchInbound (EMPTY_INBOUND while loading:
- * shipped products then read as ordered).
- *
- * The legacy form launchHealth(cards, todayIso, launch?) rates attached cards
- * by the deadline chain alone (no rows, no inbound); callers should move to
- * the row form.
- */
-export function launchHealth(launch: LaunchHealthInput, inbound: InboundMap, todayIso: string): LaunchHealth;
-/** @deprecated pass the launch (rows + cards) and the inbound map. */
-export function launchHealth(cards: readonly LaunchLinkCard[], todayIso: string, launch?: PdLaunchRef | null): LaunchHealth;
-export function launchHealth(
-  a: LaunchHealthInput | readonly LaunchLinkCard[],
-  b: InboundMap | string,
-  c?: string | PdLaunchRef | null,
-): LaunchHealth {
-  if (Array.isArray(a)) return legacyLaunchHealth(a as readonly LaunchLinkCard[], b as string, c as PdLaunchRef | null | undefined);
-  const launch = a as LaunchHealthInput;
-  const inbound = b as InboundMap;
-  const todayIso = c as string;
-  let late = 0;
-  let tight = 0;
-  let arrived = 0;
-  let rated = 0;
-  for (const row of launch.skus) {
-    const s = memberState(row, launch, inbound, todayIso);
-    if (s.kind === "arrived") arrived += 1;
-    if (!s.risk) continue;
-    rated += 1;
-    if (s.risk === "r") late += 1;
-    else if (s.risk === "a") tight += 1;
-  }
-  const worst: RiskDot = late > 0 ? "r" : tight > 0 ? "a" : rated > 0 ? "g" : null;
-  return { count: launchProductCount(launch), late, tight, arrived, worst };
-}
-
-function legacyLaunchHealth(cards: readonly LaunchLinkCard[], todayIso: string, launch?: PdLaunchRef | null): LaunchHealth {
-  let count = 0;
-  let late = 0;
-  let tight = 0;
-  let arrived = 0;
-  let rated = 0;
-  for (const c of cards) {
-    if (c.stage === "halted") continue;
-    if (c.archived_at && !isArrived(c)) continue;
-    count += 1;
-    if (isArrived(c)) {
-      arrived += 1;
-      rated += 1;
-      continue;
-    }
-    const dot = riskDot(c, todayIso, launch);
-    if (!dot) continue;
-    rated += 1;
-    if (dot === "r") late += 1;
-    else if (dot === "a") tight += 1;
-  }
-  const worst: RiskDot = late > 0 ? "r" : tight > 0 ? "a" : rated > 0 ? "g" : null;
-  return { count, late, tight, arrived, worst };
-}
-
-/** "no products", "1 product", "4 products · 2 late · 1 tight". */
-export function launchHealthText(h: LaunchHealth | Pick<LaunchHealth, "count" | "late" | "tight">): string {
-  if (h.count === 0) return "no products";
-  const parts = [`${h.count} ${h.count === 1 ? "product" : "products"}`];
-  if (h.late > 0) parts.push(`${h.late} late`);
-  if (h.tight > 0) parts.push(`${h.tight} tight`);
-  return parts.join(" · ");
 }
 
 // ---------------------------------------------------------------------------

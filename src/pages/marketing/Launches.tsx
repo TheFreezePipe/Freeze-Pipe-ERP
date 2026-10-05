@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Rocket, Pencil, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -7,7 +7,7 @@ import {
   useLaunches,
   useDeleteLaunch,
   useInventory,
-  useFactoryOrders,
+  useLaunchFactorySupply,
   useLaunchInbound,
   usePdBoard,
   type MktLaunchWithMembers,
@@ -17,23 +17,24 @@ import { useAuth } from "@/lib/auth-context";
 import { LaunchFormDialog } from "@/components/marketing/LaunchFormDialog";
 import { ConfirmCell } from "@/components/marketing/ConfirmCell";
 import { AddProductsDialog } from "@/components/marketing/AddProductsDialog";
-import { LaunchMemberList } from "@/components/marketing/LaunchMemberList";
-import { RiskDotMark } from "@/components/marketing/LaunchLinkParts";
-import { launchKindLabel, stockSignal, type StockSignal } from "@/components/marketing/launch-format";
+import { LaunchSupplyTable } from "@/components/marketing/LaunchSupplyTable";
+import { RiskDotMark, VerdictMark } from "@/components/marketing/LaunchLinkParts";
+import { launchKindLabel } from "@/components/marketing/launch-format";
 import { launchPhase, LAUNCH_PHASE_COLOR, LAUNCH_PHASE_LABEL, isPastKey, dayKeyOf } from "@/lib/marketing-format";
 import { toast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
 import { format, parseISO } from "date-fns";
+import { EMPTY_INBOUND, launchOrderBy, launchReadyBy, launchSkuIds } from "@/lib/marketing/launch-link";
 import {
-  EMPTY_INBOUND,
-  incomingDatesBySku,
-  launchHealth,
-  launchHealthText,
-  launchOrderBy,
-  launchReadyBy,
-  launchSkuIds,
-  memberStocked,
-} from "@/lib/marketing/launch-link";
+  EMPTY_FACTORY_SUPPLY,
+  EMPTY_SPLIT,
+  launchProducts,
+  launchRollup,
+  splitTotal,
+  warehouseBySku,
+  type LaunchSupplyContext,
+  type Tone,
+} from "@/lib/marketing/launch-supply";
 import { launchMemberItems, taggedDropHints } from "@/components/marketing/launch-members";
 
 function fmt(d: string | null): string {
@@ -41,36 +42,13 @@ function fmt(d: string | null): string {
   try { return format(parseISO(d), "MMM d, yyyy"); } catch { return d; }
 }
 
-const CHIP = "w-fit whitespace-nowrap rounded border px-1.5 py-0.5 text-[10px]";
-const CHIP_RED = `${CHIP} border-red-500/40 bg-red-500/10 text-red-400`;
-const CHIP_AMBER = `${CHIP} border-amber-500/40 bg-amber-500/10 text-amber-400`;
-const CHIP_CYAN = `${CHIP} border-cyan-500/30 bg-cyan-500/10 text-cyan-300`;
-const CHIP_GREEN = `${CHIP} border-green-500/30 bg-green-500/10 text-green-400`;
-
-/** One chip per upcoming launch: the stock signal (launch-format's stockSignal) as the Status cell shows it. */
-function stockSignalChip(s: StockSignal): ReactNode {
-  switch (s?.kind) {
-    case "uncovered":
-      return (
-        <span className={CHIP_RED} title={s.skus.join(", ")}>
-          ⚠ {s.skus.length} SKU{s.skus.length > 1 ? "s" : ""} not covered by launch
-        </span>
-      );
-    case "window_passed":
-      return <span className={CHIP_RED}>order window passed ({fmt(s.orderBy)})</span>;
-    case "order_by":
-      return <span className={CHIP_AMBER}>order by {fmt(s.orderBy)}</span>;
-    case "incoming_overdue":
-      return <span className={CHIP_AMBER}>incoming overdue ({fmt(s.date)})</span>;
-    case "incoming":
-      return <span className={CHIP_CYAN}>incoming by {fmt(s.date)}</span>;
-    case "stocked":
-      return <span className={CHIP_GREEN}>stock on hand</span>;
-    default:
-      // A quiet order-by date needs no chip: the Date column shows it while it can still be acted on.
-      return null;
-  }
-}
+/** The Status cell's verdict chip for an upcoming launch (launchRollup's chip), by tone. */
+const CHIP = "inline-flex w-fit items-center gap-1.5 whitespace-nowrap rounded border px-1.5 py-0.5 text-[10px] tabular-nums";
+const CHIP_TONE: Record<Tone, string> = {
+  g: `${CHIP} border-green-500/30 bg-green-500/10 text-green-400`,
+  a: `${CHIP} border-amber-500/40 bg-amber-500/10 text-amber-400`,
+  r: `${CHIP} border-red-500/40 bg-red-500/10 text-red-400`,
+};
 
 export default function Launches() {
   const { data: launches = [], isLoading } = useLaunches();
@@ -81,22 +59,9 @@ export default function Launches() {
   const todayKey = format(new Date(), "yyyy-MM-dd");
   const setApproval = useSetLaunchApproval();
 
-  // Total on-hand units per SKU — a launch reads "Sold out" once its linked
-  // SKU has nothing left in the building.
-  const onHandBySku = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const inv of inventory) {
-      m.set(
-        inv.sku_id,
-        (inv.warehouse_raw ?? 0) +
-          (inv.warehouse_prefilled_raw ?? 0) +
-          (inv.warehouse_in_production ?? 0) +
-          (inv.warehouse_finished ?? 0) +
-          (inv.warehouse_other ?? 0),
-      );
-    }
-    return m;
-  }, [inventory]);
+  // Warehouse buckets per SKU — the ledgers' stock rows, and the "Sold out"
+  // reading once a launched product has nothing left in the building.
+  const warehouse = useMemo(() => warehouseBySku(inventory), [inventory]);
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<MktLaunchWithMembers | null>(null);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
@@ -123,16 +88,14 @@ export default function Launches() {
   const { data: board = [] } = usePdBoard();
   const taggedHints = useMemo(() => taggedDropHints(board, launches, todayKey), [board, launches, todayKey]);
 
-  // Inbound freight for every SKU on a launch (one query): an ordered product
-  // with units on the water reads Shipped, judged by its ETA.
+  // Supply for every SKU on a launch, one query each: inbound freight and the
+  // open factory orders. With the warehouse buckets they are the context
+  // every product's ledger reads, so the collapsed row, its Status chip and
+  // the expanded table show the same numbers.
   const skuIds = useMemo(() => launchSkuIds(launches), [launches]);
   const { data: inbound = EMPTY_INBOUND } = useLaunchInbound(skuIds);
-
-  // The Status chip's incoming date per SKU — the same date the product rows
-  // show (the freight ETA once units are on the water, else the open factory
-  // order's due date), from the same inbound map, so chip and rows agree.
-  const { data: factoryOrders = [] } = useFactoryOrders();
-  const incomingBySku = useMemo(() => incomingDatesBySku(skuIds, inbound, factoryOrders), [skuIds, inbound, factoryOrders]);
+  const { data: factory = EMPTY_FACTORY_SUPPLY } = useLaunchFactorySupply(skuIds);
+  const ctx = useMemo<LaunchSupplyContext>(() => ({ warehouse, inbound, factory }), [warehouse, inbound, factory]);
 
   // Upcoming first (soonest on top, undated leading — they need a date),
   // then past newest-first under a quiet divider.
@@ -174,23 +137,19 @@ export default function Launches() {
         : `${memberLabels.slice(0, 2).join(", ")} +${memberLabels.length - 2} more`;
     const rows = items.map((it) => it.row).filter((r): r is NonNullable<typeof r> => !!r);
     const realMembers = rows.filter((m) => m.sku_id);
-    const soldCount = realMembers.filter((m) => (onHandBySku.get(m.sku_id!) ?? 0) <= 0).length;
+    const soldCount = realMembers.filter((m) => splitTotal(warehouse.get(m.sku_id!) ?? EMPTY_SPLIT) <= 0).length;
     const total = realMembers.length;
     const allSold = total > 0 && soldCount === total;
     const phase = launchPhase(l.launch_date, todayKey, allSold, l.early_access_date);
     const isOpen = expanded.has(l.id);
-    // health.count is launchProductCount(l) — the one product count every screen uses.
-    const health = launchHealth(l, inbound, todayKey);
+    // One array per launch: the row's mark, words and chip and the expanded table read it alike.
+    const products = launchProducts(items, l, ctx, todayKey);
+    const roll = launchRollup(products, l);
     const readyBy = launchReadyBy(l);
     const orderBy = launchOrderBy(l);
-    const signal = phase === "upcoming" ? stockSignal(realMembers, l, onHandBySku, incomingBySku, todayKey) : null;
     // The order-by date matters only while it can still be acted on: upcoming, and either still
-    // ahead or with short SKUs nothing incoming covers (stockSignal's "window passed").
-    const showOrderBy =
-      !!orderBy &&
-      phase === "upcoming" &&
-      (todayKey <= orderBy ||
-        realMembers.some((m) => !memberStocked(m, onHandBySku.get(m.sku_id!) ?? 0) && !incomingBySku.has(m.sku_id!)));
+    // ahead or with a product whose supply falls short of its need.
+    const showOrderBy = !!orderBy && phase === "upcoming" && (todayKey <= orderBy || roll.counts.short > 0);
     const hints = taggedHints.get(l.id) ?? [];
     return (
       <Fragment key={l.id}>
@@ -233,8 +192,8 @@ export default function Launches() {
             aria-expanded={isOpen}
             className="inline-flex items-center gap-1.5 whitespace-nowrap rounded px-1 py-0.5 text-xs hover:bg-muted/40"
           >
-            <RiskDotMark dot={health.worst} />
-            {launchHealthText(health)}
+            <RiskDotMark dot={roll.tone} />
+            {roll.text}
             {isOpen ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
           </button>
           {canEdit && hints.map((h) => (
@@ -257,7 +216,12 @@ export default function Launches() {
               {phase === "launched" && soldCount > 0 && (
                 <span className="text-[10px] text-amber-400/80">{soldCount} of {total} sold out</span>
               )}
-              {stockSignalChip(signal)}
+              {phase === "upcoming" && roll.chip && (
+                <span className={CHIP_TONE[roll.chip.tone]}>
+                  <VerdictMark tone={roll.chip.tone} />
+                  {roll.chip.text}
+                </span>
+              )}
               {/* Outcomes once the 30d window has elapsed */}
               {phase !== "upcoming" && realMembers.some((m) => m.actual_first_30d_units != null || m.sold_out_at) && (
                 <div className="text-[10px] text-muted-foreground space-y-0">
@@ -301,12 +265,11 @@ export default function Launches() {
       {isOpen && (
         <tr className="bg-muted/10">
           <td colSpan={6} className="px-4 pb-4 pt-0">
-            <LaunchMemberList
+            <LaunchSupplyTable
               launch={l}
+              products={products}
               todayIso={todayKey}
               canEdit={canEdit}
-              inbound={inbound}
-              onHandBySku={onHandBySku}
               onAddProducts={() => openAddProducts(l.id)}
             />
           </td>
@@ -364,7 +327,7 @@ export default function Launches() {
               <colgroup>
                 <col />
                 <col className="w-[140px]" />
-                <col className="w-[160px]" />
+                <col className="w-[200px]" />
                 <col className="w-[176px]" />
                 <col className="w-[108px]" />
                 <col className="w-[76px]" />

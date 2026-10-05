@@ -44,10 +44,22 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import { describeError } from "@/lib/supabase-error";
 import { isPreLaunch } from "@/lib/product-lifecycle";
+import { FACTORY_ORDER_STATUSES, FREIGHT_STATUSES } from "@/lib/constants";
+import { humanizeEnum } from "@/lib/utils";
 
 import { FACTORY_ORDER_STATUS_COLORS as STATUS_COLOR } from "@/lib/status-colors";
 
 type FreightMap = Map<string, FreightLineItemWithProduct[]>;
+
+/**
+ * Status words for the badges and lists below, from the shared label maps.
+ * A value outside its map (factory orders can be `canceled`) reads through
+ * humanizeEnum.
+ */
+const factoryStatusLabel = (status: string): string =>
+  (FACTORY_ORDER_STATUSES as Partial<Record<string, { label: string }>>)[status]?.label ?? humanizeEnum(status);
+const freightStatusLabel = (status: string): string =>
+  (FREIGHT_STATUSES as Partial<Record<string, { label: string }>>)[status]?.label ?? humanizeEnum(status);
 
 /**
  * Admin-side factory order detail. Shows the same data the list-page card
@@ -534,7 +546,7 @@ export default function FactoryOrderDetail() {
               variant="outline"
               className={`${STATUS_COLOR[order.status] ?? ""} text-xs`}
             >
-              {order.status.replace("_", " ")}
+              {factoryStatusLabel(order.status)}
             </Badge>
             {daysLeft !== null && (
               <Badge
@@ -701,7 +713,7 @@ export default function FactoryOrderDetail() {
                       )}
                     </Link>
                     <span className="text-muted-foreground">·</span>
-                    <span className="text-muted-foreground">{c.status.replace("_", " ")}</span>
+                    <span className="text-muted-foreground">{factoryStatusLabel(c.status)}</span>
                     {c.expected_completion && (
                       <>
                         <span className="text-muted-foreground">·</span>
@@ -766,7 +778,7 @@ export default function FactoryOrderDetail() {
                             <SelectItem key={c.id} value={c.id} className="text-xs">
                               <span className="font-mono">{c.order_number ?? "(awaiting #)"}</span>
                               <span className="text-muted-foreground ml-2">
-                                {c.supplier?.code} · {c.status.replace("_", " ")}
+                                {c.supplier?.code} · {factoryStatusLabel(c.status)}
                                 {c.expected_completion && (
                                   <> · ETA {format(parseISO(c.expected_completion), "MMM d")}</>
                                 )}
@@ -1175,10 +1187,10 @@ export default function FactoryOrderDetail() {
                       {row.shipment_number ?? row.shipment_id.slice(0, 8)}
                     </span>
                     <Badge variant="outline" className="text-[10px]">
-                      {row.freight_type}
+                      {humanizeEnum(row.freight_type)}
                     </Badge>
                     <Badge variant="outline" className="text-[10px]">
-                      {row.status.replace("_", " ")}
+                      {freightStatusLabel(row.status)}
                     </Badge>
                     {row.eta && (
                       <span className="text-xs text-muted-foreground">
