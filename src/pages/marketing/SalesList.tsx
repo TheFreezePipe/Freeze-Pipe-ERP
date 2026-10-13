@@ -8,19 +8,24 @@ import { useSetSaleApproval } from "@/lib/hooks/use-marketing-signals";
 import { ConfirmCell } from "@/components/marketing/ConfirmCell";
 import { useAuth } from "@/lib/auth-context";
 import { SaleFormDialog } from "@/components/marketing/SaleFormDialog";
+import { SaleResultCell } from "@/components/marketing/sale/SaleResultCell";
 import { salePhase, PHASE_COLOR, PHASE_LABEL, isPastKey, dayKeyOf } from "@/lib/marketing-format";
-import { format, parseISO } from "date-fns";
+import { format } from "date-fns";
 
+/** Stored calendar day, parsed as a local date so a UTC-midnight timestamp never reads as the day before. */
+function localDay(d: string | null): Date | null {
+  const key = dayKeyOf(d);
+  if (!key) return null;
+  const [y, m, day] = key.split("-").map(Number);
+  return y && m && day ? new Date(y, m - 1, day) : null;
+}
 function fmt(d: string | null): string {
-  if (!d) return "—";
-  try {
-    return format(parseISO(d), "MMM d, yyyy");
-  } catch {
-    return d;
-  }
+  const dt = localDay(d);
+  return dt ? format(dt, "MMM d, yyyy") : "—";
 }
 function fmtDay(d: string): string {
-  try { return format(parseISO(d), "MMM d"); } catch { return d; }
+  const dt = localDay(d);
+  return dt ? format(dt, "MMM d") : d;
 }
 
 function range(s: string | null, e: string | null): string {
@@ -83,6 +88,7 @@ export default function SalesList() {
                   <th className="px-4 py-2.5 font-medium">Sale</th>
                   <th className="px-4 py-2.5 font-medium">Dates</th>
                   <th className="px-4 py-2.5 font-medium">Status</th>
+                  <th className="px-4 py-2.5 font-medium">Result</th>
                   <th className="px-4 py-2.5 font-medium">Confirmed</th>
                   <th className="px-4 py-2.5" />
                 </tr>
@@ -112,6 +118,9 @@ export default function SalesList() {
                           <span className="text-xs text-muted-foreground/60">no dates</span>
                         );
                       })()}
+                    </td>
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <SaleResultCell sale={s} todayKey={todayKey} />
                     </td>
                     <td className="px-4 py-3">
                       <ConfirmCell

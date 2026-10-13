@@ -2528,16 +2528,22 @@ export type Database = {
           approval_status: string
           created_at: string
           created_by: string | null
+          cm_pct: number
           early_access_starts_at: string | null
           ends_at: string | null
           external_ref: string | null
+          finalized_at: string | null
           id: string
           name: string
           notes: string | null
           ops_confirmed_at: string | null
           ops_confirmed_by: string | null
+          plan_orders: number | null
+          plan_source: string | null
+          season_index: number
           source: string | null
           starts_at: string | null
+          store_ids: number[] | null
           updated_at: string
         }
         Insert: {
@@ -2545,16 +2551,22 @@ export type Database = {
           approval_status?: string
           created_at?: string
           created_by?: string | null
+          cm_pct?: number
           early_access_starts_at?: string | null
           ends_at?: string | null
           external_ref?: string | null
+          finalized_at?: string | null
           id?: string
           name: string
           notes?: string | null
           ops_confirmed_at?: string | null
           ops_confirmed_by?: string | null
+          plan_orders?: number | null
+          plan_source?: string | null
+          season_index?: number
           source?: string | null
           starts_at?: string | null
+          store_ids?: number[] | null
           updated_at?: string
         }
         Update: {
@@ -2562,16 +2574,22 @@ export type Database = {
           approval_status?: string
           created_at?: string
           created_by?: string | null
+          cm_pct?: number
           early_access_starts_at?: string | null
           ends_at?: string | null
           external_ref?: string | null
+          finalized_at?: string | null
           id?: string
           name?: string
           notes?: string | null
           ops_confirmed_at?: string | null
           ops_confirmed_by?: string | null
+          plan_orders?: number | null
+          plan_source?: string | null
+          season_index?: number
           source?: string | null
           starts_at?: string | null
+          store_ids?: number[] | null
           updated_at?: string
         }
         Relationships: [
@@ -5061,6 +5079,18 @@ export type Database = {
       rpc_save_launch: {
         Args: { p_id: string; p_launch: Json; p_members: Json }
         Returns: string
+      }
+      rpc_ensure_sale_baseline: {
+        Args: { p_sale_id: string; p_force?: boolean }
+        Returns: Json
+      }
+      rpc_sale_metrics: {
+        Args: { p_sale_id: string; p_as_of?: string }
+        Returns: Json
+      }
+      rpc_set_sale_setting: {
+        Args: { p_sale_id: string; p_key: string; p_value: Json }
+        Returns: undefined
       }
       rpc_set_profile_active: {
         Args: { p_is_active: boolean; p_target_user_id: string }

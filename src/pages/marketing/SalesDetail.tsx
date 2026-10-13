@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Pencil, Trash2, Plus, TrendingUp } from "lucide-react";
-import { useSaleLift } from "@/lib/hooks/use-marketing-signals";
+import { ArrowLeft, Pencil, Trash2, Plus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +13,7 @@ import { useAuth } from "@/lib/auth-context";
 import { SaleFormDialog } from "@/components/marketing/SaleFormDialog";
 import { OfferFormDialog } from "@/components/marketing/OfferFormDialog";
 import { OfferSentence } from "@/components/marketing/OfferSentence";
+import { SaleResults } from "@/components/marketing/sale/SaleResults";
 import { salePhase, PHASE_COLOR, PHASE_LABEL, isPastKey, dayKeyOf } from "@/lib/marketing-format";
 import { toast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
@@ -27,90 +27,6 @@ function fmt(d: string | null): string {
   const [y, m, day] = key.split("-").map(Number);
   if (!y || !m || !day) return key;
   return format(new Date(y, m - 1, day), "MMM d, yyyy");
-}
-
-/** Post-sale outcomes: units during the window vs the trailing-28d
- *  pre-sale baseline, per affected SKU. Computed nightly by
- *  rpc_compute_marketing_outcomes into mkt_sale_sku_lift. */
-function SalePerformance({ saleId }: { saleId: string }) {
-  const { data: rows = [], isLoading } = useSaleLift(saleId);
-  if (isLoading) return null;
-  if (rows.length === 0) {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-2">
-            <TrendingUp className="h-4 w-4" /> Performance
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            Outcomes compute overnight once the sale has ended (and need the
-            sale's offers to cover at least one SKU).
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
-  const totalUnits = rows.reduce((s, r) => s + r.units_during, 0);
-  // Overall lift only aggregates SKUs that HAD a pre-sale baseline. Including
-  // zero-baseline SKUs (new products) would add their units to the numerator
-  // with nothing in the denominator, inflating the headline lift.
-  const baselined = rows.filter((r) => r.baseline_daily > 0);
-  const liftUnits = baselined.reduce((s, r) => s + r.units_during, 0);
-  const expectedUnits = baselined.reduce((s, r) => s + r.baseline_daily * r.days, 0);
-  const overallLift = expectedUnits > 0 ? Math.round((liftUnits / expectedUnits - 1) * 100) : null;
-  const noBaselineCount = rows.length - baselined.length;
-  const liftColor = (v: number | null) =>
-    v == null ? "text-muted-foreground" : v >= 0 ? "text-green-400" : "text-red-400";
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base flex items-center gap-2">
-          <TrendingUp className="h-4 w-4" /> Performance
-          <span className="text-sm font-normal text-muted-foreground">
-            {totalUnits.toLocaleString()} units during the sale
-            {overallLift != null && (
-              <> · <span className={liftColor(overallLift)}>{overallLift >= 0 ? "+" : ""}{overallLift}% vs baseline</span></>
-            )}
-            {noBaselineCount > 0 && (
-              <> · <span title="Excluded from the lift figure — no pre-sale sales history to compare against">{noBaselineCount} new SKU{noBaselineCount > 1 ? "s" : ""} w/o baseline</span></>
-            )}
-          </span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="p-0">
-        <table className="w-full text-sm">
-          <thead className="border-b border-border/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
-            <tr>
-              <th className="px-4 py-2">SKU</th>
-              <th className="px-3 py-2 text-right">Units during</th>
-              <th className="px-3 py-2 text-right">Baseline/day</th>
-              <th className="px-3 py-2 text-right">Lift</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.slice(0, 10).map((r) => (
-              <tr key={r.sku_id} className="border-b border-border/40 last:border-0">
-                <td className="px-4 py-2">
-                  <span className="font-mono">{r.sku}</span>
-                  <span className="ml-2 text-xs text-muted-foreground">{r.product_name}</span>
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums font-medium">{r.units_during.toLocaleString()}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{r.baseline_daily.toFixed(1)}</td>
-                <td className={`px-3 py-2 text-right tabular-nums ${liftColor(r.lift_pct)}`}>
-                  {r.lift_pct == null ? "—" : `${r.lift_pct >= 0 ? "+" : ""}${r.lift_pct}%`}
-                </td>
-              </tr>
-            ))}
-            {rows.length > 10 && (
-              <tr><td colSpan={4} className="px-4 py-2 text-xs text-muted-foreground">+{rows.length - 10} more SKUs</td></tr>
-            )}
-          </tbody>
-        </table>
-      </CardContent>
-    </Card>
-  );
 }
 
 export default function SalesDetail() {
@@ -132,7 +48,7 @@ export default function SalesDetail() {
   }
   if (!sale) {
     return (
-      <div className="space-y-4 max-w-3xl">
+      <div className="space-y-4 max-w-6xl">
         <Button variant="ghost" size="sm" onClick={() => navigate("/marketing/sales")}>
           <ArrowLeft className="mr-2 h-4 w-4" /> Back
         </Button>
@@ -167,7 +83,7 @@ export default function SalesDetail() {
   const offers = sale.offers ?? [];
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6 max-w-6xl">
       <SaleFormDialog
         open={editSaleOpen}
         onOpenChange={setEditSaleOpen}
@@ -270,8 +186,10 @@ export default function SalesDetail() {
         </CardContent>
       </Card>
 
-      {salePhase(sale.starts_at, sale.ends_at, todayKey) === "ended" && (
-        <SalePerformance saleId={sale.id} />
+      {sale.starts_at && sale.ends_at ? (
+        <SaleResults saleId={sale.id} canEdit={canEdit} />
+      ) : (
+        <p className="text-sm text-muted-foreground">Set the sale's dates to see results.</p>
       )}
     </div>
   );
