@@ -33,7 +33,7 @@ function Inner({ saleId }: { saleId: string }) {
           <>
             <span className="font-semibold tabular-nums">{F.int(M.planOrders)} orders</span>
             <Chip tone="k" label={M.planSource === "planner" ? "Planner" : "Derived"} />
-            <span className="text-muted-foreground">Offers {M.offers.length}{M.alerts.length ? " · " + M.alerts.length + " to fix" : ""}</span>
+            <span className="text-muted-foreground">Offers {M.offers.length}{M.alerts.length ? " · " + M.alerts.length + (M.alerts.length === 1 ? " alert" : " alerts") : ""}</span>
           </>
         ) : M.live ? (
           <>
