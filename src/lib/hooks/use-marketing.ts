@@ -134,16 +134,19 @@ export function broadcastResults(b: MktBroadcast): BroadcastResults {
 const STALE = 2 * 60 * 1000;
 
 // ===================== Sales =====================
+/** A sale with its offers' labels, for list subtitles. */
+export type MktSaleListRow = MktSale & { offers: Array<{ id: string; label: string }> };
+
 export function useSales() {
   return useQuery({
     queryKey: ["mkt-sales"],
-    queryFn: async (): Promise<MktSale[]> => {
+    queryFn: async (): Promise<MktSaleListRow[]> => {
       const { data, error } = await supabase
         .from("mkt_sales")
-        .select("*")
+        .select("*, offers:mkt_offers(id, label)")
         .order("starts_at", { ascending: false, nullsFirst: false });
       if (error) throw error;
-      return data as MktSale[];
+      return (data ?? []).map((r) => ({ ...r, offers: (r.offers ?? []) as Array<{ id: string; label: string }> })) as MktSaleListRow[];
     },
     staleTime: STALE,
   });

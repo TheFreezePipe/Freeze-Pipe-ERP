@@ -336,7 +336,7 @@ export default function Launches() {
                 <tr>
                   <th className="px-4 py-2.5 font-medium">Launch</th>
                   <th className="px-4 py-2.5 font-medium">Date</th>
-                  <th className="px-4 py-2.5 font-medium">Products</th>
+                  <th className="px-4 py-2.5 font-medium">Supply</th>
                   <th className="px-4 py-2.5 font-medium">Status</th>
                   <th className="px-4 py-2.5 font-medium">Confirmed</th>
                   <th className="px-4 py-2.5" />
