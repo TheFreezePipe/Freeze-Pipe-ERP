@@ -91,6 +91,7 @@ export function SaleResults({ saleId, canEdit }: Props) {
       <div className="flex flex-wrap items-center gap-2">
         <ChipFrom def={ph} suffix={dayN} />
         {M.status.result ? <ChipFrom def={RESULT[M.status.result]} /> : M.status.pace ? <ChipFrom def={PACE[M.status.pace]} /> : null}
+        {M.overlap ? <Chip tone="a" mark="tri" label="Overlap" tip={M.overlap + " inside the after-window"} /> : null}
         <span className="text-xs text-muted-foreground">
           {F.range(S.d1, S.end)}{S.ea ? " · early access " + F.md(S.ea) : ""} · {M.input.stores.map((s) => s.name).join(", ")}
         </span>
@@ -209,7 +210,7 @@ export function SaleResults({ saleId, canEdit }: Props) {
         <MarginWaterfall M={M} loading={loading} />
         <CustomersTiles M={M} loading={loading} />
         <SendsTable M={M} loading={loading} highlight={highlightSend} />
-        <RecordedStrip M={M} />
+        <RecordedStrip M={M} canEdit={canEdit} />
       </div>
     </TooltipProvider>
   );

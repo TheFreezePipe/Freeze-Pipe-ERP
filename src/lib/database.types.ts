@@ -5080,6 +5080,10 @@ export type Database = {
         Args: { p_id: string; p_launch: Json; p_members: Json }
         Returns: string
       }
+      rpc_finalize_sale: {
+        Args: { p_sale_id: string; p_force?: boolean }
+        Returns: Json
+      }
       rpc_ensure_sale_baseline: {
         Args: { p_sale_id: string; p_force?: boolean }
         Returns: Json

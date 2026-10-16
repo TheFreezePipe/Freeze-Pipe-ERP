@@ -144,3 +144,13 @@ describe("Black Friday (upcoming)", () => {
     expect(M.offers.every((o) => o.status === "scheduled" || o.status === "missing_code")).toBe(true);
   });
 });
+
+describe("overlap", () => {
+  it("voids the after-dip when another event sits in the after-window", () => {
+    const M = computeSaleMetrics({ ...LD, overlap: "Halloween Studio Drop" });
+    expect(M.margin.post14).toBeNull();
+    expect(M.overlap).toBe("Halloween Studio Drop");
+    expect(M.alerts.some((a) => a.code === "overlap")).toBe(true);
+    expect(M.alerts.find((a) => a.code === "other_sale_code")?.tone).toBe("k");
+  });
+});

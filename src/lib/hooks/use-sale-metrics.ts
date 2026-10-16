@@ -44,3 +44,19 @@ export function useSetSaleSetting() {
     },
   });
 }
+
+export function useFinalizeSale() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (saleId: string) => {
+      const { data, error } = await supabase.rpc("rpc_finalize_sale", { p_sale_id: saleId, p_force: true });
+      if (error) throw error;
+      return data as unknown as { ok: boolean; reason?: string };
+    },
+    onSuccess: (_d, saleId) => {
+      void qc.invalidateQueries({ queryKey: ["sale-metrics", saleId] });
+      void qc.invalidateQueries({ queryKey: ["mkt-sale", saleId] });
+      void qc.invalidateQueries({ queryKey: ["mkt-sales"] });
+    },
+  });
+}

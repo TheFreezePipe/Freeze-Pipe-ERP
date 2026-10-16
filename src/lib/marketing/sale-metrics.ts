@@ -150,6 +150,8 @@ export interface SaleInput {
   synced_at: string | null;
   last_run: { run_type: string; started_at: string; completed_at: string | null; status: string; error: string | null } | null;
   unresolved_orders: number;
+  /** Other sales or launches inside the after-window; voids the after-dip. */
+  overlap?: string | null;
   baseline: {
     d1: string;
     frozen: boolean;
@@ -385,7 +387,8 @@ export interface SaleMetrics {
   } | null;
   codes: Array<{ code: string; kind: CodeKind; orders: number; dollars: number }>;
   alerts: SaleAlert[];
-  recorded: { finalizedAt: string | null; finalOn: string; priors: number; planLift: number | null; publicLift: number | null };
+  recorded: { finalizedAt: string | null; finalOn: string; due: boolean; priors: number; planLift: number | null; publicLift: number | null };
+  overlap: string | null;
   lastRun: { name: string; liftUnits: number | null; comparable: boolean; note: string } | null;
   unresolved: number;
 }
@@ -623,8 +626,9 @@ export function computeSaleMetrics(input: SaleInput, opts: ComputeOptions = {}):
           : "missed"
       : null;
 
-  // After-dip and net lift.
-  const post14 = G.post.done === 14 && G.post.B.units > 0 ? G.post.A.units / G.post.B.units : null;
+  // After-dip and net lift. Another event inside the after-window voids the reading.
+  const overlap = input.overlap ?? null;
+  const post14 = !overlap && G.post.done === 14 && G.post.B.units > 0 ? G.post.A.units / G.post.B.units : null;
   const dip = post14 != null ? Math.max(0, G.post.B.units - G.post.A.units) : 0;
   const incUnits = Fu.A.units - Fu.B.units;
   const incOrders = Fu.A.orders - Fu.B.orders;
@@ -889,12 +893,13 @@ export function computeSaleMetrics(input: SaleInput, opts: ComputeOptions = {}):
     else if (live && g.runway === "runs_out") alerts.push({ tone: "a", code: "gift_runway", title: "Gift " + g.sku + " runs out " + (g.runsOut ?? ""), detail: F.rate(g.rate) + " per day", source: "inventory" });
   });
   codes.filter((c) => c.kind === "other_sale" && c.orders > 0).forEach((c) => {
-    alerts.push({ tone: "a", code: "other_sale_code", title: c.code + " still redeeming", detail: F.int(c.orders) + " orders · " + F.money(c.dollars), source: "codes" });
+    alerts.push({ tone: "k", code: "other_sale_code", title: c.code + " redeeming", detail: F.int(c.orders) + " orders · " + F.money(c.dollars) + " · an older sale code, left live on purpose", source: "codes" });
   });
   input.offers.filter((o) => offerStatus(o) === "missing_code").forEach((o) => {
     alerts.push({ tone: "a", code: "missing_code", title: "No code on " + o.label, detail: "redemptions cannot be counted", source: "offers" });
   });
   if (!upcoming && B0.short) alerts.push({ tone: "k", code: "baseline_short", title: "Baseline short", detail: B0.n_clean + " clean days", source: "baseline" });
+  if (overlap && !upcoming) alerts.push({ tone: "k", code: "overlap", title: "Overlap · " + overlap, detail: "inside the after-window, so the after-dip is not readable", source: "calendar" });
   if (upcoming && B0.short) alerts.push({ tone: "k", code: "baseline_short", title: "Baseline short · " + B0.n_clean + " clean days", detail: "freezes " + F.md(S.d1), source: "baseline" });
   if (upcoming && !(S.plan_orders && S.plan_orders > 0)) alerts.push({ tone: "k", code: "plan_missing", title: "Plan derived", detail: F.int(planOrders) + " orders from the baseline", source: "plan" });
   if (live && input.unresolved_orders > 0) alerts.push({ tone: "k", code: "unresolved", title: F.int(input.unresolved_orders) + " orders waiting on a SKU", detail: "not in units until resolved", source: "shipstation" });
@@ -905,7 +910,7 @@ export function computeSaleMetrics(input: SaleInput, opts: ComputeOptions = {}):
   if (live && input.last_run?.status === "failed") alerts.push({ tone: "r", code: "sync_failed", title: "Last ShipStation sync failed", detail: input.last_run.error ?? "", source: "shipstation" });
 
   const publicLift = G.main.lift.units.delta;
-  const recorded = { finalizedAt: S.finalized_at, finalOn: S.final_on, priors: input.prior_runs.length, planLift: upliftPcts.length ? uplift : null, publicLift };
+  const recorded = { finalizedAt: S.finalized_at, finalOn: S.final_on, due: TODAY >= S.final_on, priors: input.prior_runs.length, planLift: upliftPcts.length ? uplift : null, publicLift };
 
   return {
     input,
@@ -981,5 +986,6 @@ export function computeSaleMetrics(input: SaleInput, opts: ComputeOptions = {}):
     recorded,
     lastRun,
     unresolved: input.unresolved_orders,
+    overlap,
   };
 }
