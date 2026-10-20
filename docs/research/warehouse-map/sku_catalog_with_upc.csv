@@ -1,0 +1,153 @@
+sku,product_name,display_category,category,is_active,standard_quantity_per_carton,upc_code,upc_gtin12,upc_upce8,upc_raw,upc_symbology
+1-Hemp,Hemp Rope,Accessories,non_fillable,True,50,,,,,
+10-Filters,Pipe Carbon Filter Packs,Accessories,non_fillable,True,50,,138332000051,13833251,1383325,upce
+14-Clip,14mm Clip,Accessories,non_fillable,True,50,,,,,
+19-Clip,18mm Clip,Accessories,non_fillable,True,50,,123100009947,12399417,1239941,upce
+34-Clip,34mm Clip,Accessories,non_fillable,True,50,,192000004352,19243502,1924350,upce
+Bong-Koozie,Bong Koozie,Accessories,non_fillable,True,50,,195986000066,19598666,1959866,upce
+BW20-Stone,Cold Stone,Accessories,non_fillable,True,50,,190460000037,19046347,1904634,upce
+BW20DNA-Stone,BW20DNA Cold Stone,Accessories,non_fillable,True,50,,125200007441,12574421,1257442,upce
+BW22-Down,Beaker Downstem,Accessories,non_fillable,True,50,,182360000026,18236246,1823624,upce
+BW22P-Down,Beaker Pro Downstem,Accessories,non_fillable,True,50,,,,,
+BW22U-Down,Beaker Ultimate Downstem,Accessories,fillable,True,50,,104741000050,10474150,1047415,upce
+BW40-Stone,GBT Cold Stone,Accessories,non_fillable,True,50,,,,,
+BW42-Koozie,Slush Cup Bubbler Koozie,Accessories,non_fillable,True,100,,,,,
+Carb-Cap,Carb Cap,Accessories,non_fillable,True,50,,,,,
+Carbon-Filter,Charcoal Filter Set,Accessories,fillable,True,33,,192024000064,19202464,1920246,upce
+Cleaning-Bottle,Cleaning Solution,Accessories,non_fillable,True,50,,,,,
+Cleaning-Caps,Cleaning Kit Caps,Accessories,non_fillable,True,50,,173100008082,17380812,1738081,upce
+Cleaning-Plugs,Cleaning Kit Plugs,Accessories,non_fillable,True,50,,171000005767,17157607,1715760,upce
+Dab-Dish,Dab Dish,Accessories,non_fillable,True,50,,,,,
+Filter-ADP,Pipe Filter Adapter,Accessories,non_fillable,True,50,,188720000057,18872057,1887205,upce
+FP-Grinder,Freeze Pipe Plastic Grinder,Accessories,non_fillable,True,100,,,,,
+FP-Koozie,Koozie,Accessories,non_fillable,True,50,,177500000257,17752537,1775253,upce
+GBT-ADP,GBT Adapter,Accessories,non_fillable,True,50,,159615000056,15961556,1596155,upce
+GBT-Koozie,GBT Koozie,Accessories,non_fillable,True,50,,,,,
+Hookah-Adapter,Hookah 18mm M Hose Adapter,Accessories,non_fillable,True,50,,,,,
+Keychain-Debowler,Keychain Debowler,Accessories,non_fillable,True,50,,130812000070,13081270,1308127,upce
+Mini-ENAIL-Gray,Mini-Enail,Accessories,non_fillable,True,50,,,,,
+NB2-Stone,Beaker Cold Stone,Accessories,non_fillable,True,50,,195100001160,19511610,1951161,upce
+Pipe-Cleaner,Pipe Cleaner,Accessories,non_fillable,True,50,,,,,
+Plastic-Grinder,Plastic Grinder,Accessories,non_fillable,True,50,,,,,
+Rolling-Tray,Rolling Trays,Accessories,non_fillable,True,50,,,,,
+Sleeve,Cooling Sleeve,Accessories,non_fillable,True,50,,,,,
+Vape,Vessel Vape Pen,Accessories,non_fillable,True,50,,,,,
+XL-Koozie,Bong XL Koozie,Accessories,non_fillable,True,50,,115100000024,11510244,1151024,upce
+BW33-14,14mm Ash Catcher,Ash Catchers,non_fillable,True,24,,919928177391,,919928177391,upca
+BW33-14-45,14mm 45 Ash Catcher,Ash Catchers,non_fillable,True,24,,548843548315,,548843548315,upca
+BW33-14P,14mm Ash Catcher Pro,Ash Catchers,fillable,True,24,,104549990607,,104549990607,upca
+BW33-19,18mm Ash Catcher,Ash Catchers,non_fillable,True,24,,316866176323,,316866176323,upca
+BW33-19-45,18mm 45 Ash Catcher,Ash Catchers,non_fillable,True,24,,999445132875,,999445132875,upca
+BW33-19P,18mm Ash Catcher Pro,Ash Catchers,fillable,True,24,,883113248510,,883113248510,upca
+BW21-Base,Bubbler Base,Bases,non_fillable,True,12,,,,,
+BW21P-Base,Bubbler Pro Base,Bases,non_fillable,True,12,,,,,
+BW22-Base,Beaker Base,Bases,non_fillable,True,12,,,,,
+BW22P-Base,Beaker Pro Base,Bases,non_fillable,True,12,,,,,
+BW22U-Base,Beaker Ultimate Base,Bases,non_fillable,True,12,,,,,
+BW25-Base,Recycler Base,Bases,non_fillable,True,12,,,,,
+BW32-Base,Nectar Collector Base,Bases,non_fillable,True,12,,,,,
+BW34-Base,Klein Base,Bases,non_fillable,True,12,,,,,
+BW38-base,Mini Dab Rig Base,Bases,non_fillable,True,12,,,,,
+BW51-base,Tornado Base,Bases,non_fillable,True,12,,,,,
+BW53,Bell Recycler Base,Bases,non_fillable,True,12,,,,,
+BW56-Base,Inside Out Bong Base,Bases,non_fillable,True,18,,,,,
+BW63-Base,Hookah Base,Bases,non_fillable,True,12,,,,,
+NB1-Base,Bong Base,Bases,non_fillable,True,12,,,,,
+NB1M-Base,Mini Bong Base,Bases,non_fillable,True,12,,,,,
+NB2-Base,Showerhead Base,Bases,non_fillable,True,18,,122100000114,12211134,1221113,upce
+NB7-Base,Straight Tube Ultimate Base,Bases,non_fillable,True,18,,123100007394,12373914,1237391,upce
+BW22,Freeze Pipe Beaker Bong,Bongs,fillable,True,12,,890456752383,,890456752383,upca
+BW22P,Freeze Pipe Beaker Bong Pro,Bongs,fillable,True,8,,305834278589,,305834278589,upca
+BW22U,Freeze Pipe Beaker Bong Ultimate,Bongs,fillable,True,8,,140916183654,,140916183654,upca
+BW58B,Freeze Pipe Recycler Bong Pro,Bongs,fillable,True,6,,,,,
+BW59,Freeze Pipe Swiss Bong,Bongs,fillable,True,8,,426784729881,,426784729881,upca
+BW62,Freeze Pipe Combo,Bongs,fillable,True,6,,602701619194,,602701619194,upca
+BW63,Hookah Bong,Bongs,fillable,True,4,,223976564332,,223976564332,upca
+BW68,LayFlat Bong,Bongs,fillable,True,4,,208882521860,,208882521860,upca
+NB1M,Freeze Pipe Mini Bong,Bongs,fillable,True,12,,626941742825,,626941742825,upca
+NB2,Freeze Pipe Bong Pro,Bongs,fillable,True,8,,228593071188,,228593071188,upca
+NB3M,Freeze Pipe Mini Bong Ultimate,Bongs,fillable,True,12,,779531531511,,779531531511,upca
+NB4,Straight Tube Bong,Bongs,fillable,True,8,,379967749964,,379967749964,upca
+NB5,Straight Tube Bong Pro,Bongs,fillable,True,8,,458549742279,,458549742279,upca
+NB6,Bong Ultimate,Bongs,fillable,True,4,,484077674423,,484077674423,upca
+14-3X-Bowl,14mm 3X Honeycomb Bowl,Bowls,non_fillable,True,50,,121477000062,12147762,1214776,upce
+14-Banger,14mm Banger,Bowls,non_fillable,True,50,,104498000075,10449875,1044987,upce
+14-G-Bowl,14mm Glycerin Bowl,Bowls,fillable,True,50,,162787000052,16278752,1627875,upce
+14-HC-Bowl,14mm Honeycomb Bowl,Bowls,non_fillable,True,50,,189000000491,18904901,1890490,upce
+14-Mag-Bowl,14mm Magnetic Bowl,Bowls,non_fillable,True,50,,160100006798,16067918,1606791,upce
+18-3X-Bowl,18mm 3X Honeycomb Bowl,Bowls,non_fillable,True,50,,144200008340,14483420,1448342,upce
+18-Banger,18mm Banger,Bowls,non_fillable,True,50,,107208000051,10720851,1072085,upce
+18-G-Bowl,18mm Glycerin Bowl,Bowls,fillable,True,50,,168000008669,16886609,1688660,upce
+18-HC-Bowl,18mm Honeycomb Bowl,Bowls,non_fillable,True,50,,189555000069,18955569,1895556,upce
+18-Mag-Bowl,18mm Magnetic Bowl,Bowls,non_fillable,True,50,,104235000085,10423585,1042358,upce
+BC-14,14mm Bowl Cooler,Bowls,non_fillable,True,50,,147476000070,14747670,1474767,upce
+BC-18,18mm Bowl Cooler,Bowls,non_fillable,True,50,,100880000081,10088081,1008808,upce
+BW20-Bowl,Freeze Pipe Bowl,Bowls,non_fillable,True,50,,101636000089,10163689,1016368,upce
+BW21-Bowl,Bubbler Bowl,Bowls,non_fillable,True,50,,195940000002,19594042,1959404,upce
+J-Bowl,Joint Bowl,Bowls,non_fillable,True,50,,184200000845,18408425,1840842,upce
+Quartz-Tip,Quartz Tips,Bowls,non_fillable,True,50,,,,,
+BW21P,Freeze Pipe Bubbler Pro,Bubblers,fillable,True,20,,989726189162,,989726189162,upca
+BW42,Slush Cup Bubbler,Bubblers,fillable,True,12,,187200004714,18747124,1874712,upce
+BW61,Freeze Pipe Bubbler Ultimate (Part),Bubblers,non_fillable,True,12,,462942434785,,462942434785,upca
+18-UFO,UFO Perc 18mm,Coils,fillable,True,24,,124440000090,12444940,1244494,upce
+34-DNA-Coil,DNA Coil,Coils,fillable,True,30,,192937000052,19293752,1929375,upce
+34-Middle-Revolver,34mm Middle Coil Mirrored Revolver,Coils,fillable,True,50,,550445804942,,550445804942,upca
+34-UFO,UFO Perc 34mm,Coils,non_fillable,True,24,,148700000149,14871439,1487143,upce
+BW21-Revolver,Bubbler Pro Coil,Coils,fillable,True,40,,127000001506,12715006,1271500,upce
+BW21-Spiral,Bubbler Coil,Coils,fillable,True,24,,,,,
+BW32P-Spiral,NC Spiral Coil,Coils,fillable,True,24,,,,,
+BW32P-Straight,NC Straight Coil,Coils,fillable,True,24,,,,,
+BW33-14P-Coil,14mm Ash Catcher Pro Coil,Coils,fillable,True,24,,,,,
+BW33-19P-Coil,18mm Ash Catcher Pro Coil,Coils,fillable,True,24,,,,,
+HT-11,XL Twisted Revolver,Coils,fillable,True,24,,124967000078,12496778,1249677,upce
+HT-3,XL Straight Coil,Coils,fillable,True,24,,,,,
+HT-4,Bong Revolver Coil,Coils,fillable,True,24,,132200009269,13292629,1329262,upce
+HT-5,Bong XL Revolver Coil,Coils,fillable,True,24,,189316000093,18931693,1893169,upce
+HT-7,Small Middle Coil - Straight,Coils,fillable,True,24,,160200009170,16091720,1609172,upce
+HT6,Small Revolver Coil,Coils,fillable,True,100,,191300000668,19136638,1913663,upce
+NB1-Spiral,Bong Coil,Coils,fillable,True,40,,126000007990,12679900,1267990,upce
+NB1-XL-Spiral,Bong XL Spiral Coil,Coils,fillable,True,24,,,,,
+NB3M Coil,18mm DNA Coil,Coils,fillable,True,20,,,,,
+BW34,Freeze Pipe Klein Recycler,Dab Rigs,fillable,True,8,,221517638399,,221517638399,upca
+BW38,Freeze Pipe Mini Dab Rig,Dab Rigs,fillable,True,12,,934961449168,,934961449168,upca
+E-Rig-Attachment,Puffco Peak Attachment,Dab Rigs,fillable,True,12,,791830023870,,791830023870,upca
+E-Rig-Pro,Puffco Peak Attachment Pro,Dab Rigs,fillable,True,12,,810844940932,,810844940932,upca
+BW40,GBT,Joint Chiller,fillable,True,100,,457089387377,,457089387377,upca
+BW40SP,GBT Spiral,Joint Chiller,fillable,True,100,,928120564830,,928120564830,upca
+BW60,Joint Bubbler,Joint Chiller,fillable,True,30,,854754276842,,854754276842,upca
+BW60U,Joint Bubbler Ultimate,Joint Chiller,fillable,True,12,,284352960230,,284352960230,upca
+BW20,Freeze Pipe,Pipes,fillable,True,30,,102696441041,,102696441041,upca
+BW20DNA,Freeze Pipe DNA,Pipes,fillable,True,25,,761174096946,,761174096946,upca
+BW20P,Freeze Pipe Revolver,Pipes,fillable,True,40,,971936715415,,971936715415,upca
+bw64,Freeze Pipe One Hitter,Pipes,fillable,True,63,,143600000626,14366236,1436623,upce
+BW64P,Freeze Pipe One-Hitter Pro,Pipes,fillable,True,76,,141867000069,14186769,1418676,upce
+BW66,Negative Freeze Pipe Mini,Pipes,fillable,True,30,,957854996303,,957854996303,upca
+BW66P,Negative Freeze Pipe,Pipes,fillable,True,30,,286937346736,,286937346736,upca
+LS02-BW20,Laser Etched Halloween Freeze Pipe,Studio,non_fillable,True,30,,,,,
+LS02-BW20DNA,Laser Etched Halloween DNA Pipe,Studio,non_fillable,True,25,,,,,
+LS02-BW22P,Laser Etched Halloween Beaker Pro,Studio,non_fillable,True,8,,,,,
+S03-BW40SP,Joint Chiller Ultimate Halloween Edition,Studio,fillable,True,100,,133060000038,13306348,1330634,upce
+S04-BW20DNA,Q4 Studio - BW20DNA,Studio,fillable,True,25,969843723265,969843723265,,969843723265,upca
+S04-NB2,Q4 Studio - NB2,Studio,fillable,True,8,,302232812094,,302232812094,upca
+S04-NB6,Q4 Studio - NB6,Studio,fillable,True,4,,564341512757,,564341512757,upca
+BW40XL-Stone,GBT Pro Cold Stone,Accessories,non_fillable,False,50,,,,,
+Puffco-Peak,Puffco Peak,Accessories,non_fillable,False,50,,,,,
+Vault-Box,Bong Vault,Accessories,non_fillable,False,50,,,,,
+BW51P-Base,Tornado Pro Base,Bases,non_fillable,False,12,,,,,
+BW25,Freeze Pipe Recycler Bong,Bongs,fillable,False,8,,,,,
+NB3U,Freeze Pipe Bong Ultimate,Bongs,fillable,False,6,,,,,
+Hybrid-Bowl,14/18mm Hybrid Bowl,Bowls,non_fillable,False,50,,,,,
+HT-5M,XL Revolver Mirrored,Coils,fillable,False,24,,,,,
+BW32-P,Freeze Pipe Nectar Collector (Kit),Dab Rigs,fillable,False,6,,,,,
+BW55,Waterfall Dab Rig,Dab Rigs,fillable,False,8,,,,,
+BW30P,Freeze Pipe Ultimate,Pipes,fillable,False,20,,,,,
+BW22M,Studio Mini Beaker,Studio,fillable,False,12,,,,,
+BW51XL,Studio XL Tornado,Studio,fillable,False,6,,,,,
+BW65,Studio Mini Negative Spoon,Studio,fillable,False,30,,,,,
+BW65P,Studio Negative Spoon,Studio,fillable,False,18,,,,,
+LS01-BW20,Laser Studio 1960s Spiral Pipe,Studio,fillable,False,30,,,,,
+LS01-BW20DNA,Laser Studio 2000s DNA Pipe,Studio,fillable,False,25,,,,,
+LS01-BW68,Laser Studio 1990s Layflat Bong,Studio,fillable,False,4,,,,,
+LS01-NB2,Laser Studio 1980s Bong Pro,Studio,fillable,False,8,,,,,
+S03-BW20P,Revolver Pipe Halloween Edition,Studio,fillable,False,25,,,,,
+S03-NB2,Studio NB2 Halloween,Studio,fillable,False,8,,,,,

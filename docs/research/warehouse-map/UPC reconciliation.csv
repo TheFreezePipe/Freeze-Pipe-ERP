@@ -1,0 +1,156 @@
+section,file_sku,erp_sku,status,raw_code,symbology,gtin12,upce8,display_category,carton_qty,note
+code in file,BW20,BW20,exact,102696441041,upca,102696441041,,Pipes,30,
+code in file,BW20P,BW20P,exact,971936715415,upca,971936715415,,Pipes,40,
+code in file,BW30P,,inactive ERP SKU,178559333617,upca,178559333617,,,,
+code in file,BW20DNA,BW20DNA,exact,761174096946,upca,761174096946,,Pipes,25,
+code in file,BW21,,retired (owner 2026-10-20),541213155748,upca,541213155748,,,,
+code in file,BW21P,BW21P,exact,989726189162,upca,989726189162,,Bubblers,20,
+code in file,BW61,BW61,exact,462942434785,upca,462942434785,,Bubblers,12,
+code in file,BW40,BW40,exact,457089387377,upca,457089387377,,Joint Chiller,100,
+code in file,BW40 XL,,retired (owner 2026-10-20),449962278308,upca,449962278308,,,,
+code in file,BW60,BW60,exact,854754276842,upca,854754276842,,Joint Chiller,30,
+code in file,BW60U,BW60U,exact,284352960230,upca,284352960230,,Joint Chiller,12,
+code in file,NB1,,retired (owner 2026-10-20),921409015092,upca,921409015092,,,,
+code in file,NB2,NB2,exact,228593071188,upca,228593071188,,Bongs,8,
+code in file,NB4,NB4,exact,379967749964,upca,379967749964,,Bongs,8,
+code in file,NB5,NB5,exact,458549742279,upca,458549742279,,Bongs,8,
+code in file,BW22,BW22,exact,890456752383,upca,890456752383,,Bongs,12,
+code in file,BW22P,BW22P,exact,305834278589,upca,305834278589,,Bongs,8,
+code in file,BW22U,BW22U,exact,140916183654,upca,140916183654,,Bongs,8,
+code in file,NB1M,NB1M,exact,626941742825,upca,626941742825,,Bongs,12,
+code in file,NB2M,,retired (owner 2026-10-20),839529752073,upca,839529752073,,,,
+code in file,BW51D,,retired (owner 2026-10-20),212929243295,upca,212929243295,,,,
+code in file,BW25,,inactive ERP SKU,923181325109,upca,923181325109,,,,
+code in file,BW58N,,retired (owner 2026-10-20),773458979555,upca,773458979555,,,,
+code in file,BW56,,retired (owner 2026-10-20),100308572695,upca,100308572695,,,,
+code in file,BW59,BW59,exact,426784729881,upca,426784729881,,Bongs,8,
+code in file,BW62,BW62,exact,602701619194,upca,602701619194,,Bongs,6,
+code in file,BW63,BW63,exact,223976564332,upca,223976564332,,Bongs,4,
+code in file,BW38,BW38,exact,934961449168,upca,934961449168,,Dab Rigs,12,
+code in file,BW34,BW34,exact,221517638399,upca,221517638399,,Dab Rigs,8,
+code in file,BW55,,inactive ERP SKU,543254915824,upca,543254915824,,,,
+code in file,E-Rig-Attachment,E-Rig-Attachment,exact,791830023870,upca,791830023870,,Dab Rigs,12,
+code in file,BW33-14,BW33-14,exact,919928177391,upca,919928177391,,Ash Catchers,24,
+code in file,BW33-19,BW33-19,exact,316866176323,upca,316866176323,,Ash Catchers,24,
+code in file,BW33-14-45,BW33-14-45,exact,548843548315,upca,548843548315,,Ash Catchers,24,
+code in file,BW33-19-45,BW33-19-45,exact,999445132875,upca,999445132875,,Ash Catchers,24,
+code in file,BW33-14P,BW33-14P,exact,104549990607,upca,104549990607,,Ash Catchers,24,
+code in file,BW33-19P,BW33-19P,exact,883113248510,upca,883113248510,,Ash Catchers,24,
+code in file,FP-Bowl,BW20-Bowl,alias (owner 2026-10-20),1016368,upce,101636000089,10163689,,,
+code in file,14-HC-Bowl,14-HC-Bowl,exact,1890490,upce,189000000491,18904901,Bowls,50,
+code in file,18-HC-Bowl,18-HC-Bowl,exact,1895556,upce,189555000069,18955569,Bowls,50,
+code in file,Hybrid-Bowl,,inactive ERP SKU,1264746,upce,126474000060,12647460,,,
+code in file,14-3X-Bowl,14-3X-Bowl,exact,1214776,upce,121477000062,12147762,Bowls,50,
+code in file,18-3X-Bowl,18-3X-Bowl,exact,1448342,upce,144200008340,14483420,Bowls,50,
+code in file,GB-14,14-G-Bowl,alias (owner 2026-10-20),1627875,upce,162787000052,16278752,,,
+code in file,GB-18,18-G-Bowl,alias (owner 2026-10-20),1688660,upce,168000008669,16886609,,,
+code in file,14-Banger,14-Banger,exact,1044987,upce,104498000075,10449875,Bowls,50,
+code in file,18-Banger,18-Banger,exact,1072085,upce,107208000051,10720851,Bowls,50,
+code in file,BW21-Bowl,BW21-Bowl,exact,1959404,upce,195940000002,19594042,Bowls,50,
+code in file,BC-14,BC-14,exact,1474767,upce,147476000070,14747670,Bowls,50,
+code in file,BC-18,BC-18,exact,1008808,upce,100880000081,10088081,Bowls,50,
+code in file,14-Mag-Bowl,14-Mag-Bowl,exact,1606791,upce,160100006798,16067918,Bowls,50,
+code in file,18-Mag-Bowl,18-Mag-Bowl,exact,1042358,upce,104235000085,10423585,Bowls,50,
+code in file,BW40SP,BW40SP,exact,928120564830,upca,928120564830,,Joint Chiller,100,
+code in file,BW64,bw64,matched by spelling,1436623,upce,143600000626,14366236,Pipes,63,
+code in file,HT10,HT-5,alias (owner 2026-10-20),1893169,upce,189316000093,18931693,,,
+code in file,HT6,HT6,exact,1913663,upce,191300000668,19136638,Coils,100,
+code in file,HT7,HT-7,matched by spelling,1609172,upce,160200009170,16091720,Coils,24,
+code in file,34-Middle-Revolver,34-Middle-Revolver,exact,550445804942,upca,550445804942,,Coils,50,
+code in file,HT11,HT-11,matched by spelling,1249677,upce,124967000078,12496778,Coils,24,
+code in file,BW21-Revolver,BW21-Revolver,exact,1271500,upce,127000001506,12715006,Coils,40,
+code in file,34-UFO,34-UFO,exact,1487143,upce,148700000149,14871439,Coils,24,
+code in file,XL-Koozie,XL-Koozie,exact,1151024,upce,115100000024,11510244,Accessories,50,
+code in file,34-DNA-Coil,34-DNA-Coil,exact,1929375,upce,192937000052,19293752,Coils,30,
+code in file,NB1-Spiral,NB1-Spiral,exact,1267990,upce,126000007990,12679900,Coils,40,
+code in file,GBT-ADP,GBT-ADP,exact,1596155,upce,159615000056,15961556,Accessories,50,
+code in file,J-Bowl,J-Bowl,exact,1840842,upce,184200000845,18408425,Bowls,50,
+code in file,NB2-Stone,NB2-Stone,exact,1951161,upce,195100001160,19511610,Accessories,50,
+code in file,BW40XL-Stone,,inactive ERP SKU,1707062,upce,170200007069,17070629,,,
+code in file,NB2-Base,NB2-Base,exact,1221113,upce,122100000114,12211134,Bases,18,
+code in file,18-UFO,18-UFO,exact,1244494,upce,124440000090,12444940,Coils,24,
+code in file,BW22-Down,BW22-Down,exact,1823624,upce,182360000026,18236246,Accessories,50,
+code in file,FP-Koozie,FP-Koozie,exact,1775253,upce,177500000257,17752537,Accessories,50,
+code in file,Cleaning-Caps,Cleaning-Caps,exact,1738081,upce,173100008082,17380812,Accessories,50,
+code in file,Cleaning-Plugs,Cleaning-Plugs,exact,1715760,upce,171000005767,17157607,Accessories,50,
+code in file,Keychain-Debowler,Keychain-Debowler,exact,1308127,upce,130812000070,13081270,Accessories,50,
+code in file,Carbon-Filter,Carbon-Filter,exact,1920246,upce,192024000064,19202464,Accessories,33,
+code in file,Suction-Cup,,retired (owner 2026-10-20),1928552,upce,192200008556,19285526,,,
+code in file,BW20DNA-Iridescent,,retired (owner 2026-10-20),101860602660,upca,101860602660,,,,
+code in file,BW22U-Down,BW22U-Down,exact,1047415,upce,104741000050,10474150,Accessories,50,
+code in file,NB2M-Orange,,retired (owner 2026-10-20),886992487889,upca,886992487889,,,,
+code in file,BW20DNA-Stone,BW20DNA-Stone,exact,1257442,upce,125200007441,12574421,Accessories,50,
+code in file,10-Filters,10-Filters,exact,1383325,upce,138332000051,13833251,Accessories,50,
+code in file,34-Clip,34-Clip,exact,1924350,upce,192000004352,19243502,Accessories,50,
+code in file,19-Clip,19-Clip,exact,1239941,upce,123100009947,12399417,Accessories,50,
+code in file,Filter-ADP,Filter-ADP,exact,1887205,upce,188720000057,18872057,Accessories,50,
+code in file,NB2S,,retired (owner 2026-10-20),243590000405,upca,243590000405,,,,
+code in file,BW59MS,,retired (owner 2026-10-20),603474312565,upca,603474312565,,,,
+code in file,BW20PS,,retired (owner 2026-10-20),832402219250,upca,832402219250,,,,
+code in file,BW20-Stone,BW20-Stone,exact,1904634,upce,190460000037,19046347,Accessories,50,
+code in file,HT4,HT-4,matched by spelling,1329262,upce,132200009269,13292629,Coils,24,
+code in file,NB6,NB6,exact,484077674423,upca,484077674423,,Bongs,4,
+code in file,BW68,BW68,exact,208882521860,upca,208882521860,,Bongs,4,
+code in file,Bong-Koozie,Bong-Koozie,exact,1959866,upce,195986000066,19598666,Accessories,50,
+code in file,S02-NSPM,,retired (owner 2026-10-20),781057554677,upca,781057554677,,,,Studio Mini Negative Spoon
+code in file,S02-NSP,,retired (owner 2026-10-20),181749387420,upca,181749387420,,,,Studio Negative Spoon
+code in file,S02-BW51XL,,retired (owner 2026-10-20),702110624878,upca,702110624878,,,,Studio XL Tornado
+code in file,S02-BW22M,,retired (owner 2026-10-20),926716203217,upca,926716203217,,,,Studio Mini Beaker
+code in file,BW64P,BW64P,exact,1418676,upce,141867000069,14186769,Pipes,76,
+code in file,NB7-Base,NB7-Base,exact,1237391,upce,123100007394,12373914,Bases,18,
+code in file,BW42,BW42,exact,1874712,upce,187200004714,18747124,Bubblers,12,
+code in file,S03-NB2,,inactive ERP SKU,757188020107,upca,757188020107,,,,
+code in file,NB3M,NB3M,exact,779531531511,upca,779531531511,,Bongs,12,
+code in file,S03-BW40SP,S03-BW40SP,exact,1330634,upce,133060000038,13306348,Studio,100,
+code in file,S03-BW20P,,inactive ERP SKU,1404004,upce,140400000009,14040049,,,
+code in file,BW66P,BW66P,exact,286937346736,upca,286937346736,,Pipes,30,
+code in file,E-Rig-Pro,E-Rig-Pro,exact,810844940932,upca,810844940932,,Dab Rigs,12,
+code in file,S04-BW20DNA,S04-BW20DNA,exact,969843723265,upca,969843723265,,Studio,25,
+code in file,BW66,BW66,exact,957854996303,upca,957854996303,,Pipes,30,
+code in file,S04-NB6,S04-NB6,exact,564341512757,upca,564341512757,,Studio,4,
+code in file,S04-NB2,S04-NB2,exact,302232812094,upca,302232812094,,Studio,8,
+active SKU without code,,1-Hemp,no code,,,,,Accessories,50,Hemp Rope
+active SKU without code,,14-Clip,no code,,,,,Accessories,50,14mm Clip
+active SKU without code,,BW22P-Down,no code,,,,,Accessories,50,Beaker Pro Downstem
+active SKU without code,,BW40-Stone,no code,,,,,Accessories,50,GBT Cold Stone
+active SKU without code,,BW42-Koozie,no code,,,,,Accessories,100,Slush Cup Bubbler Koozie
+active SKU without code,,Carb-Cap,no code,,,,,Accessories,50,Carb Cap
+active SKU without code,,Cleaning-Bottle,no code,,,,,Accessories,50,Cleaning Solution
+active SKU without code,,Dab-Dish,no code,,,,,Accessories,50,Dab Dish
+active SKU without code,,FP-Grinder,no code,,,,,Accessories,100,Freeze Pipe Plastic Grinder
+active SKU without code,,GBT-Koozie,no code,,,,,Accessories,50,GBT Koozie
+active SKU without code,,Hookah-Adapter,no code,,,,,Accessories,50,Hookah 18mm M Hose Adapter
+active SKU without code,,Mini-ENAIL-Gray,no code,,,,,Accessories,50,Mini-Enail
+active SKU without code,,Pipe-Cleaner,no code,,,,,Accessories,50,Pipe Cleaner
+active SKU without code,,Plastic-Grinder,no code,,,,,Accessories,50,Plastic Grinder
+active SKU without code,,Rolling-Tray,no code,,,,,Accessories,50,Rolling Trays
+active SKU without code,,Sleeve,no code,,,,,Accessories,50,Cooling Sleeve
+active SKU without code,,Vape,no code,,,,,Accessories,50,Vessel Vape Pen
+active SKU without code,,BW21-Base,no code,,,,,Bases,12,Bubbler Base
+active SKU without code,,BW21P-Base,no code,,,,,Bases,12,Bubbler Pro Base
+active SKU without code,,BW22-Base,no code,,,,,Bases,12,Beaker Base
+active SKU without code,,BW22P-Base,no code,,,,,Bases,12,Beaker Pro Base
+active SKU without code,,BW22U-Base,no code,,,,,Bases,12,Beaker Ultimate Base
+active SKU without code,,BW25-Base,no code,,,,,Bases,12,Recycler Base
+active SKU without code,,BW32-Base,no code,,,,,Bases,12,Nectar Collector Base
+active SKU without code,,BW34-Base,no code,,,,,Bases,12,Klein Base
+active SKU without code,,BW38-base,no code,,,,,Bases,12,Mini Dab Rig Base
+active SKU without code,,BW51-base,no code,,,,,Bases,12,Tornado Base
+active SKU without code,,BW53,no code,,,,,Bases,12,Bell Recycler Base
+active SKU without code,,BW56-Base,no code,,,,,Bases,18,Inside Out Bong Base
+active SKU without code,,BW63-Base,no code,,,,,Bases,12,Hookah Base
+active SKU without code,,NB1-Base,no code,,,,,Bases,12,Bong Base
+active SKU without code,,NB1M-Base,no code,,,,,Bases,12,Mini Bong Base
+active SKU without code,,BW58B,no code,,,,,Bongs,6,Freeze Pipe Recycler Bong Pro
+active SKU without code,,Quartz-Tip,no code,,,,,Bowls,50,Quartz Tips
+active SKU without code,,BW21-Spiral,no code,,,,,Coils,24,Bubbler Coil
+active SKU without code,,BW32P-Spiral,no code,,,,,Coils,24,NC Spiral Coil
+active SKU without code,,BW32P-Straight,no code,,,,,Coils,24,NC Straight Coil
+active SKU without code,,BW33-14P-Coil,no code,,,,,Coils,24,14mm Ash Catcher Pro Coil
+active SKU without code,,BW33-19P-Coil,no code,,,,,Coils,24,18mm Ash Catcher Pro Coil
+active SKU without code,,HT-3,no code,,,,,Coils,24,XL Straight Coil
+active SKU without code,,NB1-XL-Spiral,no code,,,,,Coils,24,Bong XL Spiral Coil
+active SKU without code,,NB3M Coil,no code,,,,,Coils,20,18mm DNA Coil
+active SKU without code,,LS02-BW20,no code,,,,,Studio,30,Laser Etched Halloween Freeze Pipe
+active SKU without code,,LS02-BW20DNA,no code,,,,,Studio,25,Laser Etched Halloween DNA Pipe
+active SKU without code,,LS02-BW22P,no code,,,,,Studio,8,Laser Etched Halloween Beaker Pro
