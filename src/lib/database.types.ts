@@ -1507,6 +1507,48 @@ export type Database = {
           },
         ]
       }
+      mkt_discount_codes: {
+        Row: {
+          code: string
+          created_at: string
+          kind: string
+          label: string | null
+          notes: string | null
+          sale_id: string | null
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          kind: string
+          label?: string | null
+          notes?: string | null
+          sale_id?: string | null
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          kind?: string
+          label?: string | null
+          notes?: string | null
+          sale_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mkt_discount_codes_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: false
+            referencedRelation: "mkt_offer_sku_expansion"
+            referencedColumns: ["sale_id"]
+          },
+          {
+            foreignKeyName: "mkt_discount_codes_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: false
+            referencedRelation: "mkt_sales"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       mkt_launch_skus: {
         Row: {
           actual_first_30d_units: number | null
@@ -2456,6 +2498,81 @@ export type Database = {
           },
         ]
       }
+      mkt_sale_baseline: {
+        Row: {
+          clean_days: string[]
+          computed_at: string
+          d1: string
+          dow_orders: number[]
+          dow_units: number[]
+          everyday_disc_cents_per_order: number | null
+          frozen: boolean
+          hour_share: number[]
+          n_clean: number
+          new_share: number | null
+          orders_day: number
+          sale_id: string
+          short: boolean
+          store_ids: number[]
+          units_day: number
+          window_from: string
+          window_to: string
+        }
+        Insert: {
+          clean_days: string[]
+          computed_at?: string
+          d1: string
+          dow_orders: number[]
+          dow_units: number[]
+          everyday_disc_cents_per_order?: number | null
+          frozen?: boolean
+          hour_share: number[]
+          n_clean: number
+          new_share?: number | null
+          orders_day: number
+          sale_id: string
+          short: boolean
+          store_ids: number[]
+          units_day: number
+          window_from: string
+          window_to: string
+        }
+        Update: {
+          clean_days?: string[]
+          computed_at?: string
+          d1?: string
+          dow_orders?: number[]
+          dow_units?: number[]
+          everyday_disc_cents_per_order?: number | null
+          frozen?: boolean
+          hour_share?: number[]
+          n_clean?: number
+          new_share?: number | null
+          orders_day?: number
+          sale_id?: string
+          short?: boolean
+          store_ids?: number[]
+          units_day?: number
+          window_from?: string
+          window_to?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mkt_sale_baseline_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: true
+            referencedRelation: "mkt_offer_sku_expansion"
+            referencedColumns: ["sale_id"]
+          },
+          {
+            foreignKeyName: "mkt_sale_baseline_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: true
+            referencedRelation: "mkt_sales"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       mkt_sale_sku_lift: {
         Row: {
           baseline_daily: number
@@ -2522,13 +2639,37 @@ export type Database = {
           },
         ]
       }
+      mkt_sale_stores: {
+        Row: {
+          counts_as_sale: boolean
+          created_at: string
+          name: string
+          notes: string | null
+          store_id: number
+        }
+        Insert: {
+          counts_as_sale?: boolean
+          created_at?: string
+          name: string
+          notes?: string | null
+          store_id: number
+        }
+        Update: {
+          counts_as_sale?: boolean
+          created_at?: string
+          name?: string
+          notes?: string | null
+          store_id?: number
+        }
+        Relationships: []
+      }
       mkt_sales: {
         Row: {
           annual_recurring: boolean
           approval_status: string
+          cm_pct: number
           created_at: string
           created_by: string | null
-          cm_pct: number
           early_access_starts_at: string | null
           ends_at: string | null
           external_ref: string | null
@@ -2549,9 +2690,9 @@ export type Database = {
         Insert: {
           annual_recurring?: boolean
           approval_status?: string
+          cm_pct?: number
           created_at?: string
           created_by?: string | null
-          cm_pct?: number
           early_access_starts_at?: string | null
           ends_at?: string | null
           external_ref?: string | null
@@ -2572,9 +2713,9 @@ export type Database = {
         Update: {
           annual_recurring?: boolean
           approval_status?: string
+          cm_pct?: number
           created_at?: string
           created_by?: string | null
-          cm_pct?: number
           early_access_starts_at?: string | null
           ends_at?: string | null
           external_ref?: string | null
@@ -2720,6 +2861,9 @@ export type Database = {
           archive_reason: string | null
           archived_at: string | null
           archived_by: string | null
+          box_height_in: number | null
+          box_length_in: number | null
+          box_width_in: number | null
           category: string
           created_at: string
           display_category: string
@@ -2739,6 +2883,9 @@ export type Database = {
           archive_reason?: string | null
           archived_at?: string | null
           archived_by?: string | null
+          box_height_in?: number | null
+          box_length_in?: number | null
+          box_width_in?: number | null
           category: string
           created_at?: string
           display_category?: string
@@ -2758,6 +2905,9 @@ export type Database = {
           archive_reason?: string | null
           archived_at?: string | null
           archived_by?: string | null
+          box_height_in?: number | null
+          box_length_in?: number | null
+          box_width_in?: number | null
           category?: string
           created_at?: string
           display_category?: string
@@ -3031,6 +3181,47 @@ export type Database = {
             columns: ["sku_id"]
             isOneToOne: false
             referencedRelation: "supplier_portal_skus"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shipstation_order_discounts: {
+        Row: {
+          amount_cents: number
+          code: string
+          created_at: string
+          id: string
+          line_item_id: number | null
+          name: string
+          quantity: number
+          shipstation_order_id: string
+        }
+        Insert: {
+          amount_cents: number
+          code: string
+          created_at?: string
+          id?: string
+          line_item_id?: number | null
+          name: string
+          quantity?: number
+          shipstation_order_id: string
+        }
+        Update: {
+          amount_cents?: number
+          code?: string
+          created_at?: string
+          id?: string
+          line_item_id?: number | null
+          name?: string
+          quantity?: number
+          shipstation_order_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shipstation_order_discounts_shipstation_order_id_fkey"
+            columns: ["shipstation_order_id"]
+            isOneToOne: false
+            referencedRelation: "shipstation_orders"
             referencedColumns: ["id"]
           },
         ]
@@ -3325,6 +3516,71 @@ export type Database = {
             columns: ["resulting_order_id"]
             isOneToOne: false
             referencedRelation: "shipstation_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sku_barcodes: {
+        Row: {
+          code: string
+          code_raw: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          is_primary: boolean
+          sku_id: string
+          source: string
+          symbology: string
+        }
+        Insert: {
+          code: string
+          code_raw?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_primary?: boolean
+          sku_id: string
+          source?: string
+          symbology?: string
+        }
+        Update: {
+          code?: string
+          code_raw?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_primary?: boolean
+          sku_id?: string
+          source?: string
+          symbology?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sku_barcodes_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sku_barcodes_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sku_barcodes_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus_active"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sku_barcodes_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_skus"
             referencedColumns: ["id"]
           },
         ]
@@ -3774,6 +4030,38 @@ export type Database = {
             columns: ["sku_id"]
             isOneToOne: false
             referencedRelation: "supplier_portal_skus"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wh_settings: {
+        Row: {
+          created_at: string
+          key: string
+          updated_at: string
+          updated_by: string | null
+          value: Json
+        }
+        Insert: {
+          created_at?: string
+          key: string
+          updated_at?: string
+          updated_by?: string | null
+          value: Json
+        }
+        Update: {
+          created_at?: string
+          key?: string
+          updated_at?: string
+          updated_by?: string | null
+          value?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wh_settings_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -4740,6 +5028,13 @@ export type Database = {
       }
       fire_daily_report: { Args: never; Returns: undefined }
       fire_youtube_summary: { Args: never; Returns: undefined }
+      fn_gtin_candidates: { Args: { p_scan: string }; Returns: string[] }
+      fn_gtin_normalize: { Args: { p_scan: string }; Returns: string }
+      fn_outbound_allowed: { Args: { p_kind: string }; Returns: boolean }
+      fn_parse_shipstation_discounts: {
+        Args: { p_order_id: string }
+        Returns: number
+      }
       fn_pd_detach_member: {
         Args: { p_launch_id: string; p_project_id: string; p_via: string }
         Returns: Json
@@ -4772,6 +5067,19 @@ export type Database = {
       fn_pd_release_member_rows: {
         Args: { p_launch_id: string; p_project_id: string }
         Returns: Json
+      }
+      fn_sale_event_days: {
+        Args: { p_from: string; p_sale_id: string; p_to: string }
+        Returns: string[]
+      }
+      fn_sale_overlap: { Args: { p_sale_id: string }; Returns: string }
+      fn_sale_store_ids: { Args: { p_sale_id: string }; Returns: number[] }
+      fn_ss_et: { Args: { ts: string }; Returns: string }
+      fn_ss_order_key: { Args: { order_number: string }; Returns: string }
+      fn_upca_check_digit: { Args: { p_body11: string }; Returns: string }
+      fn_upce_expand: {
+        Args: { p_body6: string; p_ns: string }
+        Returns: string
       }
       jwt_is_admin: { Args: never; Returns: boolean }
       jwt_is_internal: { Args: never; Returns: boolean }
@@ -4884,6 +5192,34 @@ export type Database = {
         Returns: Json
       }
       rpc_daily_report: { Args: never; Returns: Json }
+      rpc_ensure_sale_baseline: {
+        Args: { p_force?: boolean; p_sale_id: string }
+        Returns: {
+          clean_days: string[]
+          computed_at: string
+          d1: string
+          dow_orders: number[]
+          dow_units: number[]
+          everyday_disc_cents_per_order: number | null
+          frozen: boolean
+          hour_share: number[]
+          n_clean: number
+          new_share: number | null
+          orders_day: number
+          sale_id: string
+          short: boolean
+          store_ids: number[]
+          units_day: number
+          window_from: string
+          window_to: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "mkt_sale_baseline"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       rpc_factory_order_component_status: {
         Args: { p_factory_order_id: string }
         Returns: Json
@@ -4899,6 +5235,11 @@ export type Database = {
           p_quantity_broken: number
           p_reason_category: string
         }
+        Returns: Json
+      }
+      rpc_finalize_due_sales: { Args: never; Returns: Json }
+      rpc_finalize_sale: {
+        Args: { p_force?: boolean; p_sale_id: string }
         Returns: Json
       }
       rpc_inventory_retail_value_history: {
@@ -5062,6 +5403,10 @@ export type Database = {
       }
       rpc_revoke_reporting_key: { Args: { p_actor_id: string }; Returns: Json }
       rpc_rotate_reporting_key: { Args: { p_actor_id: string }; Returns: Json }
+      rpc_sale_metrics: {
+        Args: { p_as_of?: string; p_sale_id: string }
+        Returns: Json
+      }
       rpc_sales_pulse: {
         Args: never
         Returns: {
@@ -5080,25 +5425,13 @@ export type Database = {
         Args: { p_id: string; p_launch: Json; p_members: Json }
         Returns: string
       }
-      rpc_finalize_sale: {
-        Args: { p_sale_id: string; p_force?: boolean }
-        Returns: Json
-      }
-      rpc_ensure_sale_baseline: {
-        Args: { p_sale_id: string; p_force?: boolean }
-        Returns: Json
-      }
-      rpc_sale_metrics: {
-        Args: { p_sale_id: string; p_as_of?: string }
-        Returns: Json
-      }
-      rpc_set_sale_setting: {
-        Args: { p_sale_id: string; p_key: string; p_value: Json }
-        Returns: undefined
-      }
       rpc_set_profile_active: {
         Args: { p_is_active: boolean; p_target_user_id: string }
         Returns: Json
+      }
+      rpc_set_sale_setting: {
+        Args: { p_key: string; p_sale_id: string; p_value: Json }
+        Returns: undefined
       }
       rpc_shipstation_register_non_inventory_sku: {
         Args: { p_notes?: string; p_sku_code: string }
@@ -5180,6 +5513,25 @@ export type Database = {
           p_new_role: string
           p_target_user_id: string
         }
+        Returns: Json
+      }
+      rpc_wh_barcode_coverage: { Args: never; Returns: Json }
+      rpc_wh_baseline_kpis: {
+        Args: { p_from: string; p_to: string }
+        Returns: Json
+      }
+      rpc_wh_get_settings: { Args: never; Returns: Json }
+      rpc_wh_import_sku_master: {
+        Args: { p_dry_run?: boolean; p_rows: Json }
+        Returns: Json
+      }
+      rpc_wh_link_barcode: {
+        Args: { p_scan: string; p_sku_id: string }
+        Returns: Json
+      }
+      rpc_wh_resolve_scan: { Args: { p_scan: string }; Returns: Json }
+      rpc_wh_set_setting: {
+        Args: { p_key: string; p_value: Json }
         Returns: Json
       }
       shipstation_credit_pair: {

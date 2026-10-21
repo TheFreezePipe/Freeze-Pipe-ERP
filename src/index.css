@@ -84,3 +84,21 @@
     margin: 0;
   }
 }
+
+/* Safe-area insets for the installed PWA (viewport-fit=cover plus the
+   black-translucent iOS status bar draw the page under the notch and the
+   home indicator). Zero in an ordinary browser tab. */
+@layer utilities {
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pl-safe {
+    padding-left: env(safe-area-inset-left);
+  }
+  .pr-safe {
+    padding-right: env(safe-area-inset-right);
+  }
+}

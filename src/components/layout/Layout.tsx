@@ -1,6 +1,7 @@
 import { Outlet, useLocation } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
+import { EnvBanner } from "./EnvBanner";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useState } from "react";
 import { ErrorBoundary } from "@/components/shared/ErrorBoundary";
@@ -10,7 +11,7 @@ export function Layout() {
   const location = useLocation();
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-dvh overflow-hidden pt-safe pb-safe pl-safe pr-safe">
       {/* Desktop sidebar */}
       <div className="hidden md:flex">
         <Sidebar />
@@ -18,12 +19,14 @@ export function Layout() {
 
       {/* Mobile sidebar drawer */}
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent side="left" className="w-60 p-0">
+        <SheetContent side="left" className="w-60 p-0 pt-safe">
           <Sidebar collapsed={false} onNavClick={() => setMobileOpen(false)} />
         </SheetContent>
       </Sheet>
 
       <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Inside the column so banner + header + page is exactly the viewport. */}
+        <EnvBanner />
         <Header onMenuClick={() => setMobileOpen(true)} />
         <main className="flex-1 overflow-auto p-4 md:p-6">
           {/* Key by pathname so navigating to another page resets the boundary

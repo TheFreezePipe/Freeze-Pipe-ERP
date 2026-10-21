@@ -1,6 +1,7 @@
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useAuth, type UserRole } from "@/lib/auth-context";
+import { INVENTORY_ROUTES } from "@/lib/inventory-routes";
 import {
   LayoutDashboard,
   Factory,
@@ -23,6 +24,8 @@ import {
   Tag,
   Rocket,
   Megaphone,
+  Smartphone,
+  Warehouse,
 } from "lucide-react";
 import { useState } from "react";
 import { PdReviewBadge } from "@/components/marketing/pd/PdReviewBadge";
@@ -58,15 +61,19 @@ const navGroups: NavGroup[] = [
       { to: "/manufacturing/performance", label: "Performance", icon: BarChart3, roles: ["admin", "manager", "user"] },
     ],
   },
+  // One Inventory module (IA change 2026-10-21, docs/design/INVENTORY_MODULE_IA.md):
+  // the old Warehouse group folded in here. The label must stay "Inventory"
+  // so persisted collapsed-group state survives. Floor staff ("user") see
+  // only Floor, their phone home. Pick & Pack joins in phase 2.
   {
     label: "Inventory",
     items: [
-      { to: "/inventory", label: "Stock Levels", icon: Package, roles: ["admin", "manager"] },
-      // Inbound freight — lives here now (the on-order → in-transit → on-hand flow);
-      // page route stays /freight.
-      { to: "/freight", label: "Shipments", icon: Ship, roles: ["admin", "manager"] },
-      { to: "/inventory/factory-orders", label: "Factory Orders", icon: Truck, roles: ["admin", "manager"] },
-      { to: "/inventory/materials", label: "Materials", icon: Beaker, roles: ["admin", "manager"] },
+      { to: INVENTORY_ROUTES.overview, label: "Overview", icon: Warehouse, roles: ["admin", "manager"] },
+      { to: INVENTORY_ROUTES.stock, label: "Stock", icon: Package, roles: ["admin", "manager"] },
+      { to: INVENTORY_ROUTES.factoryOrders, label: "Factory Orders", icon: Truck, roles: ["admin", "manager"] },
+      { to: INVENTORY_ROUTES.shipments, label: "Shipments", icon: Ship, roles: ["admin", "manager"] },
+      { to: INVENTORY_ROUTES.materials, label: "Materials", icon: Beaker, roles: ["admin", "manager"] },
+      { to: INVENTORY_ROUTES.floor, label: "Floor", icon: Smartphone, roles: ["admin", "manager", "user"] },
     ],
   },
   {
@@ -101,6 +108,18 @@ const navGroups: NavGroup[] = [
     ],
   },
 ];
+
+// Module roots whose link must match exactly, so the root stays unhighlighted
+// on its child pages. /inventory/shipments is deliberately absent: Shipments
+// stays highlighted on /inventory/shipments/new and /inventory/shipments/:id.
+const END_ROUTES = new Set([
+  "/manufacturing",
+  "/inventory",
+  "/economics",
+  "/supplier",
+  "/marketing",
+  "/go",
+]);
 
 const COLLAPSED_GROUPS_KEY = "sidebar.collapsedGroups";
 
@@ -206,7 +225,7 @@ export function Sidebar({ collapsed: controlledCollapsed, onCollapse, onNavClick
                   <NavLink
                     key={item.to}
                     to={item.to}
-                    end={item.to === "/manufacturing" || item.to === "/freight" || item.to === "/inventory" || item.to === "/economics" || item.to === "/supplier" || item.to === "/marketing"}
+                    end={END_ROUTES.has(item.to)}
                     className={({ isActive }) =>
                       cn(
                         "flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors",

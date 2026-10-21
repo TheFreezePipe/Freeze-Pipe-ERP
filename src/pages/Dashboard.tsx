@@ -11,6 +11,7 @@ import { AlertsPanel } from "@/components/dashboard/AlertsPanel";
 import { FreightCostChart } from "@/components/freight/FreightCostChart";
 import { useMemo, useState } from "react";
 import { useFreightShipments, useFreightLineItems, useSalesPulse } from "@/lib/hooks";
+import { INVENTORY_ROUTES } from "@/lib/inventory-routes";
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -62,7 +63,7 @@ export default function Dashboard() {
           subtitle="Under inspection — click to view"
           icon={AlertTriangle}
           iconColor="text-red-400"
-          onClick={() => navigate("/freight?filter=high_risk")}
+          onClick={() => navigate(`${INVENTORY_ROUTES.shipments}?filter=high_risk`)}
         />
         <StatCard
           title="Active Freight"
@@ -70,7 +71,7 @@ export default function Dashboard() {
           subtitle={`$${stats.freightValue.toLocaleString()} freight cost · ${stats.seaCount} sea / ${stats.airCount} air`}
           icon={stats.airCount > 0 && stats.seaCount === 0 ? Plane : Ship}
           iconColor="text-blue-400"
-          onClick={() => navigate("/freight")}
+          onClick={() => navigate(INVENTORY_ROUTES.shipments)}
         />
         <StatCard
           title="Orders Shipped Today"

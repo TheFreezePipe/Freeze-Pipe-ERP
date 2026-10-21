@@ -3,16 +3,29 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/auth-context";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { useUrlFilter } from "@/lib/use-url-filter";
 import ChangeLog from "./ChangeLog";
 import UserManagement from "./UserManagement";
 import ReportingApi from "./ReportingApi";
+import WarehouseSettings from "./WarehouseSettings";
+
+type SettingsTab = "profile" | "changelog" | "users" | "api" | "warehouse";
 
 export default function SettingsPage() {
   const { profile, role } = useAuth();
   // Reporting API tab is strictly admin-only (owner requirement) — the tab
   // is hidden for other roles AND the underlying RLS/RPCs enforce it
-  // server-side, so the UI gate is convenience, not the boundary.
+  // server-side, so the UI gate is convenience, not the boundary. The
+  // Warehouse tab (setup data for the Inventory module) is admin-only too.
   const isAdmin = role === "admin";
+
+  // Active tab lives in ?tab= so /settings?tab=warehouse (the old
+  // /warehouse/locations link) opens straight onto it.
+  const [tabParam, setTab] = useUrlFilter<SettingsTab>("tab", "profile");
+  const availableTabs: SettingsTab[] = isAdmin
+    ? ["profile", "changelog", "users", "api", "warehouse"]
+    : ["profile", "changelog", "users"];
+  const tab: SettingsTab = availableTabs.includes(tabParam) ? tabParam : "profile";
 
   const initials = profile?.full_name
     ?.split(" ")
@@ -33,12 +46,13 @@ export default function SettingsPage() {
         <p className="text-muted-foreground">Manage your profile, team, and view activity logs</p>
       </div>
 
-      <Tabs defaultValue="profile">
-        <TabsList>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as SettingsTab)}>
+        <TabsList className="h-auto flex-wrap justify-start">
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="changelog">Change Log</TabsTrigger>
           <TabsTrigger value="users">User Management</TabsTrigger>
           {isAdmin && <TabsTrigger value="api">Reporting API</TabsTrigger>}
+          {isAdmin && <TabsTrigger value="warehouse">Warehouse</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="profile" className="mt-4">
@@ -76,6 +90,12 @@ export default function SettingsPage() {
         {isAdmin && (
           <TabsContent value="api" className="mt-4">
             <ReportingApi />
+          </TabsContent>
+        )}
+
+        {isAdmin && (
+          <TabsContent value="warehouse" className="mt-4">
+            <WarehouseSettings />
           </TabsContent>
         )}
       </Tabs>

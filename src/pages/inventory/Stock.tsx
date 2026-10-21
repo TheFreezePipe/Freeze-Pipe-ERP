@@ -3,7 +3,8 @@ import { ModeTile } from "@/components/shared/ModeTile";
 import { Warehouse, Ship, Factory, Pencil, X, Save, Search, DollarSign, ShoppingCart, Trash2, ArrowRight, Megaphone } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format, parseISO, differenceInDays } from "date-fns";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +26,7 @@ import {
 import { SKUDetailModal } from "@/components/inventory/SKUDetailModal";
 import { useMemo, useState, useEffect } from "react";
 import { useUrlFilter, useUrlBoolFilter } from "@/lib/use-url-filter";
+import { STOCK_VIEWS, type StockView } from "@/lib/inventory-routes";
 import type { ProductSKU, InventoryLevel, FreightShipment } from "@/types/database";
 import { useInventory, useBulkCycleCount, useFreightShipments, useFreightLineItems, useFactoryOrders, useProductBoms, useForecastDemandMap, useDemandOverrides, useSuppliers, useAllPrimarySkuSupplierCosts, type CycleCountField, type CycleCountReason } from "@/lib/hooks";
 import { useAuth } from "@/lib/auth-context";
@@ -451,7 +453,102 @@ function incomingDOSStyle(dos: number): React.CSSProperties {
   return { color: `rgb(${r}, ${g}, ${b})`, fontWeight: t > 0.5 ? 600 : 500 };
 }
 
-export default function InventoryDashboard() {
+/** Labels for the Stock view switcher, in display order. */
+const STOCK_VIEW_LABELS: Record<StockView, string> = {
+  sku: "By SKU",
+  location: "By location",
+  map: "Map",
+  counts: "Counts",
+};
+
+/**
+ * The Phase 1 views of Stock. Copy from docs/design/INVENTORY_MODULE_IA.md:
+ * one page, four ways of looking at the same stock.
+ */
+const PHASE1_VIEWS: Record<Exclude<StockView, "sku">, { subtitle: string; description: string }> = {
+  location: {
+    subtitle: "Bins and cartons, face by face",
+    description:
+      "Every pick face and overflow slot with the SKU on it, its cartons and their units, so you can see where a SKU physically sits and which faces are running low. Here a location only ever means a bin or a site; raw, pre-filled, in production and finished are stages, and they stay in the By SKU view.",
+  },
+  map: {
+    subtitle: "The floor plan",
+    description:
+      "Racks and pick faces laid out as they stand in the warehouse, each opening its rack elevation. The layout itself is set up under Settings, Warehouse; the map's Edit layout button opens the same editor.",
+  },
+  counts: {
+    subtitle: "Count tasks, the A/B/C schedule, variances to approve",
+    description:
+      "A count is a stock figure with a verification step: the same SKU, bin and carton the other views show, plus expected versus found and an approval. Count tasks follow the A/B/C schedule, and variances wait here for a manager to approve. Material counts stay on Materials.",
+  },
+};
+
+/** Segmented control bound to `?view=`; the header of every Stock view. */
+function StockViewSwitcher({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: StockView;
+  onChange: (view: StockView) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Tabs value={value} onValueChange={(v) => onChange(v as StockView)}>
+      <TabsList aria-label="Stock view">
+        {STOCK_VIEWS.map((v) => (
+          <TabsTrigger
+            key={v}
+            value={v}
+            // Leaving By SKU mid-edit would drop the typed counts.
+            disabled={disabled && v !== value}
+            title={disabled && v !== value ? "Save or cancel the cycle count first" : undefined}
+          >
+            {STOCK_VIEW_LABELS[v]}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </Tabs>
+  );
+}
+
+/**
+ * Stock page (`/inventory/stock`, formerly Stock Levels at `/inventory`).
+ * `?view=sku` is today's per-SKU table; location, map and counts arrive in
+ * Phase 1 and show what they will be until then.
+ */
+export default function StockPage() {
+  const [rawView, setView] = useUrlFilter<StockView>("view", "sku");
+  const view: StockView = STOCK_VIEWS.includes(rawView) ? rawView : "sku";
+
+  if (view === "sku") return <StockBySku view={view} onViewChange={setView} />;
+
+  const info = PHASE1_VIEWS[view];
+  return (
+    <div className="space-y-6">
+      <div>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-bold">Stock</h1>
+          <StockViewSwitcher value={view} onChange={setView} />
+        </div>
+        <p className="text-muted-foreground">{info.subtitle}</p>
+      </div>
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-base">{STOCK_VIEW_LABELS[view]}</CardTitle>
+          <Badge variant="outline" className="text-[10px] text-muted-foreground">
+            Phase 1
+          </Badge>
+        </CardHeader>
+        <CardContent>
+          <p className="max-w-2xl text-sm text-muted-foreground">{info.description}</p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function StockBySku({ view, onViewChange }: { view: StockView; onViewChange: (view: StockView) => void }) {
   const [editMode, setEditMode] = useState(false);
   const [editValues, setEditValues] = useState<Record<string, Record<string, number>>>({});
   const [selectedSKU, setSelectedSKU] = useState<{ product: ProductSKU; inventory: InventoryLevel } | null>(null);
@@ -656,7 +753,7 @@ export default function InventoryDashboard() {
         if (pa !== pb) return pa - pb;
         return a.warehouseDOS - b.warehouseDOS;
       });
-  }, [inventory, inTransitMap, onOrderMap, forecastMap]);
+  }, [inventory, inTransitMap, onOrderMap, forecastMap, overrideIds]);
 
   const filteredRows = useMemo(() => {
     return rows.filter(({ product }) => {
@@ -863,10 +960,13 @@ export default function InventoryDashboard() {
     // Full-height layout: the grid card fills the remaining viewport and
     // owns the page's single scrollbar (no page scroll + inner scroll).
     <div className="flex h-full min-h-0 flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Inventory</h1>
-          <p className="text-muted-foreground">Stock levels across all locations</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-bold">Stock</h1>
+            <StockViewSwitcher value={view} onChange={onViewChange} disabled={editMode} />
+          </div>
+          <p className="text-muted-foreground">Warehouse, in transit and on order, by SKU</p>
         </div>
         <div className="flex items-center gap-2">
           {editMode ? (
@@ -938,7 +1038,7 @@ export default function InventoryDashboard() {
       <Card className="flex min-h-[420px] flex-1 flex-col overflow-hidden">
         <CardHeader className="shrink-0 pb-3">
           {/* Single left-aligned control row — no card title (the page
-              heading already says Inventory), matching SKU Costs. */}
+              heading already says Stock), matching SKU Costs. */}
           <div className="flex flex-wrap items-center gap-2">
               {/* Shared search look — kept identical to the SKU Costs page
                   so the two spreadsheets feel like the same tool. */}

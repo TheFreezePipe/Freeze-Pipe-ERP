@@ -43,6 +43,7 @@ import { freightShipmentSchema, safeValidate } from "@/lib/schemas";
 import { supabase } from "@/lib/supabase";
 import { getOpenFactoryItemsForSku } from "@/lib/freight/open-factory-items";
 import { buildPrefillRateBySku, suggestPrefilled } from "@/lib/freight/prefill-default";
+import { INVENTORY_ROUTES, shipmentPath } from "@/lib/inventory-routes";
 import { buildOnOrderMap } from "@/lib/inventory-aggregates";
 import { buildPlannedAllocationMap } from "@/lib/allocation";
 import { describeError } from "@/lib/supabase-error";
@@ -698,12 +699,12 @@ export default function FreightNew() {
         // actually seen, and make clear the form must not be resubmitted.
         setSubmitError(
           `Shipment ${shipmentNumber} was saved, but its carton breakdown failed to save: ` +
-          `${describeError(cartonErr)}. Open the shipment from the Freight list — do not resubmit this form.`,
+          `${describeError(cartonErr)}. Open the shipment from the Shipments list — do not resubmit this form.`,
         );
         return;
       }
 
-      navigate(`/freight/${created.id}`);
+      navigate(shipmentPath(created.id));
     } catch (err) {
       setSubmitError(describeError(err));
     }
@@ -718,7 +719,7 @@ export default function FreightNew() {
     <div className="mx-auto max-w-3xl space-y-6">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/freight")}>
+        <Button variant="ghost" size="icon" onClick={() => navigate(INVENTORY_ROUTES.shipments)}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div>
@@ -1346,7 +1347,7 @@ export default function FreightNew() {
 
         {/* Actions */}
         <div className="flex items-center justify-between pb-6">
-          <Button type="button" variant="outline" onClick={() => navigate("/freight")}>
+          <Button type="button" variant="outline" onClick={() => navigate(INVENTORY_ROUTES.shipments)}>
             Cancel
           </Button>
           <Button

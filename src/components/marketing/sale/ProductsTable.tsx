@@ -93,7 +93,7 @@ export function ProductsTable({ M, loading, open, onToggle, sort, onSort }: Prop
                   <tr className="border-t border-border/40">
                     <ExpandCell open={isOpen} onToggle={() => onToggle(id)} has={p.daily.length > 0} label={"Days for " + p.sku} />
                     <td className={TD + " truncate"}>
-                      <Link to={"/economics/skus/" + p.skuId} className="font-mono text-xs hover:underline">{p.sku}</Link>
+                      <Link to={"/economics/" + p.skuId} className="font-mono text-xs hover:underline">{p.sku}</Link>
                       <span className="ml-2 truncate text-[11.5px] text-muted-foreground">{p.name}</span>
                     </td>
                     <td className={TD + " text-xs text-muted-foreground"}>{p.role}</td>

@@ -13,6 +13,7 @@ import { buildPlannedAllocationMap } from "@/lib/allocation";
 import { productLifecycle } from "@/lib/product-lifecycle";
 import { differenceInDays, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
+import { shipmentPath, stockSearch } from "@/lib/inventory-routes";
 import {
   useInventory,
   useFreightShipments,
@@ -101,7 +102,7 @@ export function AlertsPanel() {
           severity: "red",
           title: `${product.sku} - Low Stock`,
           description: `Warehouse DOS: ${warehouseDOS}d (${totals.warehouseTotal} units)`,
-          navigateTo: "/inventory",
+          navigateTo: stockSearch(product.sku),
           icon: AlertTriangle,
         });
       }
@@ -114,7 +115,7 @@ export function AlertsPanel() {
           severity: "orange",
           title: `${product.sku} - Reorder Point`,
           description: `Total DOS: ${totalDOS}d across all stages`,
-          navigateTo: "/inventory",
+          navigateTo: stockSearch(product.sku),
           icon: Package,
         });
       }
@@ -131,7 +132,7 @@ export function AlertsPanel() {
             severity: "yellow",
             title: `${product.sku} - Elevated Demand`,
             description: `Forecast: ${forecastDemand}/mo vs Static: ${staticDemand}/mo (+${Math.round((ratio - 1) * 100)}%)`,
-            navigateTo: "/inventory",
+            navigateTo: stockSearch(product.sku),
             icon: TrendingUp,
           });
         } else if (ratio < ALERT_DEMAND_DOWN_RATIO) {
@@ -141,7 +142,7 @@ export function AlertsPanel() {
             severity: "blue",
             title: `${product.sku} - Decreased Demand`,
             description: `Forecast: ${forecastDemand}/mo vs Static: ${staticDemand}/mo (${Math.round((ratio - 1) * 100)}%)`,
-            navigateTo: "/inventory",
+            navigateTo: stockSearch(product.sku),
             icon: TrendingDown,
           });
         }
@@ -159,7 +160,7 @@ export function AlertsPanel() {
           severity: "green",
           title: `${f.shipment_number} - Arriving Soon`,
           description: `ETA in ${daysLeft}d (${f.freight_type === "sea" ? "Sea" : "Air"})`,
-          navigateTo: `/freight/${f.id}`,
+          navigateTo: shipmentPath(f.id),
           icon: Ship,
         });
       }

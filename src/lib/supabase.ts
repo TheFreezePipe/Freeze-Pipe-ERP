@@ -22,7 +22,16 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undef
  */
 function buildClient(): SupabaseClient<Database> {
   if (supabaseUrl && supabaseAnonKey) {
-    return createClient<Database>(supabaseUrl, supabaseAnonKey);
+    // Realtime heartbeats run in a Web Worker so a backgrounded phone tab
+    // (throttled main-thread timers) doesn't silently drop the socket. The
+    // Worker check keeps jsdom tests and odd embedders constructible.
+    return createClient<Database>(
+      supabaseUrl,
+      supabaseAnonKey,
+      isDemoMode
+        ? undefined
+        : { realtime: { worker: typeof Worker !== "undefined", heartbeatIntervalMs: 15_000 } },
+    );
   }
 
   if (!isDemoMode) {

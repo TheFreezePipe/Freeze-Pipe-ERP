@@ -264,7 +264,7 @@ describe("Northern Lights · S04-BW20DNA (need 300)", () => {
     expect(driftText(r)).toBe("+7d");
     expect(referenceText(r)).toBe("Air AIR-268 · UPS");
     expect(referenceLabel(r)).toBe("Air AIR-268");
-    expect(referenceHref(r)).toBe("/freight/s-AIR-268");
+    expect(referenceHref(r)).toBe("/inventory/shipments/s-AIR-268");
     expect(slackText(slackDays(r, l.sellStart))).toBe("33d to spare");
     expect(prefilledText(r)).toBeNull();
     expect(coverageTitle(r)).toBe("Air AIR-268 · 2 · Oct 7");

@@ -38,6 +38,7 @@ import {
 } from "@/lib/hooks";
 import type { FreightShipment } from "@/types/database";
 import { isReceivingActive } from "@/lib/freight/receiving";
+import { INVENTORY_ROUTES, shipmentPath } from "@/lib/inventory-routes";
 import { buildTransitRows, windowStats } from "@/lib/freight/transit-report";
 import { TransitReportModal } from "@/components/freight/TransitReportModal";
 import { PrefillReportModal } from "@/components/freight/PrefillReportModal";
@@ -55,7 +56,9 @@ const REVEAL_BATCH_SIZE = 20;
 
 export default function FreightDashboard() {
   const navigate = useNavigate();
-  const [filter, setFilter] = useUrlFilter<"all" | "sea" | "air" | "high_risk">("filter", "all");
+  // "receiving" shows only the shipments being checked in (the Inventory
+  // Overview's On the dock card and the old /warehouse/putaway link here).
+  const [filter, setFilter] = useUrlFilter<"all" | "sea" | "air" | "high_risk" | "receiving">("filter", "all");
   // Number of "older than RECENT_DELIVERY_DAYS" deliveries currently
   // revealed past the default. Starts at 0 (all old ones hidden); each
   // "Show N more" click adds REVEAL_BATCH_SIZE. Resets on page refresh
@@ -140,7 +143,14 @@ export default function FreightDashboard() {
     return out;
   }, [freightLineItems]);
 
+  // Receiving count for the tab label, independent of the active filter.
+  const receivingCount = useMemo(
+    () => freight.filter(f => isReceivingActive(f, linesByShipment.get(f.id) ?? [])).length,
+    [freight, linesByShipment],
+  );
+
   const sortedFreight = useMemo(() => {
+    const receivingOnly = filter === "receiving";
     let filtered = freight;
     if (filter === "sea") filtered = filtered.filter(f => f.freight_type === "sea");
     else if (filter === "air") filtered = filtered.filter(f => f.freight_type === "air");
@@ -197,7 +207,7 @@ export default function FreightDashboard() {
       return a.localeCompare(b);
     }
     const inTransit = filtered
-      .filter(f => f.status !== "delivered" && !pendingIds.has(f.id))
+      .filter(f => !receivingOnly && f.status !== "delivered" && !pendingIds.has(f.id))
       .sort((a, b) => {
         const tierA = STATUS_TIER[a.status] ?? 99;
         const tierB = STATUS_TIER[b.status] ?? 99;
@@ -206,7 +216,7 @@ export default function FreightDashboard() {
       });
 
     const delivered = filtered
-      .filter(f => f.status === "delivered" && !!f.receipt_confirmed_at)
+      .filter(f => !receivingOnly && f.status === "delivered" && !!f.receipt_confirmed_at)
       .sort((a, b) => {
         if (!a.actual_arrival_date) return 1;
         if (!b.actual_arrival_date) return -1;
@@ -267,7 +277,7 @@ export default function FreightDashboard() {
 
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Freight Tracking</h1>
+          <h1 className="text-2xl font-bold">Shipments</h1>
           <p className="text-muted-foreground">Monitor all shipments</p>
         </div>
         <div className="flex gap-2">
@@ -275,7 +285,7 @@ export default function FreightDashboard() {
             <RefreshCw className={cn("mr-2 h-4 w-4", isRefreshing && "animate-spin")} />
             {isRefreshing ? "Refreshing…" : "Refresh tracking"}
           </Button>
-          <Button onClick={() => navigate("/freight/new")}>
+          <Button onClick={() => navigate(INVENTORY_ROUTES.newShipment)}>
             <Plus className="mr-2 h-4 w-4" />
             New Shipment
           </Button>
@@ -335,13 +345,18 @@ export default function FreightDashboard() {
           <TabsTrigger value="sea">Sea</TabsTrigger>
           <TabsTrigger value="air">Air</TabsTrigger>
           <TabsTrigger value="high_risk">High Risk</TabsTrigger>
+          <TabsTrigger value="receiving">
+            Receiving{receivingCount > 0 && <span className="ml-1 tabular-nums">· {receivingCount}</span>}
+          </TabsTrigger>
         </TabsList>
       </Tabs>
 
-      {sortedFreight.inTransit.length === 0 && sortedFreight.totalDelivered === 0 ? (
+      {sortedFreight.pendingReceipt.length === 0 &&
+      sortedFreight.inTransit.length === 0 &&
+      sortedFreight.totalDelivered === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            No shipments match the current filter.
+            {filter === "receiving" ? "Nothing to check in." : "No shipments match the current filter."}
           </CardContent>
         </Card>
       ) : (
@@ -440,7 +455,7 @@ export default function FreightDashboard() {
 // (single-row dense header with cartons-primary + meta grid; lines table
 // below) with admin-only additions: inline status override, EtaCell with
 // auto-tracking timestamp, days-left chip, and per-line cost columns.
-// Whole card is a click target → navigates to /freight/:id. Interactive
+// Whole card is a click target → navigates to /inventory/shipments/:id. Interactive
 // children (status select) stop propagation so they don't hijack clicks.
 // ---------------------------------------------------------------------------
 function ShipmentCard({
@@ -501,7 +516,7 @@ function ShipmentCard({
     : null;
 
   function activate() {
-    navigate(`/freight/${shipment.id}`);
+    navigate(shipmentPath(shipment.id));
   }
 
   async function handleConfirmReceipt(e: React.MouseEvent) {

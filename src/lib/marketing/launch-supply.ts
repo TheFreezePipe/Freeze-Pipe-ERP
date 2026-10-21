@@ -25,6 +25,7 @@
  * Pure: no hooks, no Date.now(). Dates are date-only ISO slices.
  */
 import { humanizeEnum } from "@/lib/utils";
+import { shipmentPath } from "@/lib/inventory-routes";
 import { WORKBACK, addDaysIso, daysBetween } from "./workback";
 import { fmtDay } from "./format-day";
 import { launchReadyBy, type PdLaunchRef, type RiskDot } from "./pd";
@@ -828,7 +829,7 @@ export function referenceLabel(row: SupplyRow): string | null {
 
 /** Where a reference links: the shipment or the factory order; null for the warehouse row. */
 export function referenceHref(row: SupplyRow): string | null {
-  if (row.kind === "freight") return `/freight/${row.shipment.id}`;
+  if (row.kind === "freight") return shipmentPath(row.shipment.id);
   if (row.kind === "factory") return `/inventory/factory-orders/${row.order.id}`;
   return null;
 }

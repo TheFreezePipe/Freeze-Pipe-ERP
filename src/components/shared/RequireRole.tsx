@@ -1,5 +1,6 @@
 import { Navigate } from "react-router-dom";
 import { useAuth, type UserRole } from "@/lib/auth-context";
+import { landingPathFor } from "@/lib/landing";
 import type { ReactNode } from "react";
 
 interface RequireRoleProps {
@@ -10,10 +11,8 @@ interface RequireRoleProps {
 
 /**
  * Route guard that checks user role.
- * Redirects unauthorized users to their default landing page:
- * - "user" role        → /manufacturing/workspace
- * - "supplier" role    → /supplier
- * - admin / manager    → /dashboard
+ * Redirects unauthorized users to their default landing page
+ * (`landingPathFor`): user → /go, supplier → /supplier, else /dashboard.
  */
 export function RequireRole({ allowed, children }: RequireRoleProps) {
   const { role, roleResolved } = useAuth();
@@ -23,7 +22,7 @@ export function RequireRole({ allowed, children }: RequireRoleProps) {
   // login/refresh. Hold with a spinner until the real role is known.
   if (!roleResolved) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-dvh items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
       </div>
     );
@@ -33,10 +32,5 @@ export function RequireRole({ allowed, children }: RequireRoleProps) {
     return <>{children}</>;
   }
 
-  // Redirect to the user's default landing page
-  const fallback =
-    role === "user" ? "/manufacturing/workspace" :
-    role === "supplier" ? "/supplier" :
-    "/dashboard";
-  return <Navigate to={fallback} replace />;
+  return <Navigate to={landingPathFor(role)} replace />;
 }

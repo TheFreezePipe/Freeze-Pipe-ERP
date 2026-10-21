@@ -46,6 +46,7 @@ import { describeError } from "@/lib/supabase-error";
 import { isPreLaunch } from "@/lib/product-lifecycle";
 import { FACTORY_ORDER_STATUSES, FREIGHT_STATUSES } from "@/lib/constants";
 import { humanizeEnum } from "@/lib/utils";
+import { shipmentPath } from "@/lib/inventory-routes";
 
 import { FACTORY_ORDER_STATUS_COLORS as STATUS_COLOR } from "@/lib/status-colors";
 
@@ -1180,7 +1181,7 @@ export default function FactoryOrderDetail() {
                 <div
                   key={row.shipment_id}
                   className="rounded-md border border-border/50 px-3 py-2 hover:bg-muted/30 cursor-pointer"
-                  onClick={() => navigate(`/freight/${row.shipment_id}`)}
+                  onClick={() => navigate(shipmentPath(row.shipment_id))}
                 >
                   <div className="flex items-center gap-2 text-sm">
                     <span className="font-mono font-medium">

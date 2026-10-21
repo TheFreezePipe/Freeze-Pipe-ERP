@@ -43,6 +43,7 @@ import { StatusSelectWithOverride } from "@/components/freight/StatusSelectWithO
 import { ShipmentStepper } from "@/components/freight/ShipmentStepper";
 import { ShipmentManifest } from "@/components/freight/ShipmentManifest";
 import { isReceivingActive } from "@/lib/freight/receiving";
+import { INVENTORY_ROUTES } from "@/lib/inventory-routes";
 import { CloseShortDialog } from "@/components/freight/CloseShortDialog";
 import {
   useFreightShipment,
@@ -311,7 +312,7 @@ export default function FreightDetail() {
     <div className="space-y-6">
       {/* ---- 1. Header band ------------------------------------------------ */}
       <div className="flex items-start gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/freight")}>
+        <Button variant="ghost" size="icon" onClick={() => navigate(INVENTORY_ROUTES.shipments)}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1 min-w-0">

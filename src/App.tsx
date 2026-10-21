@@ -1,10 +1,13 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/lib/query-client";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { RequireRole } from "@/components/shared/RequireRole";
 import { Toaster } from "@/components/ui/toaster";
 import { Layout } from "@/components/layout/Layout";
+import { EnvBanner } from "@/components/layout/EnvBanner";
+import { landingPathFor } from "@/lib/landing";
+import { LEGACY_ROUTE_PATHS, legacyRedirect } from "@/lib/inventory-routes";
 import type { ReactNode } from "react";
 
 // Pages
@@ -17,7 +20,8 @@ import Performance from "@/pages/manufacturing/Performance";
 import FreightDashboard from "@/pages/freight/FreightDashboard";
 import FreightDetail from "@/pages/freight/FreightDetail";
 import FreightNew from "@/pages/freight/FreightNew";
-import InventoryDashboard from "@/pages/inventory/InventoryDashboard";
+import InventoryOverview from "@/pages/inventory/InventoryOverview";
+import StockPage from "@/pages/inventory/Stock";
 import FactoryOrders from "@/pages/inventory/FactoryOrders";
 import AdminFactoryOrderDetail from "@/pages/inventory/FactoryOrderDetail";
 import QualityIssues from "@/pages/inventory/QualityIssues";
@@ -46,15 +50,17 @@ import NewShipment from "@/pages/supplier/NewShipment";
 import SupplierShipmentDetail from "@/pages/supplier/SupplierShipmentDetail";
 import BreakageInbox from "@/pages/supplier/BreakageInbox";
 import VarianceInbox from "@/pages/supplier/VarianceInbox";
+import FloorHome from "@/pages/floor/FloorHome";
+import LookupPage from "@/pages/floor/LookupPage";
 
-import { isDemoMode, APP_ENV, shouldShowEnvBanner } from "@/lib/env";
+import { isDemoMode } from "@/lib/env";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   if (isDemoMode) return <>{children}</>;
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-dvh items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
       </div>
     );
@@ -70,14 +76,22 @@ function DefaultRedirect() {
   // admins to the staff workspace whenever the profile loads a beat late.
   if (!roleResolved) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-dvh items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
       </div>
     );
   }
-  if (role === "user") return <Navigate to="/manufacturing/workspace" replace />;
-  if (role === "supplier") return <Navigate to="/supplier" replace />;
-  return <Navigate to="/dashboard" replace />;
+  return <Navigate to={landingPathFor(role)} replace />;
+}
+
+/**
+ * Pre-merge routes (/freight/*, /warehouse/*, /inventory/quality-issues)
+ * redirect into the Inventory module with their query string and path
+ * params carried over. The target route does its own auth and role check.
+ */
+function LegacyRedirect() {
+  const { pathname, search } = useLocation();
+  return <Navigate to={legacyRedirect(pathname, search) ?? "/"} replace />;
 }
 
 export default function App() {
@@ -85,23 +99,16 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <AuthProvider>
-          {shouldShowEnvBanner && (
-            <div className={`text-center text-xs py-1 font-semibold ${
-              APP_ENV === "staging" ? "bg-amber-500 text-black" :
-              isDemoMode ? "bg-orange-500 text-black" :
-              "bg-blue-500 text-white"
-            }`}>
-              {isDemoMode
-                ? "DEMO MODE — data is in-memory and will be lost on reload"
-                : import.meta.env.MODE === "verify"
-                  ? "VERIFY MODE — live production data, signed in as the UI-verification account"
-                  : `${APP_ENV.toUpperCase()} ENVIRONMENT — not production data`}
-            </div>
-          )}
           <Routes>
-            {/* Public routes */}
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
+            {/* Public routes. The signed-in shell (Layout) renders the
+                environment banner inside its own column. */}
+            <Route path="/login" element={<><EnvBanner /><Login /></>} />
+            <Route path="/register" element={<><EnvBanner /><Register /></>} />
+
+            {/* Legacy routes from before the Inventory merge (2026-10-21) */}
+            {LEGACY_ROUTE_PATHS.map((path) => (
+              <Route key={path} path={path} element={<LegacyRedirect />} />
+            ))}
 
             {/* Protected routes */}
             <Route
@@ -115,6 +122,18 @@ export default function App() {
               <Route path="/dashboard" element={
                 <RequireRole allowed={["admin", "manager"]}>
                   <Dashboard />
+                </RequireRole>
+              } />
+
+              {/* Floor (phone-first home for every internal role) */}
+              <Route path="/go" element={
+                <RequireRole allowed={["admin", "manager", "user"]}>
+                  <FloorHome />
+                </RequireRole>
+              } />
+              <Route path="/go/lookup" element={
+                <RequireRole allowed={["admin", "manager", "user"]}>
+                  <LookupPage />
                 </RequireRole>
               } />
 
@@ -138,24 +157,13 @@ export default function App() {
                 </RequireRole>
               } />
 
-              {/* Freight - admin & manager only */}
-              <Route path="/freight" element={
+              {/* Inventory - admin & manager only (Floor at /go is the
+                  module's phone home for every internal role). */}
+              <Route path="/inventory" element={
                 <RequireRole allowed={["admin", "manager"]}>
-                  <FreightDashboard />
+                  <InventoryOverview />
                 </RequireRole>
               } />
-              <Route path="/freight/new" element={
-                <RequireRole allowed={["admin", "manager"]}>
-                  <FreightNew />
-                </RequireRole>
-              } />
-              <Route path="/freight/:id" element={
-                <RequireRole allowed={["admin", "manager"]}>
-                  <FreightDetail />
-                </RequireRole>
-              } />
-
-              {/* Inventory - admin & manager only */}
               {/* Materials catalog — released to all admin/manager users
                   (2026-06-10). Listed before the /inventory route so a
                   URL-typed visit lands cleanly. */}
@@ -169,9 +177,25 @@ export default function App() {
                   <MaterialDetail />
                 </RequireRole>
               } />
-              <Route path="/inventory" element={
+              <Route path="/inventory/stock" element={
                 <RequireRole allowed={["admin", "manager"]}>
-                  <InventoryDashboard />
+                  <StockPage />
+                </RequireRole>
+              } />
+              {/* Shipments (inbound freight), moved from /freight */}
+              <Route path="/inventory/shipments" element={
+                <RequireRole allowed={["admin", "manager"]}>
+                  <FreightDashboard />
+                </RequireRole>
+              } />
+              <Route path="/inventory/shipments/new" element={
+                <RequireRole allowed={["admin", "manager"]}>
+                  <FreightNew />
+                </RequireRole>
+              } />
+              <Route path="/inventory/shipments/:id" element={
+                <RequireRole allowed={["admin", "manager"]}>
+                  <FreightDetail />
                 </RequireRole>
               } />
               <Route path="/inventory/factory-orders" element={
@@ -184,7 +208,7 @@ export default function App() {
                   <AdminFactoryOrderDetail />
                 </RequireRole>
               } />
-              <Route path="/inventory/quality-issues" element={
+              <Route path="/inventory/issues" element={
                 <RequireRole allowed={["admin", "manager"]}>
                   <QualityIssues />
                 </RequireRole>
