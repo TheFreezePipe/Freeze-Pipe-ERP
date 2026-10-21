@@ -1,6 +1,8 @@
 # Warehouse module, Phase 0 and Phase 1: technical design
 
-Date 2026-10-20 · Branch `feat/warehouse-phase0` · Status: ready for implementation review
+Date 2026-10-20, revised 2026-10-21 · Branch `feat/warehouse-phase0` · Status: ready for implementation review
+
+Revision 2026-10-21: cartons keep a location through manufacturing, with a green relabel at RTS and a two-step put-back (5.7); labels print through a queue to the printer at the station a worker scanned into (5.5); the sidebar and routes follow the merged Inventory module in `docs/design/INVENTORY_MODULE_IA.md`, which supersedes 3.8 and the paths in 9.1 and Appendix A.
 
 Scope: Phase 0 (prerequisites) and Phase 1 (locations, map, putaway, counts). Picking, carts, totes and the bench helper are Phases 2 and 3 and appear only where Phase 1 must leave room for them.
 
@@ -20,13 +22,15 @@ Sources: the scope report, UX layout report and ops audit in `docs/research/repo
 **Phase 1 gives every shelf and every carton an address.** The scope report estimated 6 to 9 weeks, including a 3D view you have since dropped.
 - Every shelf position gets a code and a barcode label. `02-01-2` means rack face 02, bay 01 counted in the walking direction, level 2 from the floor. Level 3 is overflow and is never picked from directly.
 - Every carton gets its own license-plate label, printed at the dock when it is checked in. The phone says which shelf to put it on and why; scanning the shelf label confirms it.
+- A carton keeps its address through manufacturing. One scan releases its shelf when it goes to the line. When a batch is RTS'd, the worker scans the carton's old label and a bright green label prints with their name and the time; they shelve the carton and scan the bay. Green means ready to ship, to pickers and to anyone counting.
+- Labels print through a queue: a phone can ask for a label and it comes out of the printer at the station the worker scanned into when they started.
 - A map shows every rack; tapping a bay shows what is in it, carton by carton; search finds any product or carton.
 - Staff count one shelf at a time on the phone without seeing what the system expects; managers approve differences on the desktop.
 - Every night the ERP checks one rule per product: units on the shelves, minus units already sold to open orders, equals the Stock Levels number. A product that breaks the rule gets a count task.
 
 **What stays the same.** ShipStation still receives orders and prints labels. Stock still leaves the Stock Levels number when ShipStation imports an order, so the oversell policy is unchanged. Packing is unchanged. The picking app is Phase 2.
 
-**What you need to do.** Finish the workbook measurements and confirm each rack face's walking direction on the floor. Buy a thermal label printer for the right dock door, 4×2 inch carton labels, 3×1 inch shelf labels and two or three Bluetooth scanners. Spend a day hanging shelf labels and do one full count on go-live day.
+**What you need to do.** Finish the workbook measurements and confirm each rack face's walking direction on the floor. Buy a thermal label printer for the right dock door and a second one for the manufacturing desks, white and bright green 4×2 inch carton labels, 3×1 inch shelf labels, a scanner for the manufacturing desks and two or three Bluetooth scanners; the dock and manufacturing laptops run the small print agent. Spend a day hanging shelf labels and do one full count on go-live day.
 
 **One honest limitation.** Until the Phase 2 picking app exists the ERP cannot know which shelf an order was picked from, so when an order ships it takes the units from the first pickable shelf in walking order that holds the product. Building totals stay exact; shelf-by-shelf numbers can drift a little between counts, and the weekly counts correct them.
 
@@ -61,6 +65,8 @@ Sources: the scope report, UX layout report and ops audit in `docs/research/repo
 | Staging `sitwttqdqqkucwkcyoks` is the practice floor; production `pnqujtugddxusllkikje` | Sections 3.1-3.3 |
 | 86 SKUs with UPCs; match 7/8/12/13 digits | `sku_barcodes` (3.6) |
 | Personal phones with Bluetooth HID scanners; solid Wi-Fi; pickups 2-3 PM | No camera in Phases 0-1; idempotent online RPCs; baseline measures share shipped by cutoff |
+| Cartons keep a location through manufacturing; the RTS step is incomplete until the carton is relabelled green (new LPN, worker, time) and its bay scanned (owner, 2026-10-21) | `rpc_wh_take_to_line`, `rpc_wh_rts_relabel`, child LPNs, two-step put-back (5.7) |
+| One print queue; a station's printer prints what a worker at that station asks for, from any device (owner, 2026-10-21) | `wh_printers`, `wh_print_jobs`, `wh_station_sessions`, print agent (5.5) |
 
 ---
 
@@ -123,7 +129,7 @@ Phase 1 prints labels, Phase 2 adds ShipStation tags, Phase 3 may add PrintNode.
 No `supabase.channel` call exists in `src/`. Phase 0 adds the plumbing:
 - `createClient` gets `realtime: { worker: true, heartbeatCallback }`, reconnecting on timeout.
 - `src/lib/realtime.ts` `useLiveInvalidate(channel, tables, queryRoots)` subscribes to `postgres_changes`, debounces root invalidation by 250 ms, and invalidates everything when the page becomes visible, because backgrounded phones drop the socket silently. No-op in demo mode.
-- Migration 11 adds `wh_inventory_balances`, `wh_containers`, `wh_moves`, `wh_count_tasks`, `wh_print_jobs` to `supabase_realtime`; SELECT policies keep suppliers out.
+- Migration 11 adds `wh_inventory_balances`, `wh_containers`, `wh_moves`, `wh_count_tasks`, `wh_print_jobs`, `wh_printers`, `wh_station_sessions` to `supabase_realtime`; SELECT policies keep suppliers out.
 
 ### 3.6 UPC import and matching
 
@@ -156,6 +162,8 @@ Two to four weeks from now; Phase 1 does not touch picking, so it cannot disturb
 
 ### 3.8 Sidebar
 
+Superseded 2026-10-21 by the merged Inventory group (`docs/design/INVENTORY_MODULE_IA.md`); kept for the record.
+
 - A "Warehouse" group between Inventory and Economics, roles admin and manager: Overview `/warehouse` (`Warehouse`), Map `/warehouse/map` (`Map`), Putaway (`ArrowDownToLine`, badge: open putaways), Counts (`ClipboardCheck`, badge: counts awaiting approval), Locations (`MapPin`). Badges copy `PdReviewBadge`. Pick & Pack joins in Phase 2.
 - **Proposed:** Floor `/go` (`Smartphone`) first in Manufacturing for all internal roles, so desktop users reach the phone home.
 - Replace the inline `end` chain with `END_ROUTES = new Set([...existing, "/warehouse", "/go"])` and `end={END_ROUTES.has(item.to)}`.
@@ -185,8 +193,8 @@ Forward-only, idempotent, a header stating finding and decision, and the `schema
 | `20261021000003_cron_project_url.sql` | cron URL from Vault | 0 |
 | `20261021000004_wh_layout.sql` | layout tables, `UNLOCATED`, generator | 1 |
 | `20261021000005_wh_stock.sql` | containers, balances, movements, writer, reference CHECK | 1 |
-| `20261021000006_wh_tasks.sql` | moves, counts, print jobs | 1 |
-| `20261021000007_wh_rpcs.sql` | task RPCs, imports, `wh_location_summary` | 1 |
+| `20261021000006_wh_tasks.sql` | moves, counts, printers, print jobs, station sessions | 1 |
+| `20261021000007_wh_rpcs.sql` | task RPCs, manufacturing carton RPCs, station and print RPCs, imports, `wh_location_summary` | 1 |
 | `20261021000008_wh_receiving_lpn.sql` | receipt RPCs replaced | 1 |
 | `20261021000009_wh_ledger_sync.sql` | settlements, mirror and settlement triggers | 1 |
 | `20261021000010_wh_reconcile.sql` | reconcile, count scheduler, cron, daily report key | 1 |
@@ -231,23 +239,26 @@ Migrations 1-3 can reach production in Phase 0; they change no existing behaviou
 
 Barcode values (**proposed**): every ERP-printed barcode is `%` plus the human code, because no SKU, UPC or ShipStation `^#^…^` payload starts with `%`, ZPL needs no escape for it (only `^` and `~`), and a HID scanner on a US layout types it reliably. Labels show only the code. After the prefix, `^\d{2}-\d{2}-\d$` and named codes are locations, `C-` a carton, `T-` a tote (Phase 2); `%Z` marks a practice label.
 
-Rows come from the workbook: 71 rack bay-levels on faces 01-08, `09-01-1` to `09-03-1`, and `IN-01`, `OUT-UPS`, `OUT-GAY-1`, `OUT-GAY-2`, `ST-S1` to `ST-S4`, `CART-START`, `MFG-LINE` (allow_negative) and `SPARES-01` (bucket_lock `other`). The migration seeds only `UNLOCATED` (virtual, allow_negative), home of unexplained physical differences.
+Rows come from the workbook: 71 rack bay-levels on faces 01-08, `09-01-1` to `09-03-1`, and `IN-01`, `OUT-UPS`, `OUT-GAY-1`, `OUT-GAY-2`, `ST-S1` to `ST-S4`, `ST-DOCK`, `ST-MFG-1` to `ST-MFG-4` (one per manufacturing desk; station labels start a station session, 5.5), `CART-START`, `MFG-LINE` (allow_negative) and `SPARES-01` (bucket_lock `other`). The migration seeds only `UNLOCATED` (virtual, allow_negative), home of unexplained physical differences.
 
 **`wh_containers`** (license plates)
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | uuid PK | |
-| `code` | text UNIQUE | `C-<shipment_number>-<nnn>`; opening stock `C-OB-<nnnn>` |
+| `code` | text UNIQUE | `C-<shipment_number>-<nnn>`; opening stock `C-OB-<nnnn>`; an RTS relabel is the parent code plus `R<n>` (`C-466-007R1`), or `C-MFG-<nnnn>` when no parent was scanned (5.7) |
 | `barcode_value` | text GENERATED (`'%' \|\| code`) UNIQUE | |
 | `kind` | text DEFAULT 'carton' | CHECK IN (`carton`); Phase 2 adds `tote` |
 | `sku_id` | uuid NULL | NULL = mixed carton |
 | `qty_initial`, `qty` | integer | `qty` is current units, written only by `_wh_post_movement` |
-| `state` | text | CHECK IN (`sealed`, `open`, `empty`, `void`) |
+| `state` | text | CHECK IN (`sealed`, `open`, `empty`, `void`); a parent relabelled at RTS becomes `void` with `superseded_by` set |
 | `location_id` | uuid NULL | CHECK `state IN ('empty','void') OR location_id IS NOT NULL` |
-| `source` | text | CHECK IN (`freight`, `opening_balance`, `manual`) |
+| `source` | text | CHECK IN (`freight`, `opening_balance`, `manual`, `manufacturing`) |
 | `freight_shipment_id`, `carton_group_id`, `freight_receipt_id`, `carton_seq` | | traceability to the receipt |
 | `printed_at`, `print_count`, `opened_at`, `emptied_at`, `created_by` | | |
+| `label_stock` | text | CHECK IN (`white`, `green`) DEFAULT `white`; green = finished goods relabelled at RTS |
+| `parent_container_id`, `superseded_by` | uuid NULL FK self | lineage: the carton scanned at RTS; the green child that replaced a voided parent |
+| `finished_by`, `finished_at` | uuid NULL, timestamptz NULL | the worker and time printed on a green label |
 
 **`wh_inventory_balances`**
 
@@ -272,7 +283,7 @@ Rows come from the workbook: 71 rack bay-levels on faces 01-08, `09-01-1` to `09
 | `id`, `seq` | uuid PK, bigint identity | |
 | `movement_group_id` | uuid NOT NULL | one RPC call |
 | `client_event_id` | uuid UNIQUE NULL | phone idempotency key |
-| `type` | text | CHECK IN (`receive`, `void_receipt`, `putaway`, `move`, `open_container`, `count_adjust`, `write_off`, `bucket_convert`, `mfg_mirror`, `ledger_mirror`, `ship_settle`, `opening_balance`); Phase 2 adds `pick` |
+| `type` | text | CHECK IN (`receive`, `void_receipt`, `putaway`, `move`, `open_container`, `count_adjust`, `write_off`, `bucket_convert`, `mfg_mirror`, `ledger_mirror`, `ship_settle`, `opening_balance`, `relabel`); Phase 2 adds `pick`. `relabel` moves finished units at `MFG-LINE` into a green child carton (5.7) |
 | `sku_id`, `bucket`, `to_bucket` | | `to_bucket` for conversions |
 | `qty` | integer | CHECK > 0 |
 | `from_location_id`, `to_location_id`, `from_container_id`, `to_container_id` | uuid NULL | at least one location set |
@@ -282,15 +293,17 @@ Rows come from the workbook: 71 rack bay-levels on faces 01-08, `09-01-1` to `09
 | `note`, `device`, `created_at` | | |
 
 **Tasks.**
-- `wh_moves`: `id`; `kind` CHECK IN (`putaway`, `replenish`, `move`); `status` CHECK IN (`open`, `in_progress`, `done`, `cancelled`); `container_id`, or `sku_id` + `qty` + `bucket` for loose units; `from_location_id`; `suggested_location_id`; `suggestion_reason` CHECK IN (`same_sku_reserve`, `same_sku_face`, `nearest_empty`, `other_zone_empty`, `breakdown_shelf`, `none`); `to_location_id` (actual); `source_type`, `source_id`; `priority`; `assigned_to`, `completed_by`, `started_at`, `completed_at`, `movement_group_id`. Partial UNIQUE (`container_id`) WHERE an open putaway.
+- `wh_moves`: `id`; `kind` CHECK IN (`putaway`, `replenish`, `move`); `origin` CHECK IN (`receipt`, `rts`, `manual`, `reconcile`) DEFAULT `manual` (**proposed**, so queues can list a worker's own RTS cartons first); `status` CHECK IN (`open`, `in_progress`, `done`, `cancelled`); `container_id`, or `sku_id` + `qty` + `bucket` for loose units; `from_location_id`; `suggested_location_id`; `suggestion_reason` CHECK IN (`same_sku_reserve`, `same_sku_face`, `nearest_empty`, `other_zone_empty`, `breakdown_shelf`, `none`); `to_location_id` (actual); `source_type`, `source_id`; `priority`; `assigned_to`, `completed_by`, `started_at`, `completed_at`, `movement_group_id`. Partial UNIQUE (`container_id`) WHERE an open putaway.
 - `wh_count_tasks`: `id`; `kind` CHECK IN (`scheduled`, `pick_triggered`, `reconcile`, `variance_recount`, `ad_hoc`), where `pick_triggered` is written by the Phase 2 pick confirm when a bin hits zero; `status` CHECK IN (`open`, `counting`, `submitted`, `approved`, `cancelled`); `location_id` (a count covers one whole location); `sku_id` (the trigger, for display); `reason` (e.g. "Reconcile 2026-11-03: BW20 −3"); `due_date`; `moved_during_count`; assignee, submitter, approver and their timestamps; `source_type`, `source_id`. Partial UNIQUE (`location_id`) WHERE `open` or `counting`.
 - `wh_count_lines`: `id`; `count_task_id` (CASCADE); `sku_id`, `container_id`, `bucket`; `expected_qty` (snapshot at submit, never sent to the phone); `counted_qty` ≥ 0 (expected but unscanned items are written as 0); `variance` GENERATED; `found_container_elsewhere`; `resolution` CHECK IN (`accept`, `misplaced`, `write_off`, `recount`); `movement_group_id`, `ledger_tx_id`, `scan_value`.
 
 **Settings, printing, settlement, reconcile.**
-- `wh_settings` (`key` PK, `value jsonb`, `updated_at`, `updated_by`), written by `rpc_wh_set_setting` (admin) with per-key validation as `rpc_set_sale_setting` does. Seeds: `outbound {"mode":"blocked"}`; `physical_layer {"live_since":null,"mint_lpns":false}`; `scan_rules {"location_scan_every_stop":true,"confirm_putaway_location":true}`; `putaway {"breakdown_location_code":null,"max_suggestions":3}`; `count_schedule {"A_days":7,"B_days":30,"C_days":90,"daily_cap":20}`; `reconcile {"create_counts":true,"max_counts_per_sku":3}`; `labels {"lpn":"4x2","location":"3x1","dpi":203}`; `cart_definitions []`, with the Phase 2 shape `{code, slots:[{letter, class, colour}]}` and the 18-slot default (A-R: 12 S, 4 M, 2 L) documented in the migration.
-- `wh_print_jobs`: `id`; `kind` CHECK IN (`lpn`, `location`, `station`); `item_ids uuid[]`; `target` DEFAULT `browser` (`printnode:<printer>` later); `status` CHECK IN (`queued`, `printed`, `failed`, `blocked`); `requested_by`, `requested_from` (`dock`, `phone`, `desktop`); `created_at`, `printed_at`, `error`.
+- `wh_settings` (`key` PK, `value jsonb`, `updated_at`, `updated_by`), written by `rpc_wh_set_setting` (admin) with per-key validation as `rpc_set_sale_setting` does. Seeds: `outbound {"mode":"blocked"}`; `physical_layer {"live_since":null,"mint_lpns":false}`; `scan_rules {"location_scan_every_stop":true,"confirm_putaway_location":true}`; `putaway {"breakdown_location_code":null,"max_suggestions":3}`; `count_schedule {"A_days":7,"B_days":30,"C_days":90,"daily_cap":20}`; `reconcile {"create_counts":true,"max_counts_per_sku":3}`; `labels {"lpn":"4x2","location":"3x1","dpi":203}`; `rts {"require_relabel":true,"allow_no_parent":true}`; `printing {"require_station":true,"claim_timeout_s":60,"max_attempts":3}`; `cart_definitions []`, with the Phase 2 shape `{code, slots:[{letter, class, colour}]}` and the 18-slot default (A-R: 12 S, 4 M, 2 L) documented in the migration.
+- `wh_printers`: `id`; `code` UNIQUE (`DOCK-1`, `MFG-1`); `name`; `station_location_id` FK `wh_locations` (kind `station`, NULL for a shared printer); `transport` CHECK IN (`agent`, `browser`); `address` (agent: the Windows printer name on that PC, or `tcp://<ip>:9100` for a network printer); `label_stock` CHECK IN (`white_4x2`, `green_4x2`, `white_3x1`); `dpi` DEFAULT 203; `agent_id` (which installed agent owns it); `last_seen_at`; `active`.
+- `wh_print_jobs`: `id`; `kind` CHECK IN (`lpn`, `lpn_rts`, `location`, `station`); `item_ids uuid[]`; `payload jsonb` (the label fields; whoever prints renders them); `printer_id` FK `wh_printers` NULL (NULL = browser print); `station_location_id`; `status` CHECK IN (`queued`, `claimed`, `printed`, `failed`, `blocked`, `cancelled`); `claimed_by`, `claimed_at`, `attempts`; `requested_by`, `requested_from` (`dock`, `phone`, `desktop`, `workspace`); `created_at`, `printed_at`, `error`. Index on (`printer_id`, `status`, `created_at`).
+- `wh_station_sessions`: `id`; `profile_id`; `station_location_id` FK `wh_locations` (kind `station`); `device_id` (random per browser, kept in `localStorage`); `started_at`; `ended_at` NULL. Partial UNIQUE (`profile_id`) WHERE `ended_at IS NULL`: one live station per person; scanning another station label ends the old session and starts a new one (5.5).
 - `wh_order_settlements`, **proposed** as its own table so the busy `shipstation_orders` upserts stay untouched: `shipstation_order_id` PK FK; `method` CHECK IN (`ship_settle`, `pick`); `settled_units`, `shortfall_units`; `settled_at`; `last_error`.
-- `wh_reconcile_runs` (`run_at`, `actor_id`, `skus_checked`, `mismatched_skus`, `abs_residual_units`, `unlocated_units`) and `wh_reconcile_lines` (`run_id`, `sku_id`, `bucket`, `physical`, `open_order_units`, `cancelled_held_units`, `unsettled_units`, `levels_value`, `residual`, `count_task_ids uuid[]`).
+- `wh_reconcile_runs` (`run_at`, `actor_id`, `skus_checked`, `mismatched_skus`, `abs_residual_units`, `unlocated_units`, `rts_unplaced_cartons`) and `wh_reconcile_lines` (`run_id`, `sku_id`, `bucket`, `physical`, `open_order_units`, `cancelled_held_units`, `unsettled_units`, `levels_value`, `residual`, `count_task_ids uuid[]`).
 
 ### 4.4 Indexes
 
@@ -327,7 +340,11 @@ Migration 5 re-adds `chk_inv_tx_reference_shape` with `wh_count_task` and `wh_mo
 | `rpc_wh_save_layout(p_payload)`, `rpc_wh_save_location(p_location)` | admin | layout rows with `row_version`; named locations and deactivation |
 | `rpc_wh_generate_locations(p_rack_id DEFAULT NULL, p_dry_run DEFAULT true)` | admin | 5.3 |
 | `rpc_wh_resequence(p_rows)` | admin | `pick_sequence` fixes from Verify walk |
-| `rpc_wh_request_labels(p_kind, p_ids, p_from)`, `rpc_wh_mark_printed(p_job_id, p_status)` | internal | 5.5 |
+| `rpc_wh_request_labels(p_kind, p_ids, p_from, p_printer_id DEFAULT NULL)`, `rpc_wh_mark_printed(p_job_id, p_status, p_error)` | internal | 5.5; without a printer the job goes to the caller's station printer, else the browser |
+| `rpc_wh_start_station(p_scan_value)`, `rpc_wh_end_station()` | internal | 5.5; a station label scan opens or switches the caller's session |
+| `rpc_wh_claim_print_jobs(p_printer_ids, p_agent_id)`, `rpc_wh_agent_heartbeat(p_agent_id, p_printer_ids)` | print agent | 5.5; `FOR UPDATE SKIP LOCKED`, so two agents never print one job |
+| `rpc_wh_take_to_line(p_container_id, p_client_event_id)` | internal | 5.7; a raw carton leaves its bin for `MFG-LINE` |
+| `rpc_wh_rts_relabel(p_sku_id, p_cartons, p_parent_container_id, p_task_log_id, p_client_event_id)` | internal | 5.7; green child LPNs, labels, putaway tasks |
 | `rpc_wh_import_stock(p_rows, p_dry_run)` | admin | opening balances (9.6) |
 | `rpc_wh_import_sku_master`; `rpc_wh_link_barcode` | admin; admin, manager | 3.6 |
 | `rpc_wh_overview()` | admin, manager | Overview KPI band in one call (**proposed**, instead of seven count queries) |
@@ -342,9 +359,13 @@ Migration 5 re-adds `chk_inv_tx_reference_shape` with `wh_count_task` and `wh_mo
 
 **`rpc_wh_putaway_container(p_container_id uuid, p_location_id uuid, p_move_id uuid DEFAULT NULL, p_client_event_id uuid DEFAULT NULL, p_actor_id uuid DEFAULT NULL)`.** Moves every balance of the container to the location in one group, buckets unchanged unless the target has `bucket_lock` (then a `wh_bucket_move` ledger row too). Refuses virtual or inactive targets, empty or void containers and the current location. Closes the putaway task with the actual location and whether the suggestion was followed; over `capacity_cartons` returns ok with `warning: 'over_capacity'`. Returns `{ok, container, from, to, followed_suggestion, next}`, where `next` is the oldest open putaway, so a receiver can carry two cartons.
 
-**`rpc_wh_move_stock(p_sku_id uuid, p_qty integer, p_from_location_id uuid, p_to_location_id uuid, p_from_container_id uuid DEFAULT NULL, p_to_container_id uuid DEFAULT NULL, p_bucket text DEFAULT NULL, p_move_id uuid DEFAULT NULL, p_client_event_id uuid DEFAULT NULL, p_actor_id uuid DEFAULT NULL)`.** Loose or part-carton moves; `p_bucket` may be omitted when the source holds one bucket of the SKU. A move to `MFG-LINE` is "take to the line", how raw cartons leave the RAW racks before an emptying task (5.6). Errors: `insufficient` (with available), `ambiguous_bucket`, `location_inactive`.
+**`rpc_wh_move_stock(p_sku_id uuid, p_qty integer, p_from_location_id uuid, p_to_location_id uuid, p_from_container_id uuid DEFAULT NULL, p_to_container_id uuid DEFAULT NULL, p_bucket text DEFAULT NULL, p_move_id uuid DEFAULT NULL, p_client_event_id uuid DEFAULT NULL, p_actor_id uuid DEFAULT NULL)`.** Loose or part-carton moves; `p_bucket` may be omitted when the source holds one bucket of the SKU. A move to `MFG-LINE` is "take to the line"; `rpc_wh_take_to_line` is its one-scan form for a whole carton (5.7). Errors: `insufficient` (with available), `ambiguous_bucket`, `location_inactive`.
 
 **`rpc_wh_open_container(p_container_id uuid, p_to_location_id uuid DEFAULT NULL, p_unpack boolean DEFAULT false, p_client_event_id uuid DEFAULT NULL, p_actor_id uuid DEFAULT NULL)`.** The case break. Without a target, sealed becomes open in place. With a target, normally a pickable face, the carton moves there and opens: the usual "bring a level-3 carton down". `p_unpack` empties the units out as loose stock for the accessory caps. A non-pickable target returns `warning: 'not_pickable'`.
+
+**`rpc_wh_take_to_line(p_container_id uuid, p_client_event_id uuid DEFAULT NULL, p_actor_id uuid DEFAULT NULL)`.** Moves every balance of a sealed or open carton to `MFG-LINE` in one group of `move` movements, keeps the container's id and label, and records who took it. Refuses `void` cartons and cartons already at the line (`already_at_line`). Returns `{ok, container, from, units}`. Called from the Workspace when an emptying task starts and from the Floor Move tile.
+
+**`rpc_wh_rts_relabel(p_sku_id uuid, p_cartons jsonb, p_parent_container_id uuid DEFAULT NULL, p_task_log_id uuid DEFAULT NULL, p_client_event_id uuid DEFAULT NULL, p_actor_id uuid DEFAULT NULL)`.** `p_cartons` = `[{qty, state: 'sealed' | 'open'}]`, one entry per physical carton, plus an optional `{qty, loose: true}` remainder. In one transaction it: (1) checks that loose `finished` units of the SKU at `MFG-LINE` cover the total, else `insufficient_at_line` naming the gap, since the RTS task log must land first; (2) mints one green child per entry: code = parent code plus `R<n>` (n counts relabels of that parent), or `C-MFG-<nnnn>` without a parent; `source manufacturing`, `label_stock green`, `parent_container_id`, `finished_by` = actor, `finished_at` = now; (3) posts a `relabel` movement per child from loose finished at `MFG-LINE` into the child at `MFG-LINE`; (4) voids the parent when its balances are zero, setting `superseded_by` to the first child, and otherwise leaves it `open` at the line; (5) opens one putaway `wh_moves` row per child, `origin rts`, with a suggestion from `_wh_suggest_putaway` (the RTS pick face if it has room, else RTS overflow); (6) moves a loose remainder to the SKU's pick face through `rpc_wh_move_stock` when one exists, else leaves it at the line with a loose putaway task; (7) queues one `lpn_rts` print job for all children on the caller's station printer. Returns `{ok, containers: [{id, code, qty, suggested}], print_job_id, putaway_tasks}`. Before `physical_layer.live_since` it returns `{ok: true, dormant: true}` and the Workspace hides the step.
 
 **`rpc_wh_record_count(p_location_id uuid, p_lines jsonb, p_count_task_id uuid DEFAULT NULL, p_started_at timestamptz DEFAULT NULL, p_client_event_id uuid DEFAULT NULL, p_actor_id uuid DEFAULT NULL)`.** `p_lines` = `[{sku_id, container_id | null, counted_qty, scan_value}]`; without a task it creates an `ad_hoc` one. It snapshots expected quantities per (SKU, container, bucket) at submit, writes counted lines plus a zero line for every expected item not scanned, flags `found_container_elsewhere` and, if anything moved at the location after `p_started_at`, `moved_during_count`. All-zero variance approves itself and stamps `last_counted_at`; otherwise `submitted`. The response `{ok, status, lines}` never carries expected quantities or variances.
 
@@ -377,18 +398,47 @@ Suggestions (`_wh_suggest_putaway`): first match wins; a candidate is skipped if
 
 ### 5.5 Labels and print jobs
 
-- Phase 1 prints from the browser: `src/lib/warehouse/labels.ts` renders Code 128 SVG with bwip-js (`toSVG`, `bcid: 'code128'`) into an `@page`-sized sheet printed from a hidden iframe to the dock thermal printer, or saved as PDF.
-- LPN label (4×2): barcode of `%C-466-007`, the code large, SKU and name or "MIXED BW20×12 + NB4×6", units, bucket word, shipment and "carton 7 of 40", date. At 203 dpi and 3 dots per module the barcode is about 2.4 in wide.
-- Location label (3×1): barcode of `%02-01-2`, the code large, "Face 02 · Bay 01 · Level 2", and "OVERFLOW" on level 3.
-- `rpc_wh_request_labels` creates a job and returns its payload; after printing, `rpc_wh_mark_printed` stamps the containers or locations. **Proposed:** phones cannot drive the printer, so a phone "Reprint" queues a job that the dock laptop, open on `/warehouse/putaway?station=dock`, prints when it arrives over Realtime. PrintNode later consumes `printnode:` jobs behind the outbound guard.
+Revised 2026-10-21: one queue, printers that belong to stations, and a station session that says which printer a worker means.
+
+- **Rendering.** One pure module, `src/lib/warehouse/labels.ts`, turns a job's `payload` into ZPL (`^BC` Code 128, 3 dots per module at 203 dpi, so the barcode is about 2.4 in wide; `^` and `~` in free text escaped through `^FH`) and into Code 128 SVG with bwip-js (`toSVG`, `bcid: 'code128'`) for the browser path and the on-screen preview. The print agent imports the same module, so a label looks the same whichever path prints it.
+- **LPN label** (4×2, white): barcode of `%C-466-007`, the code large, SKU and name or "MIXED BW20×12 + NB4×6", units, bucket word, shipment and "carton 7 of 40", date.
+- **RTS label** (4×2, bright green stock): barcode of `%C-466-007R1`, the code large, "RTS" in the largest type on the label, SKU and name, units, the worker's first name and the completion date and time, the suggested bay, and "from C-466-007". The green stock is the signal: a picker or counter reads finished goods from across the aisle, and a white label in an RTS bay is wrong by definition.
+- **Location label** (3×1): barcode of `%02-01-2`, the code large, "Face 02 · Bay 01 · Level 2", and "OVERFLOW" on level 3. **Station label** (3×1): `%ST-MFG-1` and the station name.
+- **Print queue.** `rpc_wh_request_labels` creates a `wh_print_jobs` row. The target is, in order: the printer named in the call; the printer of the caller's live station session whose `label_stock` fits the kind (green for `lpn_rts`); `browser`, where the calling page renders and prints through a hidden iframe or saves a PDF. A phone therefore never talks to a printer: the phone asks, the station's printer answers. `rpc_wh_mark_printed` stamps `printed_at` and `print_count` on the items; a Reprint anywhere is a new job.
+- **Station sessions** (**proposed** in this form, because routing by user account breaks the moment someone changes station). Every station location (`ST-S1` to `ST-S4`, `ST-DOCK`, `ST-MFG-1` to `ST-MFG-4`) has a label. Scanning it wherever a `ScanSink` is live calls `rpc_wh_start_station`, which ends the person's previous session and opens one at that station; the header shows a `StationChip` ("Mfg desk 2", tap to change) and every label request carries the session's station. A fixed laptop pins its station in `localStorage` and re-confirms it at sign-in. With `printing.require_station` on, a request with no session and no printer falls back to `browser` and the page says why.
+- **Print agent.** `tools/print-agent/`, a small Node service installed on the dock laptop, the manufacturing laptop or one central PC, signed in as a dedicated `print-agent` auth user whose profile carries `is_print_agent`, the only grant `rpc_wh_claim_print_jobs` accepts. It owns the printers whose `agent_id` is its own: USB printers by Windows printer name through the raw spooler, network printers by TCP 9100. One PC can therefore drive a fleet of network printers while a laptop drives the printer on its own desk, and the queue is the same either way. It subscribes to `wh_print_jobs` over Realtime, polls every 15 s as a floor, claims with `FOR UPDATE SKIP LOCKED` (two agents never print one job), renders ZPL, sends, marks `printed` or `failed` with the error, retries up to `printing.max_attempts` with backoff, releases a claim older than `claim_timeout_s`, and heartbeats `last_seen_at`. A failed or stale job shows on the requesting page with "Reprint", "Print elsewhere" (another printer) and "Print from browser"; Settings › Warehouse › Printers shows each printer's agent, last seen and queue depth.
+- **Guard.** `fn_outbound_allowed('agent_print')` is true only in `live`; in `practice` every job targets `browser` with the "PRACTICE · STAGING" band and `%Z` codes; in `blocked` requests are refused. PrintNode, if ever wanted, is a third `transport` behind the same guard, not a different queue.
 
 ### 5.6 Keeping the physical layer in step with the ledger
 
 **Proposed:** every SKU-level change gets a physical twin in the same transaction, so the identity can break only through real-world events. All three parts stay dormant until `physical_layer.live_since` is set.
 
-1. **Ledger mirror**, an AFTER INSERT trigger on `inventory_transactions` for `cycle_count`, `task_logged` and `freight_delivered`, skipped when `wh.mirror_skip` is on. Category moves from manufacturing (emptying, RTS, pre-filled RTS) post a `bucket_convert` at `MFG-LINE`; negative raw there is the cue that cartons were not scanned to the line, and RTS output accumulates as finished with a putaway task. Breakage write-offs and Stock Levels cycle counts post at `UNLOCATED`. Receipts written by any other path post loose at `IN-01`. Errors go to `audit_logs` (`wh.mirror_failed`) and never fail the ledger insert, the rule `trg_apply_box_on_shipped` follows.
+1. **Ledger mirror**, an AFTER INSERT trigger on `inventory_transactions` for `cycle_count`, `task_logged` and `freight_delivered`, skipped when `wh.mirror_skip` is on. Category moves from manufacturing (emptying, filling, RTS, pre-filled RTS) post a `bucket_convert` at `MFG-LINE`, drawing first from the balances of cartons taken to the line and then from loose units there; negative raw at the line is the cue that cartons were not scanned to the line. RTS output lands as loose finished units at the line, where `rpc_wh_rts_relabel` (5.7) boxes it into green cartons; only when no relabel follows does it accumulate with a loose putaway task, the no-scanner fallback. Breakage write-offs and Stock Levels cycle counts post at `UNLOCATED`. Receipts written by any other path post loose at `IN-01`. Errors go to `audit_logs` (`wh.mirror_failed`) and never fail the ledger insert, the rule `trg_apply_box_on_shipped` follows.
 2. **Ship settlement.** `_wh_settle_order(order_id)` is ledger-derived like `rpc_apply_shipstation_sale`: per SKU, target = the order's net `order_shipped` plus rebase deduction if shipped, else 0; the difference from its `ship_settle` units moves. Sources: Phase 2 tote contents; open cartons and loose units on pickable locations by `pick_sequence`; sealed cartons there, which opens them. Overflow is never drawn, since nobody picks level 3. A shortfall goes to `UNLOCATED` as a negative and opens a `reconcile` count. Callers: a trigger on `shipstation_orders` when status becomes shipped; the mirror, when an `order_shipped` row lands for an already-shipped order (the webhook writes the order before calling the sale RPC); the nightly sweep.
 3. **Explicit postings.** Count approvals and write-offs write ledger rows and movements together (5.3).
+
+### 5.7 Cartons through manufacturing
+
+Owner decision 2026-10-21. A carton of raw product leaves the raw racks, is emptied at the line, its contents are filled and RTS'd, and the finished units go back into a carton that is shelved in the RTS racks. The carton keeps an address at every step, and the RTS step is not complete until the carton has a green label and a bay.
+
+| Step | Who and where | Scan | System | Carton after |
+|---|---|---|---|---|
+| 1. Pull | Worker at the raw rack; the Workspace emptying task start, or the Floor Move tile | carton LPN | `rpc_wh_take_to_line`: balances move to `MFG-LINE`; the raw bin is released | white, `sealed` or `open`, at `MFG-LINE` |
+| 2. Empty | Workspace emptying log (unchanged) | none | ledger category move; the mirror draws raw from that carton at the line and credits loose `in_production` | `empty` at `MFG-LINE` once drained; a partial carton stays `open` and can be parked on the WIP rack with Move |
+| 3. Fill, cap | Workspace (unchanged) | none | the mirror converts loose units at the line | — |
+| 4. RTS | Workspace RTS or pre-filled RTS log (unchanged) | none | the mirror credits loose `finished` at the line | — |
+| 5. Relabel | Workspace RTS step, required when live | parent LPN, or "no label" | `rpc_wh_rts_relabel`: green children minted at the line, parent voided when empty, a putaway task per child with a suggested bay, an `lpn_rts` job to the station printer | green, `sealed` (`open` if partial), at `MFG-LINE`, "printed, not placed" |
+| 6. Place | Worker carries the carton; Floor Put away or the Workspace | bay label | `rpc_wh_putaway_container`: balances move to the bay; the task closes with whether the suggestion was followed | green, in its bay, pickable from the face or held in RTS overflow |
+
+Rules:
+- Step 1 has a fixed destination, so it is one scan with no bay scan. Step 6 is the worker's choice, so it is always a bay scan (or "Put here" with `confirm_putaway_location` off).
+- A relabelled carton is a new container with a new code, linked to the parent. What comes back from RTS is rarely what went in (breakage, partial batches, units from two cartons), so contents are declared, not inherited: the quantity on the green label is the quantity the worker confirmed. The white barcode is voided at print; scanning it later says "C-466-007 was RTS'd as C-466-007R1 by Devon on Oct 21, 2:14 PM; use the green label" and offers Reprint green. Lineage stays queryable back to the freight receipt through `parent_container_id`.
+- A batch can fill several cartons and leave a remainder. The Workspace step starts with one row holding the full quantity; "Add another carton" splits it; "Remainder loose to pick face" sends the rest to the open carton at the SKU's face. Each carton gets its own label and task.
+- Pre-filled cartons waiting between filling and RTS are parked on the WIP rack with the Move tile, so a half-finished batch is findable too; they keep their white label.
+- Until placed, a green carton shows on the Workspace ("1 carton waiting for a bay"), on the Floor Put away tile badge, on the Inventory Overview "To put away" card, and in the nightly run as `rts_unplaced`. Nothing is lost by forgetting; it nags.
+- Fallback: an RTS logged with no station session (a manager backfilling on a desktop) skips the relabel; finished units sit loose at the line with a loose putaway task, as 5.6 describes. With `rts.require_relabel` on, the Workspace refuses to complete the RTS step without a carton whenever a station session exists.
+- Counting: a white LPN scanned in an RTS zone flags "needs a green label" on the count line; a green LPN scanned in a RAW zone flags the reverse.
+- Hardware: a 4-inch direct thermal printer at the manufacturing desks loaded with fluorescent green 4×2 labels, a scanner at each desk, and a station label per desk. The Workspace runs on the desk laptop, which also runs the print agent; a phone can log the step too, and the label still comes out at the desk.
 
 ---
 
@@ -403,7 +453,7 @@ Suggestions (`_wh_suggest_putaway`): first match wins; a candidate is skipped if
 
 The settled identity is **P − O = L**. The report shows the residual **R = P − O − H − S − L**, with H and S as explained terms; R ≠ 0 is a discrepancy. Other buckets use R = P(bucket) − L(bucket).
 
-Each run sweeps settlements, prunes zero balances, writes a run row plus a line per (SKU, bucket) with a non-zero R, H or S, and with `reconcile.create_counts` on opens `reconcile` counts on up to `max_counts_per_sku` pickable locations per finished-residual SKU. Discrepancies surface on the Counts › Reconcile tab, as Overview tiles ("Off by", "Unlocated"), and in the daily report: `rpc_daily_report` gains `warehouse: {mismatched_skus, abs_units, unlocated_units, putaway_over_24h, counts_due}`, re-issued whole by migration 10 because it is one SQL body.
+Each run sweeps settlements, prunes zero balances, writes a run row plus a line per (SKU, bucket) with a non-zero R, H or S, and with `reconcile.create_counts` on opens `reconcile` counts on up to `max_counts_per_sku` pickable locations per finished-residual SKU. Discrepancies surface on the Counts › Reconcile tab, as Overview tiles ("Off by", "Unlocated"), and in the daily report: `rpc_daily_report` gains `warehouse: {mismatched_skus, abs_units, unlocated_units, putaway_over_24h, rts_unplaced, counts_due}`, re-issued whole by migration 10 because it is one SQL body.
 
 ---
 
@@ -416,14 +466,14 @@ Desktop at the dock (`FreightDetail`):
 - A correction names its consequence on the button: "Void C-466-040".
 
 Phone (`/go/putaway`), one route driven by state so nothing remounts between cartons:
-1. Waiting: `ScanSink` live; LPNs at `IN-01`, oldest first.
+1. Waiting: `ScanSink` live; the worker's own green cartons at `MFG-LINE` first, then LPNs at `IN-01` and other green cartons, oldest first.
 2. Scan an LPN: hero "Put it in 02-01-3" with face, bay and level words, SKU, units, reason chip, next-LPN preview; Suggest another, Open to pick face (when offered), Reprint.
 3. Scan a location: the suggested one flashes green; any other storable one is accepted with an amber flash and recorded as not followed; virtual or inactive flashes red and changes nothing. With `confirm_putaway_location` off, "Put here" confirms without the scan.
 4. Back to step 1 with the next LPN preselected.
 
 ## 8. Cycle counts
 
-- **Phone (`/go/count`).** Due tasks sorted by `pick_sequence`, so the list is a count path. Scanning a location label starts its task or an ad hoc one. The screen shows only what has been scanned. A sealed carton's LPN counts at full quantity; an open carton's LPN asks for units on `BigStepper`; a product barcode adds one loose unit per scan, correctable with the stepper. Unknown barcodes flash red and offer managers "Link to SKU". Done submits, flashes green and opens the next task.
+- **Phone (`/go/count`).** Due tasks sorted by `pick_sequence`, so the list is a count path. Scanning a location label starts its task or an ad hoc one. The screen shows only what has been scanned. A sealed carton's LPN counts at full quantity; an open carton's LPN asks for units on `BigStepper`; a product barcode adds one loose unit per scan, correctable with the stepper. Unknown barcodes flash red and offer managers "Link to SKU". A white LPN in an RTS zone, or a green one in a RAW zone, is accepted with an amber flash and a "wrong label colour" flag on the line. Done submits, flashes green and opens the next task.
 - **Desktop (`/warehouse/counts`).** Variances lists submitted tasks with expected, counted, variance, counter, the moved-during-count flag and a likely cause from recent movements at the location (a settlement that morning, a carton opened without a move); per line Approve, Misplaced, Write off, Recount. Managers only.
 - **Schedule.** `rpc_wh_schedule_counts`, nightly after the reconcile: a location is due when `last_counted_at` is older than the shortest cadence of the SKUs it holds, from `product_skus.abc_classification` (A 7 days, B 30, C 90, unclassified C), most overdue first up to `daily_cap`. Weekly A counts are what the ops audit asks for while cancellations stay deferred.
 - **Pick-triggered.** The kind exists now; the Phase 2 pick confirm creates one when a pick empties a bin.
@@ -434,13 +484,15 @@ Phone (`/go/putaway`), one route driven by state so nothing remounts between car
 
 ### 9.1 Routes
 
+The paths below predate the Inventory merge; `docs/design/INVENTORY_MODULE_IA.md` and `src/lib/inventory-routes.ts` hold the current ones (`/warehouse` → `/inventory`, map and counts → `/inventory/stock?view=`, putaway → `/inventory/shipments?filter=receiving`, locations and the layout editor → Settings › Warehouse). Pages keep the names below.
+
 | Route | Page | Roles | Notes |
 |---|---|---|---|
 | `/warehouse` | `pages/warehouse/WarehouseOverview.tsx` | admin, manager | `StatCard` band: putaways, counts due, variances, unlocated, off-by SKUs, accuracy |
 | `/warehouse/map` | `WarehouseMap.tsx` | admin, manager | `?mode=browse\|stock\|counted\|heat`, `?view=plan\|elevation`, `?loc=`, `?q=` |
 | `/warehouse/map/edit` | `LayoutEditor.tsx` | admin | three panes |
 | `/warehouse/racks/:rackId` | `RackDetail.tsx` | admin, manager | elevation per face |
-| `/warehouse/putaway` | `PutawayQueue.tsx` | admin, manager | `?shipment=`, `?station=dock` |
+| `/warehouse/putaway` | `PutawayQueue.tsx` | admin, manager | `?shipment=`; the dock's printer comes from its station session (5.5), not a URL flag |
 | `/warehouse/counts` | `Counts.tsx` | admin, manager | Variances, Count tasks, Schedule, Moves, Reconcile; Replenishment in Phase 2 |
 | `/warehouse/locations` | `Locations.tsx` | admin, manager | dense table, inline edit, CSV export, labels |
 | `/go` | `pages/go/FloorHome.tsx` | admin, manager, user | tiles, scan anything |
@@ -448,7 +500,8 @@ Phone (`/go/putaway`), one route driven by state so nothing remounts between car
 | `/go/count` | `GoCount.tsx` | admin, manager, user | list and count in one route |
 | `/go/move` | `GoMove.tsx` | admin, manager, user | includes "Take to line" |
 | `/go/lookup` | `GoLookup.tsx` | admin, manager, user | location, LPN or product |
-| `/settings` Warehouse tab | `settings/WarehouseSettings.tsx` | admin | scan rules, putaway, schedule, labels, outbound (read-only off production), carts placeholder |
+| `/manufacturing/workspace` | existing `Workspace.tsx` | admin, manager, user | the emptying task gains "Scan the carton" (take to line); RTS tasks gain the carton step (5.7) |
+| `/settings` Warehouse tab | `settings/WarehouseSettings.tsx` | admin | scan rules, putaway, schedule, labels, printers and agents, stations, RTS rules, outbound (read-only off production), carts placeholder |
 
 Map modes in Phase 1: Browse, Stock (cartons against capacity), Counted (days since count), Heat. **Proposed:** Heat paints ShipStation units per SKU over 30 days onto the bins holding each SKU, since bin-level picks exist only after Phase 2. Route mode is Phase 2; meanwhile the editor's Verify walk draws the `pick_sequence` path. Also in Phase 1: Stock Levels rows expand to a by-location list with the effective count still the headline, and SKU detail gains a Locations tab.
 
@@ -470,6 +523,10 @@ Map modes in Phase 1: Browse, Stock (cartons against capacity), Counted (days si
 | `LayoutEditor` | `components/warehouse/editor/` | Palette, Canvas (100 mm snap, rotate, duplicate), Properties with faces; dry-run preview; Import; Verify walk |
 | `PutawayQueueCard` | `components/freight/` | on `FreightDetail` |
 | `LabelSheet`, `WhFind` | `components/warehouse/` | print page; command-palette search over SKU, LPN, location |
+| `StationChip` | `components/warehouse/` | header chip with the live station; scan a station label to change it; pinned on fixed laptops |
+| `RtsCartonStep` | `components/manufacturing/` | the Workspace step: parent scan, carton rows, remainder, print and place status |
+| `PrintJobStatus` | `components/warehouse/` | toast or inline row: queued, printing at Mfg desk 2, printed, failed with Reprint, Print elsewhere, Print from browser |
+| print agent | `tools/print-agent/` | Node service, not a component; shares `lib/warehouse/labels.ts` |
 | `PageHeader`, `EmptyState` | `components/shared/` | extracted to stop further copies |
 
 `lib/status-colors.ts` gains `PUTAWAY_STATUS_COLORS`, `COUNT_STATUS_COLORS` and `CONTAINER_STATE_COLORS` with the existing semantics (amber needs action, green done, red failure, slate terminal). Pure, tested modules in `src/lib/warehouse/`: `gtin`, `scan`, `location-code` (the generator's TypeScript twin for the editor preview), `carton-split`, `map-geometry`, `labels`, `count-schedule`, `reconcile-format`, `csv`.
@@ -487,10 +544,11 @@ Hooks in `src/lib/hooks/use-warehouse-layout.ts`, `use-warehouse-stock.ts`, `use
 | `["wh-containers", filter]`, `["wh-putaway", filter]` | `useWhContainers`, `useWhPutawayQueue` | by shipment or location; open putaways |
 | `["wh-counts", status]`, `["wh-count", id]` | `useWhCountTasks`, `useWhCountTask` | tasks and lines |
 | `["wh-reconcile"]`, `["wh-settings"]`, `["wh-overview"]`, `["sku-barcodes", skuId]` | matching hooks | latest run; settings; `rpc_wh_overview`; barcodes |
+| `["wh-station"]`, `["wh-printers"]`, `["wh-print-job", id]` | `useWhStation`, `useWhPrinters`, `useWhPrintJob` | the caller's live session; printers with agent heartbeat; one job's status over Realtime |
 
 Mutations (`useWhPutaway`, `useWhMoveStock`, `useWhOpenContainer`, `useWhWriteOff`, `useWhRecordCount`, `useWhApproveVariance`, `useWhGenerateLocations`, `useWhSaveLayout`, `useWhRequestLabels`, `useWhImportStock`, `useImportSkuMaster`) unwrap the envelope and invalidate roots; phone mutations send `crypto.randomUUID()` as `client_event_id` and keep `ShipmentManifest`'s pendingKey guard. `useRecordFreightReceipt` also invalidates `wh-putaway` and `wh-containers`.
 
-Realtime via `useLiveInvalidate`: channel `wh-stock` (balances, containers) invalidates the location, balance and container roots; `wh-tasks` (moves, count tasks) invalidates `wh-putaway`, `wh-counts`, `wh-overview`; `wh-print` runs only on the dock station page. `/go` pages also refetch every 60 seconds.
+Realtime via `useLiveInvalidate`: channel `wh-stock` (balances, containers) invalidates the location, balance and container roots; `wh-tasks` (moves, count tasks) invalidates `wh-putaway`, `wh-counts`, `wh-overview`; `wh-print` is subscribed by the print agent and, per job id, by the page that requested the label. `/go` pages also refetch every 60 seconds.
 
 ### 9.5 Dependencies
 
@@ -513,14 +571,15 @@ Import spreadsheet takes the workbook's tabs saved as CSV (**proposed**: CSV, to
 - `scan`: `%02-01-2` location, `%C-466-007` carton, `%ZC-466-007` practice, `^#^499602D2^` order 1234567890, `BW20` and `10-Filters` SKU-like, digit strings GTIN.
 - `location-code`: 71 rack bay-level codes from the workbook's faces; level 3 never pickable; faces 01 and 02 interleaved. A staging smoke asserts the TypeScript preview equals the SQL dry run.
 - `carton-split`: per-carton units sum to `units_total` for random U and M.
-- `count-schedule`, `reconcile-format`, `map-geometry`, `labels` (module width fits the label at 203 dpi), `csv`.
+- `count-schedule`, `reconcile-format`, `map-geometry`, `csv`.
+- `labels`: ZPL for an LPN, an RTS label and a station label carries the right barcode value, escapes `^` and `~` in free text, fits 4×2 and 3×1 at 203 dpi; the SVG and ZPL paths encode the same value.
 - Hooks: extend `hooks.test.ts` with each mutation's RPC name and arguments, and that `ok: false` throws.
 
-**SQL test** `supabase/tests/warehouse_phase1.test.sql`, rolled back like `supplier_portal_rls.test.sql`: receive a two-group shipment (one mixed) and assert LPNs, per-carton units, `IN-01` balances and unchanged ledger rows; void by negative tap; put away; open to a face; count a variance; approve as accept (ledger row, levels moved) and as misplaced (`UNLOCATED`); settle a shipped order; reconcile to zero. RLS: suppliers read no `wh_*` rows; a `user` cannot approve.
+**SQL test** `supabase/tests/warehouse_phase1.test.sql`, rolled back like `supplier_portal_rls.test.sql`: receive a two-group shipment (one mixed) and assert LPNs, per-carton units, `IN-01` balances and unchanged ledger rows; void by negative tap; put away; open to a face; count a variance; approve as accept (ledger row, levels moved) and as misplaced (`UNLOCATED`); settle a shipped order; reconcile to zero. Manufacturing: take a raw carton to the line, log emptying and RTS, relabel into two green cartons and a loose remainder, assert the parent is `void` with `superseded_by`, the children sit at `MFG-LINE` with open putaways and one `lpn_rts` job, a scan of the parent's code resolves to the child, then put one child away; two agents claim the same job and only one wins. RLS: suppliers read no `wh_*` rows; a `user` cannot approve.
 
 **Smoke after every deploy.** `CREATE OR REPLACE FUNCTION` does not validate referenced relations (CLAUDE.md), so every new or replaced RPC gets one call on the target project, kept as a paste-ready block in the migration header. Success or a validation envelope (random ids returning `*_not_found`, `rpc_wh_move_stock` returning `insufficient`, imports and the generator in dry-run mode) passes; a relation error fails. The block also calls `rpc_record_freight_receipt` with a random shipment, `rpc_daily_report()` and `fn_gtin_candidates('1383325')`.
 
-**Manual on staging:** an iPhone and an Android phone with paired HID scanners, and the dock laptop printing.
+**Manual on staging:** an iPhone and an Android phone with paired HID scanners, the dock and manufacturing laptops printing through the agent, and one label requested from a phone arriving at the station's printer.
 
 ## 11. Rollout
 
@@ -528,9 +587,9 @@ Import spreadsheet takes the workbook's tabs saved as CSV (**proposed**: CSV, to
 2. Phase 1 migrations to staging with `physical_layer` off; smoke; regenerate `src/lib/database.types.ts` through the Management API types endpoint.
 3. Owner practice on staging in `practice` mode: import the workbook, print practice labels, put away a staged shipment, count, approve, read a reconcile.
 4. Production deploy with `live_since` null and `mint_lpns` false: nothing changes for anyone.
-5. Layout import; print shelf labels in `pick_sequence` order; hang them; walk with `/go/lookup`, which stamps `label_verified_at`, until every location is verified.
+5. Layout import; print shelf labels in `pick_sequence` order; hang them; walk with `/go/lookup`, which stamps `label_verified_at`, until every location is verified. Install the print agent on the dock and manufacturing laptops, register the printers and hang the station labels.
 6. Opening stock: import placement; apply the `C-OB` labels; full count on go-live day; approve; set `live_since` and `mint_lpns` in one settings call. Mirror, settlement and reconcile start then.
-7. The next freight arrival uses LPN check-in and phone putaway; two clean weeks close Phase 1.
+7. The next freight arrival uses LPN check-in and phone putaway, and the next RTS batch leaves the line in green cartons; two clean weeks close Phase 1.
 
 Rollback is a setting: turning `physical_layer` off stops minting, mirroring and settlement, and the SKU books never depended on it.
 
@@ -540,6 +599,8 @@ Rollback is a setting: turning `physical_layer` off stops minting, mirroring and
 
 **Phase 1** (scope report: "Every unit and carton has a bin; reconciliation report is clean for two consecutive weeks; map search finds any SKU/LPN"), made testable:
 - Every carton received after go-live has an LPN printed at check-in and is put away; in a normal week none waits at `IN-01` over 24 hours.
+- Every RTS batch logged after go-live leaves the line in green cartons placed in a bay within the shift; `rts_unplaced` is zero at the nightly run in a normal week.
+- A label requested from a phone prints at the worker's station within ten seconds, and a failed print shows on the phone with a way to reprint.
 - Every active location has a verified label; every SKU with stock has a location.
 - Fourteen consecutive nightly runs with zero finished residual, and `UNLOCATED` back to zero after each week's counts.
 - Map search highlights every location and carton for any SKU or LPN within one second on the dock laptop.
@@ -553,7 +614,10 @@ The scope report's Phase 1 also listed a 3D overview (dropped by the owner) and 
 | Risk | Effect | Mitigation |
 |---|---|---|
 | Settlement guesses the shelf | Bin drift, never total drift | Weekly A counts; ends with Phase 2 pick scans |
-| "Take to line" scans skipped | Negative raw at `MFG-LINE` | Overview tile; reconcile line names it; two-scan Move |
+| "Take to line" scans skipped | Negative raw at `MFG-LINE` | Overview tile; reconcile line names it; one-scan take to line at the start of the emptying task |
+| RTS logged without the relabel | Finished units loose at `MFG-LINE`, invisible to settlement | Loose putaway task and Overview tile; `rts.require_relabel` blocks the Workspace step when a station session exists |
+| Print agent PC off, or printer out of labels | No labels at that station | Agent runs as a service with a heartbeat shown in Settings; browser print fallback; any agent may claim a network printer's jobs |
+| Two labels on one carton | Contents read from the wrong one | Parent voided at print, the old label explains the relabel, counts flag the wrong colour per zone |
 | Stock Levels edits after go-live | Units in `UNLOCATED` | Counts lists them for managers |
 | Bay capacity unknown | Overfilled bays | Measured template capacity; Suggest another |
 | Staging cron calls production | Wrong runs or emails | Check 5; migration 3; refresh clears jobs |
@@ -588,4 +652,4 @@ The UX layout report describes its 15-artboard canvas by screen rather than numb
 | 14 | Phone: exception sheet | `/go/pick` | | 2 |
 | 15 | Phone: cart complete, hand-off | `/go/pick` | | 2 |
 
-Specified but not drawn as boards: the Locations table and Settings › Warehouse (Phase 1), tote labels and the bench helper (Phases 2-3).
+Specified but not drawn as boards: the Locations table, Settings › Warehouse, the Workspace RTS carton step, the station chip and the print agent (Phase 1), tote labels and the bench helper (Phases 2-3).
