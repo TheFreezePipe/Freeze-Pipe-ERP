@@ -2944,6 +2944,7 @@ export type Database = {
           homebase_linked_by: string | null
           id: string
           is_active: boolean
+          is_print_agent: boolean
           role: string
           row_version: number
           supplier_id: string | null
@@ -2960,6 +2961,7 @@ export type Database = {
           homebase_linked_by?: string | null
           id: string
           is_active?: boolean
+          is_print_agent?: boolean
           role?: string
           row_version?: number
           supplier_id?: string | null
@@ -2976,6 +2978,7 @@ export type Database = {
           homebase_linked_by?: string | null
           id?: string
           is_active?: boolean
+          is_print_agent?: boolean
           role?: string
           row_version?: number
           supplier_id?: string | null
@@ -4034,6 +4037,1559 @@ export type Database = {
           },
         ]
       }
+      wh_client_events: {
+        Row: {
+          actor_id: string | null
+          client_event_id: string
+          created_at: string
+          result: Json
+          rpc: string
+        }
+        Insert: {
+          actor_id?: string | null
+          client_event_id: string
+          created_at?: string
+          result: Json
+          rpc: string
+        }
+        Update: {
+          actor_id?: string | null
+          client_event_id?: string
+          created_at?: string
+          result?: Json
+          rpc?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wh_client_events_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wh_containers: {
+        Row: {
+          barcode_value: string | null
+          carton_group_id: string | null
+          carton_seq: number | null
+          code: string
+          created_at: string
+          created_by: string | null
+          emptied_at: string | null
+          finished_at: string | null
+          finished_by: string | null
+          freight_receipt_id: string | null
+          freight_shipment_id: string | null
+          id: string
+          kind: string
+          label_stock: string
+          location_id: string | null
+          opened_at: string | null
+          parent_container_id: string | null
+          print_count: number
+          printed_at: string | null
+          qty: number
+          qty_initial: number
+          row_version: number
+          sku_id: string | null
+          source: string
+          state: string
+          superseded_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          barcode_value?: string | null
+          carton_group_id?: string | null
+          carton_seq?: number | null
+          code: string
+          created_at?: string
+          created_by?: string | null
+          emptied_at?: string | null
+          finished_at?: string | null
+          finished_by?: string | null
+          freight_receipt_id?: string | null
+          freight_shipment_id?: string | null
+          id?: string
+          kind?: string
+          label_stock?: string
+          location_id?: string | null
+          opened_at?: string | null
+          parent_container_id?: string | null
+          print_count?: number
+          printed_at?: string | null
+          qty?: number
+          qty_initial?: number
+          row_version?: number
+          sku_id?: string | null
+          source: string
+          state?: string
+          superseded_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          barcode_value?: string | null
+          carton_group_id?: string | null
+          carton_seq?: number | null
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          emptied_at?: string | null
+          finished_at?: string | null
+          finished_by?: string | null
+          freight_receipt_id?: string | null
+          freight_shipment_id?: string | null
+          id?: string
+          kind?: string
+          label_stock?: string
+          location_id?: string | null
+          opened_at?: string | null
+          parent_container_id?: string | null
+          print_count?: number
+          printed_at?: string | null
+          qty?: number
+          qty_initial?: number
+          row_version?: number
+          sku_id?: string | null
+          source?: string
+          state?: string
+          superseded_by?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wh_containers_carton_group_id_fkey"
+            columns: ["carton_group_id"]
+            isOneToOne: false
+            referencedRelation: "freight_carton_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_containers_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_containers_finished_by_fkey"
+            columns: ["finished_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_containers_freight_receipt_id_fkey"
+            columns: ["freight_receipt_id"]
+            isOneToOne: false
+            referencedRelation: "freight_receipts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_containers_freight_shipment_id_fkey"
+            columns: ["freight_shipment_id"]
+            isOneToOne: false
+            referencedRelation: "freight_shipments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_containers_freight_shipment_id_fkey"
+            columns: ["freight_shipment_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_freight_shipments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_containers_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_location_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_containers_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_containers_parent_container_id_fkey"
+            columns: ["parent_container_id"]
+            isOneToOne: false
+            referencedRelation: "wh_containers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_containers_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_containers_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus_active"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_containers_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_containers_superseded_by_fkey"
+            columns: ["superseded_by"]
+            isOneToOne: false
+            referencedRelation: "wh_containers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wh_count_lines: {
+        Row: {
+          bucket: string
+          container_id: string | null
+          count_task_id: string
+          counted_qty: number
+          created_at: string
+          expected_qty: number
+          found_container_elsewhere: boolean
+          id: string
+          label_flag: string | null
+          ledger_tx_id: string | null
+          movement_group_id: string | null
+          resolution: string | null
+          row_version: number
+          scan_value: string | null
+          sku_id: string
+          updated_at: string
+          variance: number | null
+        }
+        Insert: {
+          bucket: string
+          container_id?: string | null
+          count_task_id: string
+          counted_qty: number
+          created_at?: string
+          expected_qty?: number
+          found_container_elsewhere?: boolean
+          id?: string
+          label_flag?: string | null
+          ledger_tx_id?: string | null
+          movement_group_id?: string | null
+          resolution?: string | null
+          row_version?: number
+          scan_value?: string | null
+          sku_id: string
+          updated_at?: string
+          variance?: number | null
+        }
+        Update: {
+          bucket?: string
+          container_id?: string | null
+          count_task_id?: string
+          counted_qty?: number
+          created_at?: string
+          expected_qty?: number
+          found_container_elsewhere?: boolean
+          id?: string
+          label_flag?: string | null
+          ledger_tx_id?: string | null
+          movement_group_id?: string | null
+          resolution?: string | null
+          row_version?: number
+          scan_value?: string | null
+          sku_id?: string
+          updated_at?: string
+          variance?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wh_count_lines_container_id_fkey"
+            columns: ["container_id"]
+            isOneToOne: false
+            referencedRelation: "wh_containers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_count_lines_count_task_id_fkey"
+            columns: ["count_task_id"]
+            isOneToOne: false
+            referencedRelation: "wh_count_tasks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_count_lines_ledger_tx_id_fkey"
+            columns: ["ledger_tx_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_count_lines_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_count_lines_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus_active"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_count_lines_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_skus"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wh_count_tasks: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          assigned_to: string | null
+          created_at: string
+          created_by: string | null
+          due_date: string | null
+          id: string
+          kind: string
+          location_id: string
+          moved_during_count: boolean
+          reason: string | null
+          row_version: number
+          sku_id: string | null
+          source_id: string | null
+          source_type: string | null
+          started_at: string | null
+          status: string
+          submitted_at: string | null
+          submitted_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          assigned_to?: string | null
+          created_at?: string
+          created_by?: string | null
+          due_date?: string | null
+          id?: string
+          kind: string
+          location_id: string
+          moved_during_count?: boolean
+          reason?: string | null
+          row_version?: number
+          sku_id?: string | null
+          source_id?: string | null
+          source_type?: string | null
+          started_at?: string | null
+          status?: string
+          submitted_at?: string | null
+          submitted_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          assigned_to?: string | null
+          created_at?: string
+          created_by?: string | null
+          due_date?: string | null
+          id?: string
+          kind?: string
+          location_id?: string
+          moved_during_count?: boolean
+          reason?: string | null
+          row_version?: number
+          sku_id?: string | null
+          source_id?: string | null
+          source_type?: string | null
+          started_at?: string | null
+          status?: string
+          submitted_at?: string | null
+          submitted_by?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wh_count_tasks_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_count_tasks_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_count_tasks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_count_tasks_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_location_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_count_tasks_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_count_tasks_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_count_tasks_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus_active"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_count_tasks_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_count_tasks_submitted_by_fkey"
+            columns: ["submitted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wh_fixtures: {
+        Row: {
+          blocked: boolean
+          created_at: string
+          depth_mm: number | null
+          id: string
+          kind: string
+          location_id: string | null
+          name: string
+          rot_deg: number
+          row_version: number
+          updated_at: string
+          width_mm: number | null
+          x_mm: number
+          y_mm: number
+          zone: string | null
+        }
+        Insert: {
+          blocked?: boolean
+          created_at?: string
+          depth_mm?: number | null
+          id?: string
+          kind: string
+          location_id?: string | null
+          name: string
+          rot_deg?: number
+          row_version?: number
+          updated_at?: string
+          width_mm?: number | null
+          x_mm?: number
+          y_mm?: number
+          zone?: string | null
+        }
+        Update: {
+          blocked?: boolean
+          created_at?: string
+          depth_mm?: number | null
+          id?: string
+          kind?: string
+          location_id?: string | null
+          name?: string
+          rot_deg?: number
+          row_version?: number
+          updated_at?: string
+          width_mm?: number | null
+          x_mm?: number
+          y_mm?: number
+          zone?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wh_fixtures_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_location_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_fixtures_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_locations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wh_inventory_balances: {
+        Row: {
+          allocated: number
+          allow_negative: boolean
+          available: number | null
+          bucket: string
+          container_id: string | null
+          created_at: string
+          id: string
+          last_movement_at: string | null
+          location_id: string
+          on_hand: number
+          row_version: number
+          sku_id: string
+          updated_at: string
+        }
+        Insert: {
+          allocated?: number
+          allow_negative: boolean
+          available?: number | null
+          bucket: string
+          container_id?: string | null
+          created_at?: string
+          id?: string
+          last_movement_at?: string | null
+          location_id: string
+          on_hand?: number
+          row_version?: number
+          sku_id: string
+          updated_at?: string
+        }
+        Update: {
+          allocated?: number
+          allow_negative?: boolean
+          available?: number | null
+          bucket?: string
+          container_id?: string | null
+          created_at?: string
+          id?: string
+          last_movement_at?: string | null
+          location_id?: string
+          on_hand?: number
+          row_version?: number
+          sku_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wh_inventory_balances_container_id_fkey"
+            columns: ["container_id"]
+            isOneToOne: false
+            referencedRelation: "wh_containers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_inventory_balances_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_location_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_inventory_balances_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_inventory_balances_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_inventory_balances_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus_active"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_inventory_balances_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_skus"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wh_inventory_movements: {
+        Row: {
+          actor_id: string
+          bucket: string
+          client_event_id: string | null
+          created_at: string
+          device: string | null
+          from_container_id: string | null
+          from_location_id: string | null
+          id: string
+          ledger_tx_id: string | null
+          movement_group_id: string
+          note: string | null
+          qty: number
+          reference_id: string | null
+          reference_type: string | null
+          seq: number
+          sku_id: string
+          to_bucket: string | null
+          to_container_id: string | null
+          to_location_id: string | null
+          type: string
+        }
+        Insert: {
+          actor_id: string
+          bucket: string
+          client_event_id?: string | null
+          created_at?: string
+          device?: string | null
+          from_container_id?: string | null
+          from_location_id?: string | null
+          id?: string
+          ledger_tx_id?: string | null
+          movement_group_id: string
+          note?: string | null
+          qty: number
+          reference_id?: string | null
+          reference_type?: string | null
+          seq?: never
+          sku_id: string
+          to_bucket?: string | null
+          to_container_id?: string | null
+          to_location_id?: string | null
+          type: string
+        }
+        Update: {
+          actor_id?: string
+          bucket?: string
+          client_event_id?: string | null
+          created_at?: string
+          device?: string | null
+          from_container_id?: string | null
+          from_location_id?: string | null
+          id?: string
+          ledger_tx_id?: string | null
+          movement_group_id?: string
+          note?: string | null
+          qty?: number
+          reference_id?: string | null
+          reference_type?: string | null
+          seq?: never
+          sku_id?: string
+          to_bucket?: string | null
+          to_container_id?: string | null
+          to_location_id?: string | null
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wh_inventory_movements_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_inventory_movements_from_container_id_fkey"
+            columns: ["from_container_id"]
+            isOneToOne: false
+            referencedRelation: "wh_containers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_inventory_movements_from_location_id_fkey"
+            columns: ["from_location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_location_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_inventory_movements_from_location_id_fkey"
+            columns: ["from_location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_inventory_movements_ledger_tx_id_fkey"
+            columns: ["ledger_tx_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_inventory_movements_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_inventory_movements_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus_active"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_inventory_movements_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_inventory_movements_to_container_id_fkey"
+            columns: ["to_container_id"]
+            isOneToOne: false
+            referencedRelation: "wh_containers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_inventory_movements_to_location_id_fkey"
+            columns: ["to_location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_location_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_inventory_movements_to_location_id_fkey"
+            columns: ["to_location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_locations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wh_locations: {
+        Row: {
+          active: boolean
+          allow_negative: boolean
+          barcode_value: string | null
+          bay: number | null
+          bucket_lock: string | null
+          capacity_cartons: number | null
+          code: string
+          created_at: string
+          default_bucket: string | null
+          depth_mm: number | null
+          face: string | null
+          face_id: string | null
+          height_mm: number | null
+          id: string
+          is_overflow: boolean
+          kind: string
+          label_printed_at: string | null
+          label_verified_at: string | null
+          last_counted_at: string | null
+          level: number | null
+          name: string | null
+          pick_sequence: number | null
+          pickable: boolean
+          rack_id: string | null
+          row_version: number
+          site_location_id: string
+          updated_at: string
+          width_mm: number | null
+          x_mm: number | null
+          y_mm: number | null
+          z_mm: number | null
+          zone: string
+        }
+        Insert: {
+          active?: boolean
+          allow_negative?: boolean
+          barcode_value?: string | null
+          bay?: number | null
+          bucket_lock?: string | null
+          capacity_cartons?: number | null
+          code: string
+          created_at?: string
+          default_bucket?: string | null
+          depth_mm?: number | null
+          face?: string | null
+          face_id?: string | null
+          height_mm?: number | null
+          id?: string
+          is_overflow?: boolean
+          kind: string
+          label_printed_at?: string | null
+          label_verified_at?: string | null
+          last_counted_at?: string | null
+          level?: number | null
+          name?: string | null
+          pick_sequence?: number | null
+          pickable?: boolean
+          rack_id?: string | null
+          row_version?: number
+          site_location_id?: string
+          updated_at?: string
+          width_mm?: number | null
+          x_mm?: number | null
+          y_mm?: number | null
+          z_mm?: number | null
+          zone: string
+        }
+        Update: {
+          active?: boolean
+          allow_negative?: boolean
+          barcode_value?: string | null
+          bay?: number | null
+          bucket_lock?: string | null
+          capacity_cartons?: number | null
+          code?: string
+          created_at?: string
+          default_bucket?: string | null
+          depth_mm?: number | null
+          face?: string | null
+          face_id?: string | null
+          height_mm?: number | null
+          id?: string
+          is_overflow?: boolean
+          kind?: string
+          label_printed_at?: string | null
+          label_verified_at?: string | null
+          last_counted_at?: string | null
+          level?: number | null
+          name?: string | null
+          pick_sequence?: number | null
+          pickable?: boolean
+          rack_id?: string | null
+          row_version?: number
+          site_location_id?: string
+          updated_at?: string
+          width_mm?: number | null
+          x_mm?: number | null
+          y_mm?: number | null
+          z_mm?: number | null
+          zone?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wh_locations_face_id_fkey"
+            columns: ["face_id"]
+            isOneToOne: false
+            referencedRelation: "wh_rack_faces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_locations_rack_id_fkey"
+            columns: ["rack_id"]
+            isOneToOne: false
+            referencedRelation: "wh_racks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_locations_site_location_id_fkey"
+            columns: ["site_location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wh_moves: {
+        Row: {
+          assigned_to: string | null
+          bucket: string | null
+          completed_at: string | null
+          completed_by: string | null
+          container_id: string | null
+          created_at: string
+          created_by: string | null
+          followed_suggestion: boolean | null
+          from_location_id: string | null
+          id: string
+          kind: string
+          movement_group_id: string | null
+          origin: string
+          priority: number
+          qty: number | null
+          row_version: number
+          sku_id: string | null
+          source_id: string | null
+          source_type: string | null
+          started_at: string | null
+          status: string
+          suggested_location_id: string | null
+          suggestion_reason: string | null
+          to_location_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          assigned_to?: string | null
+          bucket?: string | null
+          completed_at?: string | null
+          completed_by?: string | null
+          container_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          followed_suggestion?: boolean | null
+          from_location_id?: string | null
+          id?: string
+          kind: string
+          movement_group_id?: string | null
+          origin?: string
+          priority?: number
+          qty?: number | null
+          row_version?: number
+          sku_id?: string | null
+          source_id?: string | null
+          source_type?: string | null
+          started_at?: string | null
+          status?: string
+          suggested_location_id?: string | null
+          suggestion_reason?: string | null
+          to_location_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          assigned_to?: string | null
+          bucket?: string | null
+          completed_at?: string | null
+          completed_by?: string | null
+          container_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          followed_suggestion?: boolean | null
+          from_location_id?: string | null
+          id?: string
+          kind?: string
+          movement_group_id?: string | null
+          origin?: string
+          priority?: number
+          qty?: number | null
+          row_version?: number
+          sku_id?: string | null
+          source_id?: string | null
+          source_type?: string | null
+          started_at?: string | null
+          status?: string
+          suggested_location_id?: string | null
+          suggestion_reason?: string | null
+          to_location_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wh_moves_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_moves_completed_by_fkey"
+            columns: ["completed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_moves_container_id_fkey"
+            columns: ["container_id"]
+            isOneToOne: false
+            referencedRelation: "wh_containers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_moves_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_moves_from_location_id_fkey"
+            columns: ["from_location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_location_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_moves_from_location_id_fkey"
+            columns: ["from_location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_moves_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_moves_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus_active"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_moves_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_moves_suggested_location_id_fkey"
+            columns: ["suggested_location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_location_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_moves_suggested_location_id_fkey"
+            columns: ["suggested_location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_moves_to_location_id_fkey"
+            columns: ["to_location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_location_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_moves_to_location_id_fkey"
+            columns: ["to_location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_locations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wh_order_settlements: {
+        Row: {
+          created_at: string
+          last_error: string | null
+          method: string
+          row_version: number
+          settled_at: string | null
+          settled_units: number
+          shipstation_order_id: string
+          shortfall_units: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          last_error?: string | null
+          method: string
+          row_version?: number
+          settled_at?: string | null
+          settled_units?: number
+          shipstation_order_id: string
+          shortfall_units?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          last_error?: string | null
+          method?: string
+          row_version?: number
+          settled_at?: string | null
+          settled_units?: number
+          shipstation_order_id?: string
+          shortfall_units?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wh_order_settlements_shipstation_order_id_fkey"
+            columns: ["shipstation_order_id"]
+            isOneToOne: true
+            referencedRelation: "shipstation_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wh_print_jobs: {
+        Row: {
+          attempts: number
+          claimed_at: string | null
+          claimed_by: string | null
+          created_at: string
+          error: string | null
+          id: string
+          item_ids: string[]
+          kind: string
+          payload: Json
+          printed_at: string | null
+          printer_id: string | null
+          requested_by: string | null
+          requested_from: string | null
+          row_version: number
+          station_location_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          claimed_at?: string | null
+          claimed_by?: string | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          item_ids: string[]
+          kind: string
+          payload?: Json
+          printed_at?: string | null
+          printer_id?: string | null
+          requested_by?: string | null
+          requested_from?: string | null
+          row_version?: number
+          station_location_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          claimed_at?: string | null
+          claimed_by?: string | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          item_ids?: string[]
+          kind?: string
+          payload?: Json
+          printed_at?: string | null
+          printer_id?: string | null
+          requested_by?: string | null
+          requested_from?: string | null
+          row_version?: number
+          station_location_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wh_print_jobs_printer_id_fkey"
+            columns: ["printer_id"]
+            isOneToOne: false
+            referencedRelation: "wh_printers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_print_jobs_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_print_jobs_station_location_id_fkey"
+            columns: ["station_location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_location_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_print_jobs_station_location_id_fkey"
+            columns: ["station_location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_locations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wh_printers: {
+        Row: {
+          active: boolean
+          address: string | null
+          agent_id: string | null
+          code: string
+          created_at: string
+          dpi: number
+          id: string
+          label_stock: string
+          last_seen_at: string | null
+          name: string
+          row_version: number
+          station_location_id: string | null
+          transport: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          address?: string | null
+          agent_id?: string | null
+          code: string
+          created_at?: string
+          dpi?: number
+          id?: string
+          label_stock: string
+          last_seen_at?: string | null
+          name: string
+          row_version?: number
+          station_location_id?: string | null
+          transport?: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          address?: string | null
+          agent_id?: string | null
+          code?: string
+          created_at?: string
+          dpi?: number
+          id?: string
+          label_stock?: string
+          last_seen_at?: string | null
+          name?: string
+          row_version?: number
+          station_location_id?: string | null
+          transport?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wh_printers_station_location_id_fkey"
+            columns: ["station_location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_location_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_printers_station_location_id_fkey"
+            columns: ["station_location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_locations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wh_rack_faces: {
+        Row: {
+          aisle: string | null
+          created_at: string
+          face_code: string
+          first_bay_no: number
+          id: string
+          pickable_levels: number[]
+          rack_id: string
+          row_version: number
+          side: string | null
+          updated_at: string
+          walk_dir: string | null
+          walk_pass: number
+          zone_by_bay: string[] | null
+        }
+        Insert: {
+          aisle?: string | null
+          created_at?: string
+          face_code: string
+          first_bay_no?: number
+          id?: string
+          pickable_levels?: number[]
+          rack_id: string
+          row_version?: number
+          side?: string | null
+          updated_at?: string
+          walk_dir?: string | null
+          walk_pass?: number
+          zone_by_bay?: string[] | null
+        }
+        Update: {
+          aisle?: string | null
+          created_at?: string
+          face_code?: string
+          first_bay_no?: number
+          id?: string
+          pickable_levels?: number[]
+          rack_id?: string
+          row_version?: number
+          side?: string | null
+          updated_at?: string
+          walk_dir?: string | null
+          walk_pass?: number
+          zone_by_bay?: string[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wh_rack_faces_rack_id_fkey"
+            columns: ["rack_id"]
+            isOneToOne: false
+            referencedRelation: "wh_racks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wh_rack_templates: {
+        Row: {
+          bay_width_mm: number
+          bays: number
+          capacity_cartons_per_level: number | null
+          code: string
+          created_at: string
+          depth_mm: number
+          id: string
+          kind: string
+          level_heights_mm: number[]
+          levels: number
+          name: string
+          overflow_top_level: boolean
+          row_version: number
+          updated_at: string
+        }
+        Insert: {
+          bay_width_mm: number
+          bays: number
+          capacity_cartons_per_level?: number | null
+          code: string
+          created_at?: string
+          depth_mm: number
+          id?: string
+          kind: string
+          level_heights_mm: number[]
+          levels: number
+          name: string
+          overflow_top_level?: boolean
+          row_version?: number
+          updated_at?: string
+        }
+        Update: {
+          bay_width_mm?: number
+          bays?: number
+          capacity_cartons_per_level?: number | null
+          code?: string
+          created_at?: string
+          depth_mm?: number
+          id?: string
+          kind?: string
+          level_heights_mm?: number[]
+          levels?: number
+          name?: string
+          overflow_top_level?: boolean
+          row_version?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      wh_racks: {
+        Row: {
+          active: boolean
+          bays: number
+          code: string
+          created_at: string
+          depth_mm: number | null
+          description: string | null
+          id: string
+          levels: number
+          rot_deg: number
+          row_version: number
+          site_location_id: string
+          template_id: string | null
+          updated_at: string
+          width_mm: number | null
+          x_mm: number
+          y_mm: number
+        }
+        Insert: {
+          active?: boolean
+          bays: number
+          code: string
+          created_at?: string
+          depth_mm?: number | null
+          description?: string | null
+          id?: string
+          levels: number
+          rot_deg?: number
+          row_version?: number
+          site_location_id?: string
+          template_id?: string | null
+          updated_at?: string
+          width_mm?: number | null
+          x_mm?: number
+          y_mm?: number
+        }
+        Update: {
+          active?: boolean
+          bays?: number
+          code?: string
+          created_at?: string
+          depth_mm?: number | null
+          description?: string | null
+          id?: string
+          levels?: number
+          rot_deg?: number
+          row_version?: number
+          site_location_id?: string
+          template_id?: string | null
+          updated_at?: string
+          width_mm?: number | null
+          x_mm?: number
+          y_mm?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wh_racks_site_location_id_fkey"
+            columns: ["site_location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_racks_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "wh_rack_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wh_reconcile_lines: {
+        Row: {
+          bucket: string
+          cancelled_held_units: number
+          count_task_ids: string[] | null
+          created_at: string
+          id: string
+          levels_value: number
+          open_order_units: number
+          physical: number
+          residual: number
+          run_id: string
+          sku_id: string
+          unsettled_units: number
+        }
+        Insert: {
+          bucket: string
+          cancelled_held_units?: number
+          count_task_ids?: string[] | null
+          created_at?: string
+          id?: string
+          levels_value?: number
+          open_order_units?: number
+          physical?: number
+          residual?: number
+          run_id: string
+          sku_id: string
+          unsettled_units?: number
+        }
+        Update: {
+          bucket?: string
+          cancelled_held_units?: number
+          count_task_ids?: string[] | null
+          created_at?: string
+          id?: string
+          levels_value?: number
+          open_order_units?: number
+          physical?: number
+          residual?: number
+          run_id?: string
+          sku_id?: string
+          unsettled_units?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wh_reconcile_lines_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "wh_reconcile_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_reconcile_lines_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_reconcile_lines_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus_active"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_reconcile_lines_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_skus"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wh_reconcile_runs: {
+        Row: {
+          abs_residual_units: number
+          actor_id: string | null
+          created_at: string
+          id: string
+          mismatched_skus: number
+          rts_unplaced_cartons: number
+          run_at: string
+          skus_checked: number
+          unlocated_units: number
+        }
+        Insert: {
+          abs_residual_units?: number
+          actor_id?: string | null
+          created_at?: string
+          id?: string
+          mismatched_skus?: number
+          rts_unplaced_cartons?: number
+          run_at?: string
+          skus_checked?: number
+          unlocated_units?: number
+        }
+        Update: {
+          abs_residual_units?: number
+          actor_id?: string | null
+          created_at?: string
+          id?: string
+          mismatched_skus?: number
+          rts_unplaced_cartons?: number
+          run_at?: string
+          skus_checked?: number
+          unlocated_units?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wh_reconcile_runs_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       wh_settings: {
         Row: {
           created_at: string
@@ -4062,6 +5618,64 @@ export type Database = {
             columns: ["updated_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wh_station_sessions: {
+        Row: {
+          created_at: string
+          device_id: string | null
+          ended_at: string | null
+          id: string
+          profile_id: string
+          row_version: number
+          started_at: string
+          station_location_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          device_id?: string | null
+          ended_at?: string | null
+          id?: string
+          profile_id: string
+          row_version?: number
+          started_at?: string
+          station_location_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          device_id?: string | null
+          ended_at?: string | null
+          id?: string
+          profile_id?: string
+          row_version?: number
+          started_at?: string
+          station_location_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wh_station_sessions_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_station_sessions_station_location_id_fkey"
+            columns: ["station_location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_location_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_station_sessions_station_location_id_fkey"
+            columns: ["station_location_id"]
+            isOneToOne: false
+            referencedRelation: "wh_locations"
             referencedColumns: ["id"]
           },
         ]
@@ -4981,6 +6595,71 @@ export type Database = {
           },
         ]
       }
+      wh_location_summary: {
+        Row: {
+          active: boolean | null
+          allow_negative: boolean | null
+          bay: number | null
+          bucket_lock: string | null
+          capacity_cartons: number | null
+          cartons: number | null
+          code: string | null
+          contents: Json | null
+          default_bucket: string | null
+          face: string | null
+          face_id: string | null
+          id: string | null
+          is_overflow: boolean | null
+          kind: string | null
+          label_printed_at: string | null
+          label_verified_at: string | null
+          last_counted_at: string | null
+          last_movement_at: string | null
+          level: number | null
+          name: string | null
+          pick_sequence: number | null
+          pickable: boolean | null
+          rack_code: string | null
+          rack_id: string | null
+          site_location_id: string | null
+          sku_count: number | null
+          units: number | null
+          units_finished: number | null
+          units_in_production: number | null
+          units_other: number | null
+          units_prefilled_raw: number | null
+          units_raw: number | null
+          walk_dir: string | null
+          walk_pass: number | null
+          x_mm: number | null
+          y_mm: number | null
+          z_mm: number | null
+          zone: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wh_locations_face_id_fkey"
+            columns: ["face_id"]
+            isOneToOne: false
+            referencedRelation: "wh_rack_faces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_locations_rack_id_fkey"
+            columns: ["rack_id"]
+            isOneToOne: false
+            referencedRelation: "wh_racks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_locations_site_location_id_fkey"
+            columns: ["site_location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       _apply_box_for_shipped_order: {
@@ -5017,6 +6696,143 @@ export type Database = {
           from_field: string
           to_field: string
         }[]
+      }
+      _wh_actor: { Args: { p_actor_id?: string }; Returns: string }
+      _wh_ctr_json: { Args: { p_id: string }; Returns: Json }
+      _wh_err: {
+        Args: { p_code: string; p_extra?: Json; p_message: string }
+        Returns: Json
+      }
+      _wh_event_replay: {
+        Args: { p_event: string; p_rpc: string }
+        Returns: Json
+      }
+      _wh_event_store: {
+        Args: {
+          p_actor: string
+          p_event: string
+          p_result: Json
+          p_rpc: string
+        }
+        Returns: Json
+      }
+      _wh_first_name: { Args: { p_profile: string }; Returns: string }
+      _wh_is_print_agent: { Args: never; Returns: boolean }
+      _wh_is_service_call: { Args: never; Returns: boolean }
+      _wh_label_payload: {
+        Args: { p_ids: string[]; p_kind: string; p_practice: boolean }
+        Returns: Json
+      }
+      _wh_ledger_post: {
+        Args: {
+          p_actor: string
+          p_bucket: string
+          p_note: string
+          p_qty: number
+          p_ref_id: string
+          p_ref_type: string
+          p_sku: string
+          p_to_bucket: string
+          p_type: string
+        }
+        Returns: Json
+      }
+      _wh_live: { Args: never; Returns: boolean }
+      _wh_loc_full: { Args: { p_location_id: string }; Returns: boolean }
+      _wh_loc_id: { Args: { p_code: string }; Returns: string }
+      _wh_loc_json: { Args: { p_id: string }; Returns: Json }
+      _wh_location_has_stock: {
+        Args: { p_location_id: string }
+        Returns: boolean
+      }
+      _wh_location_plan: {
+        Args: never
+        Returns: {
+          bay: number
+          capacity_cartons: number
+          code: string
+          default_bucket: string
+          depth_mm: number
+          face: string
+          face_id: string
+          height_mm: number
+          is_overflow: boolean
+          level: number
+          pick_sequence: number
+          pickable: boolean
+          rack_id: string
+          site_location_id: string
+          walk_pass: number
+          width_mm: number
+          x_mm: number
+          y_mm: number
+          z_mm: number
+          zone: string
+        }[]
+      }
+      _wh_move_balance: {
+        Args: {
+          p_actor: string
+          p_bucket: string
+          p_event?: string
+          p_from_ctr: string
+          p_from_loc: string
+          p_group: string
+          p_note: string
+          p_qty: number
+          p_ref_id: string
+          p_ref_type: string
+          p_sku: string
+          p_to_ctr: string
+          p_to_loc: string
+          p_type: string
+        }
+        Returns: Json
+      }
+      _wh_outbound_mode: { Args: never; Returns: string }
+      _wh_post_movement: {
+        Args: {
+          p_actor: string
+          p_bucket: string
+          p_client_event_id?: string
+          p_from_ctr: string
+          p_from_loc: string
+          p_group: string
+          p_ledger_tx_id?: string
+          p_note: string
+          p_qty: number
+          p_ref_id: string
+          p_ref_type: string
+          p_sku: string
+          p_to_bucket: string
+          p_to_ctr: string
+          p_to_loc: string
+          p_type: string
+        }
+        Returns: string
+      }
+      _wh_queue_print_job: {
+        Args: {
+          p_actor: string
+          p_from: string
+          p_ids: string[]
+          p_kind: string
+          p_printer_id: string
+        }
+        Returns: Json
+      }
+      _wh_require_role: { Args: { p_roles: string[] }; Returns: string }
+      _wh_resolve_code: { Args: { p_code: string }; Returns: Json }
+      _wh_setting: { Args: { p_key: string }; Returns: Json }
+      _wh_suggest_putaway: {
+        Args: {
+          p_bucket?: string
+          p_container_id: string
+          p_exclude?: string[]
+          p_origin?: string
+          p_sku_id?: string
+        }
+        Returns: Json
       }
       archive_sku: {
         Args: { p_actor_id: string; p_reason: string; p_sku_id: string }
@@ -5515,9 +7331,34 @@ export type Database = {
         }
         Returns: Json
       }
+      rpc_wh_agent_heartbeat: {
+        Args: { p_agent_id: string; p_printer_ids: string[] }
+        Returns: Json
+      }
+      rpc_wh_approve_variance: {
+        Args: {
+          p_actor_id?: string
+          p_count_task_id: string
+          p_decisions?: Json
+        }
+        Returns: Json
+      }
       rpc_wh_barcode_coverage: { Args: never; Returns: Json }
       rpc_wh_baseline_kpis: {
         Args: { p_from: string; p_to: string }
+        Returns: Json
+      }
+      rpc_wh_claim_print_jobs: {
+        Args: { p_agent_id: string; p_printer_ids: string[] }
+        Returns: Json
+      }
+      rpc_wh_create_count: {
+        Args: { p_kind?: string; p_location_ids: string[]; p_reason?: string }
+        Returns: Json
+      }
+      rpc_wh_end_station: { Args: never; Returns: Json }
+      rpc_wh_generate_locations: {
+        Args: { p_dry_run?: boolean; p_rack_id?: string }
         Returns: Json
       }
       rpc_wh_get_settings: { Args: never; Returns: Json }
@@ -5525,13 +7366,118 @@ export type Database = {
         Args: { p_dry_run?: boolean; p_rows: Json }
         Returns: Json
       }
+      rpc_wh_import_stock: {
+        Args: { p_dry_run?: boolean; p_rows: Json }
+        Returns: Json
+      }
       rpc_wh_link_barcode: {
         Args: { p_scan: string; p_sku_id: string }
         Returns: Json
       }
+      rpc_wh_mark_printed: {
+        Args: { p_error?: string; p_job_id: string; p_status?: string }
+        Returns: Json
+      }
+      rpc_wh_move_stock: {
+        Args: {
+          p_actor_id?: string
+          p_bucket?: string
+          p_client_event_id?: string
+          p_from_container_id?: string
+          p_from_location_id: string
+          p_move_id?: string
+          p_qty: number
+          p_sku_id: string
+          p_to_container_id?: string
+          p_to_location_id: string
+        }
+        Returns: Json
+      }
+      rpc_wh_open_container: {
+        Args: {
+          p_actor_id?: string
+          p_client_event_id?: string
+          p_container_id: string
+          p_to_location_id?: string
+          p_unpack?: boolean
+        }
+        Returns: Json
+      }
+      rpc_wh_overview: { Args: never; Returns: Json }
+      rpc_wh_putaway_container: {
+        Args: {
+          p_actor_id?: string
+          p_client_event_id?: string
+          p_container_id: string
+          p_location_id: string
+          p_move_id?: string
+        }
+        Returns: Json
+      }
+      rpc_wh_record_count: {
+        Args: {
+          p_actor_id?: string
+          p_client_event_id?: string
+          p_count_task_id?: string
+          p_lines: Json
+          p_location_id: string
+          p_started_at?: string
+        }
+        Returns: Json
+      }
+      rpc_wh_request_labels: {
+        Args: {
+          p_from: string
+          p_ids: string[]
+          p_kind: string
+          p_printer_id?: string
+        }
+        Returns: Json
+      }
+      rpc_wh_resequence: { Args: { p_rows: Json }; Returns: Json }
       rpc_wh_resolve_scan: { Args: { p_scan: string }; Returns: Json }
+      rpc_wh_rts_relabel: {
+        Args: {
+          p_actor_id?: string
+          p_cartons: Json
+          p_client_event_id?: string
+          p_parent_container_id?: string
+          p_sku_id: string
+          p_task_log_id?: string
+        }
+        Returns: Json
+      }
+      rpc_wh_save_layout: { Args: { p_payload: Json }; Returns: Json }
+      rpc_wh_save_location: { Args: { p_location: Json }; Returns: Json }
       rpc_wh_set_setting: {
         Args: { p_key: string; p_value: Json }
+        Returns: Json
+      }
+      rpc_wh_start_station: {
+        Args: { p_device_id?: string; p_scan_value: string }
+        Returns: Json
+      }
+      rpc_wh_suggest_putaway: {
+        Args: { p_container_id: string; p_exclude?: string[] }
+        Returns: Json
+      }
+      rpc_wh_take_to_line: {
+        Args: {
+          p_actor_id?: string
+          p_client_event_id?: string
+          p_container_id: string
+        }
+        Returns: Json
+      }
+      rpc_wh_write_off: {
+        Args: {
+          p_client_event_id?: string
+          p_container_id: string
+          p_location_id: string
+          p_qty: number
+          p_reason: string
+          p_sku_id: string
+        }
         Returns: Json
       }
       shipstation_credit_pair: {

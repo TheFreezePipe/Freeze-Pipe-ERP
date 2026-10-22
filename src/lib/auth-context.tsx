@@ -60,6 +60,7 @@ const DEMO_PROFILE: Profile = {
   homebase_linked_by: null,
   supplier_id: null,
   is_active: true,
+  is_print_agent: false,
 };
 
 export function AuthProvider({ children }: { children: ReactNode }) {

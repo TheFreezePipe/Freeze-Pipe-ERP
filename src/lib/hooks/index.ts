@@ -21,3 +21,5 @@ export * from "./use-marketing-signals";
 export * from "./use-offer-forecast-defaults";
 export * from "./use-pd";
 export * from "./use-warehouse";
+export * from "./use-warehouse-stock";
+export * from "./use-warehouse-tasks";

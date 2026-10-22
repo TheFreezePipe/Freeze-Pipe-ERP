@@ -31,11 +31,123 @@ export interface WhScanMatch {
   is_active?: boolean;
 }
 
+/**
+ * Server's reading of a scan. Phase 0 kinds: "gtin" (barcode shape) and
+ * "sku". Phase 1 adds ERP labels: "location", "station", "container", a
+ * "practice" label from staging, a ShipStation packing slip and "unknown".
+ */
+export type WhScanKind =
+  | "gtin"
+  | "sku"
+  | "location"
+  | "station"
+  | "container"
+  | "practice"
+  | "shipstation_order"
+  | "unknown";
+
 export interface WhResolveScanResult {
-  /** Server's reading: "gtin" when the scan had a barcode shape, else "sku". */
-  kind?: string;
+  kind?: WhScanKind | string;
+  /** A SKU match for gtin/sku scans; the location, carton or order otherwise. */
   match: WhScanMatch | null;
   candidates: string[];
+  id?: string | null;
+  code?: string | null;
+  label?: string | null;
+  message?: string;
+  /** A voided white carton resolved to its green child (scanned_code is the old one). */
+  superseded?: boolean;
+  scanned_code?: string;
+  practice?: boolean;
+}
+
+// ---- Phase 1 contracts --------------------------------------------------------
+
+export type WhBucket = "raw" | "prefilled_raw" | "in_production" | "finished" | "other";
+export type WhContainerState = "sealed" | "open" | "empty" | "void";
+export type WhLabelKind = "lpn" | "lpn_rts" | "location" | "station";
+export type WhRequestedFrom = "dock" | "phone" | "desktop" | "workspace";
+export type WhSuggestionReason =
+  | "same_sku_reserve"
+  | "same_sku_face"
+  | "nearest_empty"
+  | "other_zone_empty"
+  | "breakdown_shelf"
+  | "none";
+
+export interface WhLocationRef {
+  id: string;
+  code: string;
+  name: string | null;
+  kind: string;
+  zone: string;
+  pickable: boolean;
+  is_overflow: boolean;
+  active: boolean;
+}
+
+export interface WhContainerRef {
+  id: string;
+  code: string;
+  sku_id: string | null;
+  sku: string | null;
+  product_name: string | null;
+  qty: number;
+  qty_initial: number;
+  state: WhContainerState;
+  label_stock: "white" | "green";
+  location_id: string | null;
+  location_code: string | null;
+  parent_container_id: string | null;
+  superseded_by: string | null;
+  finished_by: string | null;
+  finished_at: string | null;
+}
+
+export interface WhSuggestion {
+  location_id: string | null;
+  code: string | null;
+  reason: WhSuggestionReason;
+}
+
+export interface WhStationSessionRef {
+  id: string;
+  station_location_id: string;
+  code: string;
+  name: string | null;
+  started_at: string;
+  device_id: string | null;
+}
+
+export interface WhPrinterRef {
+  id: string;
+  code: string;
+  name: string;
+  label_stock?: string;
+  transport?: string;
+  last_seen_at?: string | null;
+}
+
+export interface WhPrintJobResult {
+  job_id: string;
+  status: "queued" | "blocked";
+  /** Where it prints: the station's agent printer, this browser, or nowhere (outbound blocked). */
+  target: "printer" | "browser" | "none";
+  routed_by: "named" | "station" | "no_matching_printer" | "no_station" | "practice";
+  printer: { id: string; code: string; name: string } | null;
+  station_location_id: string | null;
+  message: string | null;
+  payload?: Json;
+}
+
+/** Phone RPCs replay their first result for a repeated client_event_id. */
+interface WhReplayable {
+  duplicate?: boolean;
+}
+
+interface WhPhoneArgs {
+  p_client_event_id?: string | null;
+  p_actor_id?: string | null;
 }
 
 export interface WhBarcodeCoverage {
@@ -73,13 +185,205 @@ interface WhRpc {
   rpc_wh_link_barcode: { args: { p_sku_id: string; p_scan: string }; result: { code: string; symbology: string } };
   rpc_wh_barcode_coverage: { args: Record<string, never>; result: WhBarcodeCoverage };
   rpc_wh_baseline_kpis: { args: { p_from: string; p_to: string }; result: WhBaselineKpis };
+
+  // Phase 1: layout (admin)
+  rpc_wh_generate_locations: {
+    args: { p_rack_id?: string | null; p_dry_run?: boolean };
+    result: {
+      dry_run: boolean;
+      create: string[];
+      update: string[];
+      conflicts: { code: string; existing_code: string | null; reason: string }[];
+      deactivate: string[];
+      codes: { code: string; face: string; bay: number; level: number; zone: string; pickable: boolean; is_overflow: boolean; pick_sequence: number }[];
+      created?: number;
+      updated?: number;
+      deactivated?: number;
+    };
+  };
+  rpc_wh_save_layout: { args: { p_payload: Json }; result: Record<string, { created: number; updated: number; deleted?: number }> };
+  rpc_wh_save_location: { args: { p_location: Json }; result: { created: boolean; location: Json } };
+  rpc_wh_resequence: { args: { p_rows: Json }; result: { updated: number } };
+
+  // Phase 1: stock and tasks
+  rpc_wh_suggest_putaway: {
+    args: { p_container_id: string; p_exclude?: string[] };
+    result: { container: WhContainerRef; suggestion: WhSuggestion; move_id: string | null };
+  };
+  rpc_wh_putaway_container: {
+    args: WhPhoneArgs & { p_container_id: string; p_location_id: string; p_move_id?: string | null };
+    result: WhReplayable & {
+      container: WhContainerRef;
+      from: WhLocationRef | null;
+      to: WhLocationRef;
+      units: number;
+      followed_suggestion: boolean | null;
+      move_id: string | null;
+      movement_group_id: string;
+      next: { move_id: string; container_id: string; code: string; origin: string; suggested: WhLocationRef | null } | null;
+      warning?: "over_capacity";
+      message?: string;
+    };
+  };
+  rpc_wh_move_stock: {
+    args: WhPhoneArgs & {
+      p_sku_id: string;
+      p_qty: number;
+      p_from_location_id: string;
+      p_to_location_id: string;
+      p_from_container_id?: string | null;
+      p_to_container_id?: string | null;
+      p_bucket?: WhBucket | null;
+      p_move_id?: string | null;
+    };
+    result: WhReplayable & {
+      sku_id: string;
+      sku: string;
+      qty: number;
+      bucket: WhBucket;
+      to_bucket: WhBucket;
+      from: WhLocationRef;
+      to: WhLocationRef;
+      available_after: number;
+      movement_group_id: string;
+    };
+  };
+  rpc_wh_open_container: {
+    args: WhPhoneArgs & { p_container_id: string; p_to_location_id?: string | null; p_unpack?: boolean };
+    result: WhReplayable & {
+      container: WhContainerRef;
+      from: WhLocationRef | null;
+      to: WhLocationRef | null;
+      units_moved: number;
+      unpacked: boolean;
+      already_open: boolean;
+      warning?: "not_pickable";
+      message?: string;
+    };
+  };
+  rpc_wh_take_to_line: {
+    args: WhPhoneArgs & { p_container_id: string };
+    result: WhReplayable & { container: WhContainerRef; from: WhLocationRef | null; units: number; movement_group_id: string };
+  };
+  rpc_wh_rts_relabel: {
+    args: WhPhoneArgs & {
+      p_sku_id: string;
+      p_cartons: Json;
+      p_parent_container_id?: string | null;
+      p_task_log_id?: string | null;
+    };
+    result: WhReplayable & {
+      dormant?: boolean;
+      containers?: { id: string; code: string; qty: number; state: "sealed" | "open"; suggested: WhSuggestion; move_id: string }[];
+      parent?: WhContainerRef | null;
+      remainder?: Json | null;
+      print_job_id?: string | null;
+      print?: WhPrintJobResult | null;
+      putaway_tasks?: string[];
+    };
+  };
+  rpc_wh_record_count: {
+    args: WhPhoneArgs & {
+      p_location_id: string;
+      p_lines: Json;
+      p_count_task_id?: string | null;
+      p_started_at?: string | null;
+    };
+    result: WhReplayable & {
+      count_task_id: string;
+      status: "submitted" | "approved";
+      location: WhLocationRef;
+      lines: { id: string; sku_id: string; container_id: string | null; bucket: WhBucket; counted_qty: number; label_flag: string | null }[];
+    };
+  };
+  rpc_wh_approve_variance: {
+    args: { p_count_task_id: string; p_decisions?: Json; p_actor_id?: string | null };
+    result: { count_task_id: string; lines: number; adjusted_units: number; levels_delta: number; recounts: string[] };
+  };
+  rpc_wh_create_count: {
+    args: { p_location_ids: string[]; p_kind?: string; p_reason?: string | null };
+    result: { created: string[]; existing: string[]; missing: string[] };
+  };
+  rpc_wh_write_off: {
+    args: {
+      p_sku_id: string;
+      p_location_id: string;
+      p_container_id: string | null;
+      p_qty: number;
+      p_reason: string;
+      p_client_event_id?: string | null;
+    };
+    result: WhReplayable & { sku: string; qty: number; bucket: WhBucket; ledger_tx_id: string | null; levels_delta: number };
+  };
+  rpc_wh_import_stock: {
+    args: { p_rows: Json; p_dry_run?: boolean };
+    result: {
+      dry_run: boolean;
+      rows: number;
+      cartons: number;
+      units: number;
+      rejected?: { row: number; error: string; sku?: string; location?: string }[];
+      first_code?: string | null;
+      last_code?: string | null;
+    };
+  };
+  rpc_wh_overview: {
+    args: Record<string, never>;
+    result: {
+      physical_layer_live: boolean;
+      putaways_open: number;
+      putaways_over_24h: number;
+      rts_unplaced: number;
+      counts_due: number;
+      variances: number;
+      unlocated_units: number;
+      mfg_line_units: number;
+      mfg_line_negative_units: number;
+      cartons: number;
+      locations: { racks: number; rack_locations: number; named: number; labels_verified: number };
+      print: { queued: number; failed: number; printers: number };
+      last_reconcile: Json | null;
+    };
+  };
+
+  // Phase 1: labels, stations and the print agent
+  rpc_wh_request_labels: {
+    args: { p_kind: WhLabelKind; p_ids: string[]; p_from: WhRequestedFrom; p_printer_id?: string | null };
+    result: WhPrintJobResult;
+  };
+  rpc_wh_mark_printed: {
+    args: { p_job_id: string; p_status: "printed" | "failed" | "cancelled"; p_error?: string | null };
+    result: { job_id: string; status: string; unchanged?: boolean };
+  };
+  rpc_wh_start_station: {
+    args: { p_scan_value: string; p_device_id?: string | null };
+    result: { unchanged: boolean; ended_previous: string | null; session: WhStationSessionRef; printers: WhPrinterRef[] };
+  };
+  rpc_wh_end_station: { args: Record<string, never>; result: { ended: string | null } };
+  rpc_wh_claim_print_jobs: {
+    args: { p_printer_ids: string[]; p_agent_id: string };
+    result: { jobs: { id: string; kind: WhLabelKind; printer_id: string; payload: Json; item_ids: string[]; attempts: number }[]; released: number };
+  };
+  rpc_wh_agent_heartbeat: {
+    args: { p_agent_id: string; p_printer_ids: string[] };
+    result: { printers: number; queued: number; at: string };
+  };
 }
 
 type UntypedRpcClient = {
   rpc: (fn: string, args?: object) => PromiseLike<{ data: unknown; error: unknown }>;
 };
 
-/** Call a warehouse RPC and unwrap its envelope. Exported for tests. */
+export type WhRpcName = keyof WhRpc;
+export type WhRpcArgs<K extends WhRpcName> = WhRpc[K]["args"];
+export type WhRpcResult<K extends WhRpcName> = WhRpc[K]["result"];
+
+/**
+ * Call a warehouse RPC and unwrap its envelope. Phase 1 envelopes carry a
+ * machine `error` code plus a human `message` naming the carton or
+ * location, so the message wins; Phase 0 RPCs put the sentence in `error`.
+ * Exported for tests.
+ */
 export async function whRpc<K extends keyof WhRpc>(
   name: K,
   args: WhRpc[K]["args"],
@@ -89,7 +393,7 @@ export async function whRpc<K extends keyof WhRpc>(
   const { data, error } = await (client as UntypedRpcClient).rpc(name, args);
   if (error) throw error;
   const env = data as (WhEnvelope & WhRpc[K]["result"]) | null;
-  if (!env?.ok) throw new Error(env?.error ?? env?.message ?? fallbackError);
+  if (!env?.ok) throw new Error(env?.message ?? env?.error ?? fallbackError);
   return env;
 }
 

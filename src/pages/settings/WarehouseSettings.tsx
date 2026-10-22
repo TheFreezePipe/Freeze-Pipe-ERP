@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
-import { ScanBarcode, ShieldAlert, ShieldCheck, ShieldOff } from "lucide-react";
+import { formatDistanceToNow, parseISO } from "date-fns";
+import { Printer, ScanBarcode, ShieldAlert, ShieldCheck, ShieldOff } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -10,6 +11,9 @@ import {
   useOutboundMode,
   useSetWarehouseSetting,
   useWarehouseSettings,
+  useWhLocations,
+  useWhOverview,
+  useWhPrinters,
 } from "@/lib/hooks";
 import type { OutboundMode } from "@/lib/warehouse/outbound";
 import { cn } from "@/lib/utils";
@@ -27,16 +31,36 @@ const OUTBOUND_OPTIONS: { value: OutboundMode; hint: string }[] = [
   { value: "live", hint: "label printing and ShipStation writes" },
 ];
 
-/** What the Warehouse tab gains in Phase 1 (design doc, Settings section). */
+/** What the Warehouse tab still gains in Phase 1 (design doc, Settings section). */
 const PHASE1_SETUP = [
-  "Locations table: zones, aisles, racks, bins and their codes",
-  "Layout editor, also opened from the Stock map's Edit layout button",
+  "Layout import and editor, also opened from the Stock map's Edit layout button",
+  "Locations table: zones, racks, bay-levels and their codes",
   "Rack templates",
   "Cart definitions",
   "Tote classes",
   "Scan rules",
-  "Label printers",
+  "Printer and station setup",
 ];
+
+const LABEL_STOCK: Record<string, string> = {
+  white_4x2: "White 4×2",
+  green_4x2: "Green 4×2",
+  white_3x1: "White 3×1",
+};
+
+function lastSeen(at: string | null): string {
+  if (!at) return "never";
+  return formatDistanceToNow(parseISO(at), { addSuffix: true });
+}
+
+function LayoutCount({ label, value }: { label: string; value: number | undefined }) {
+  return (
+    <div className="rounded-md border border-border/50 px-3 py-2">
+      <p className="text-lg font-semibold tabular-nums">{value == null ? "—" : value.toLocaleString()}</p>
+      <p className="text-xs text-muted-foreground">{label}</p>
+    </div>
+  );
+}
 
 function isOutboundMode(value: unknown): value is OutboundMode {
   return value === "live" || value === "practice" || value === "blocked";
@@ -52,6 +76,10 @@ export default function WarehouseSettings() {
   const mode = useOutboundMode();
   const setSetting = useSetWarehouseSetting();
   const { data: coverage, isLoading: coverageLoading } = useBarcodeCoverage();
+  const { data: overview } = useWhOverview();
+  const { data: printers = [], isLoading: printersLoading } = useWhPrinters();
+  const { data: locations = [] } = useWhLocations();
+  const stations = locations.filter((l) => l.kind === "station" && l.active);
 
   const effective = OUTBOUND_DISPLAY[mode];
   const EffectiveIcon = effective.icon;
@@ -171,7 +199,19 @@ export default function WarehouseSettings() {
             Phase 1
           </Badge>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-3 gap-3 sm:max-w-md">
+            <LayoutCount label="Racks" value={overview?.locations.racks} />
+            <LayoutCount label="Rack locations" value={overview?.locations.rack_locations} />
+            <LayoutCount label="Named locations" value={overview?.locations.named} />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Browse what each location holds on{" "}
+            <Link to="/inventory/stock?view=location" className="text-primary hover:underline">
+              Stock › By location
+            </Link>
+            . Still to come in Phase 1:
+          </p>
           <ul className="grid gap-x-6 gap-y-1.5 text-sm text-muted-foreground sm:grid-cols-2">
             {PHASE1_SETUP.map((item) => (
               <li key={item} className="flex items-start gap-2">
@@ -180,6 +220,84 @@ export default function WarehouseSettings() {
               </li>
             ))}
           </ul>
+        </CardContent>
+      </Card>
+
+      <Card className="lg:col-span-2">
+        <CardHeader>
+          <CardTitle className="text-base">Printers and stations</CardTitle>
+          <CardDescription>
+            A label prints at the station a worker scanned into, on the printer whose label stock fits.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {printersLoading ? (
+            <p className="text-sm text-muted-foreground">Loading…</p>
+          ) : printers.length === 0 ? (
+            <div className="flex items-center gap-3 rounded-md border border-border/50 px-4 py-3 text-sm text-muted-foreground">
+              <Printer className="h-4 w-4 shrink-0" />
+              No printers registered yet. Labels print from the browser until a print agent registers one.
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-md border border-border/50">
+              <table className="w-full min-w-[560px] text-sm">
+                <thead className="border-b border-border/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-2.5 font-medium">Printer</th>
+                    <th className="px-4 py-2.5 font-medium">Station</th>
+                    <th className="px-4 py-2.5 font-medium">Labels</th>
+                    <th className="px-4 py-2.5 font-medium">Agent</th>
+                    <th className="px-4 py-2.5 font-medium">Last seen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {printers.map((p) => (
+                    <tr key={p.id} className="border-b border-border/50 last:border-0">
+                      <td className="px-4 py-1.5">
+                        <span className="font-medium">{p.code}</span>
+                        <span className="text-muted-foreground"> · {p.name}</span>
+                        {!p.active && (
+                          <Badge variant="outline" className="ml-2 text-[10px] text-muted-foreground">
+                            inactive
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="px-4 py-1.5 text-muted-foreground">{p.station?.code ?? "shared"}</td>
+                      <td className="px-4 py-1.5 text-muted-foreground">{LABEL_STOCK[p.label_stock] ?? p.label_stock}</td>
+                      <td className="px-4 py-1.5 text-muted-foreground">{p.transport === "browser" ? "browser" : (p.agent_id ?? "—")}</td>
+                      <td className="whitespace-nowrap px-4 py-1.5 text-muted-foreground">{lastSeen(p.last_seen_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground">Stations</p>
+            {stations.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No station locations.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {stations.map((st) => {
+                  const count = printers.filter((p) => p.station_location_id === st.id && p.active).length;
+                  return (
+                    <span
+                      key={st.id}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-border/60 px-2.5 py-0.5 text-xs"
+                      title={count ? `${count} printer${count === 1 ? "" : "s"}` : "No printer: labels print from the browser"}
+                    >
+                      <span className="font-medium">{st.code}</span>
+                      <span className="text-muted-foreground">{st.name}</span>
+                      <span className={cn("tabular-nums", count ? "text-green-400" : "text-muted-foreground")}>
+                        {count ? `${count} printer${count === 1 ? "" : "s"}` : "no printer"}
+                      </span>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>

@@ -24,6 +24,7 @@ import {
   type PlannedAllocation,
 } from "@/lib/allocation";
 import { SKUDetailModal } from "@/components/inventory/SKUDetailModal";
+import { StockByLocation } from "@/components/inventory/StockByLocation";
 import { useMemo, useState, useEffect } from "react";
 import { useUrlFilter, useUrlBoolFilter } from "@/lib/use-url-filter";
 import { STOCK_VIEWS, type StockView } from "@/lib/inventory-routes";
@@ -514,14 +515,30 @@ function StockViewSwitcher({
 
 /**
  * Stock page (`/inventory/stock`, formerly Stock Levels at `/inventory`).
- * `?view=sku` is today's per-SKU table; location, map and counts arrive in
- * Phase 1 and show what they will be until then.
+ * `?view=sku` is today's per-SKU table and `?view=location` the bins and
+ * cartons face by face; map and counts arrive later in Phase 1 and show
+ * what they will be until then.
  */
 export default function StockPage() {
   const [rawView, setView] = useUrlFilter<StockView>("view", "sku");
   const view: StockView = STOCK_VIEWS.includes(rawView) ? rawView : "sku";
 
   if (view === "sku") return <StockBySku view={view} onViewChange={setView} />;
+
+  if (view === "location") {
+    return (
+      <div className="space-y-6">
+        <div>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-bold">Stock</h1>
+            <StockViewSwitcher value={view} onChange={setView} />
+          </div>
+          <p className="text-muted-foreground">{PHASE1_VIEWS.location.subtitle}</p>
+        </div>
+        <StockByLocation />
+      </div>
+    );
+  }
 
   const info = PHASE1_VIEWS[view];
   return (
