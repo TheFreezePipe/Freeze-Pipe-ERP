@@ -120,10 +120,9 @@ async function getToken(): Promise<string> {
   }
   const body = await resp.json() as { access_token?: string; scope?: string };
   if (!body.access_token) throw new Error("Shopify token grant returned no access_token");
-  const scopes = (body.scope ?? "").split(",");
-  for (const need of ["read_products", "write_products"]) {
-    if (!scopes.includes(need)) throw new Error(`Shopify app is missing the ${need} scope (has: ${body.scope})`);
-  }
+  // Shopify reports a granted write_X scope alone (write implies read).
+  const scopes = (body.scope ?? "").split(",").map((s) => s.trim());
+  if (!scopes.includes("write_products")) throw new Error(`Shopify app is missing the write_products scope (has: ${body.scope})`);
   return (accessToken = body.access_token);
 }
 
