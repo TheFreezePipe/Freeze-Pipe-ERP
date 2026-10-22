@@ -9,6 +9,7 @@ import {
   saveWhLayout,
   saveWhLocation,
 } from "./use-warehouse-layout";
+import { createWhCount, saveWhLayoutChecked, setWhFixtureBlocked, WhLayoutRejectedError } from "./use-warehouse-map";
 
 function mockClient(response: { data: unknown; error: unknown }) {
   return { rpc: vi.fn().mockResolvedValue(response) };
@@ -178,5 +179,53 @@ describe("label jobs", () => {
   it("mark printed throws when ok is false", async () => {
     const client = mockClient({ data: { ok: false, error: "job_not_found", message: "That print job does not exist." }, error: null });
     await expect(markWhPrinted({ jobId: "nope", status: "printed" }, client)).rejects.toThrow("That print job does not exist.");
+  });
+});
+
+describe("map mutations", () => {
+  it("count now sends the location ids, ad_hoc and the reason", async () => {
+    const client = mockClient({ data: { ok: true, created: ["t-1"], existing: [], missing: [] }, error: null });
+    const result = await createWhCount({ locationIds: ["loc-1"], reason: "Map: count now" }, client);
+    expect(client.rpc).toHaveBeenCalledWith("rpc_wh_create_count", { p_location_ids: ["loc-1"], p_kind: "ad_hoc", p_reason: "Map: count now" });
+    expect(result.created).toEqual(["t-1"]);
+  });
+
+  it("count now sends a null reason when there is none and throws the refusal", async () => {
+    const client = mockClient({ data: { ok: false, error: "forbidden", message: "Creating counts needs a manager or admin." }, error: null });
+    await expect(createWhCount({ locationIds: ["loc-1"], kind: "reconcile" }, client)).rejects.toThrow("needs a manager or admin");
+    expect(client.rpc).toHaveBeenCalledWith("rpc_wh_create_count", { p_location_ids: ["loc-1"], p_kind: "reconcile", p_reason: null });
+  });
+
+  it("the blocked toggle saves one fixture through rpc_wh_save_layout with its row_version", async () => {
+    const client = mockClient({ data: { ok: true, fixtures: { created: 0, updated: 1, deleted: 0 } }, error: null });
+    await setWhFixtureBlocked({ id: "fx-1", blocked: true, rowVersion: 3 }, client);
+    expect(client.rpc).toHaveBeenCalledWith("rpc_wh_save_layout", { p_payload: { fixtures: [{ id: "fx-1", blocked: true, row_version: 3 }] } });
+    await setWhFixtureBlocked({ id: "fx-1", blocked: false }, client);
+    expect(client.rpc).toHaveBeenLastCalledWith("rpc_wh_save_layout", { p_payload: { fixtures: [{ id: "fx-1", blocked: false }] } });
+  });
+
+  it("the editor's save keeps every problem of a rejected payload", async () => {
+    const problems = [
+      { row: "rack R02", error: "stale", message: "rack R02 changed since it was loaded (stale)." },
+      { row: "face 03 on R02", error: "stale", message: "face 03 on R02 changed since it was loaded (stale)." },
+    ];
+    const client = mockClient({
+      data: { ok: false, error: "layout_rejected", message: "Nothing was saved: rack R02 changed since it was loaded (stale). (+1 more)", problems },
+      error: null,
+    });
+    const payload = { racks: [{ id: "r-2", row_version: 4, x_mm: 3300 }] };
+    const err = await saveWhLayoutChecked(payload, client).catch((e: unknown) => e);
+    expect(client.rpc).toHaveBeenCalledWith("rpc_wh_save_layout", { p_payload: payload });
+    expect(err).toBeInstanceOf(WhLayoutRejectedError);
+    expect((err as WhLayoutRejectedError).problems).toEqual(problems);
+    expect((err as WhLayoutRejectedError).message).toContain("Nothing was saved");
+  });
+
+  it("the editor's save returns the counts on success and rethrows transport errors", async () => {
+    const ok = mockClient({ data: { ok: true, racks: { created: 1, updated: 2 } }, error: null });
+    const result = await saveWhLayoutChecked({ racks: [] }, ok);
+    expect(result.racks.updated).toBe(2);
+    const transport = { code: "PGRST", message: "network" };
+    await expect(saveWhLayoutChecked({}, mockClient({ data: null, error: transport }))).rejects.toBe(transport);
   });
 });

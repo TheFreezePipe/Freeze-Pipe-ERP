@@ -25,7 +25,7 @@ import {
 } from "@/lib/allocation";
 import { SKUDetailModal } from "@/components/inventory/SKUDetailModal";
 import { StockByLocation } from "@/components/inventory/StockByLocation";
-import { useMemo, useState, useEffect } from "react";
+import { lazy, Suspense, useMemo, useState, useEffect } from "react";
 import { useUrlFilter, useUrlBoolFilter } from "@/lib/use-url-filter";
 import { STOCK_VIEWS, type StockView } from "@/lib/inventory-routes";
 import type { ProductSKU, InventoryLevel, FreightShipment } from "@/types/database";
@@ -54,6 +54,9 @@ import { buildOrderPreview, type OrderPreviewLine } from "@/lib/order-preview";
 import { useUpcomingMarketingBySku, describeSkuSignals } from "@/lib/hooks/use-marketing-signals";
 import { NewFactoryOrderDialog } from "@/components/manufacturing/NewFactoryOrderDialog";
 import type { FreightLineItemWithProduct, FactoryOrderWithItems } from "@/lib/hooks";
+
+// The map (SVG plan, rack elevation, drawer, Find) loads only on ?view=map.
+const StockMap = lazy(() => import("@/components/warehouse/map/StockMap").then((m) => ({ default: m.StockMap })));
 
 // Category priority + rank helper moved to src/lib/constants.ts so the
 // SKU Economics page can share the exact same sequence without drift.
@@ -515,15 +518,33 @@ function StockViewSwitcher({
 
 /**
  * Stock page (`/inventory/stock`, formerly Stock Levels at `/inventory`).
- * `?view=sku` is today's per-SKU table and `?view=location` the bins and
- * cartons face by face; map and counts arrive later in Phase 1 and show
- * what they will be until then.
+ * `?view=sku` is today's per-SKU table, `?view=location` the bins and
+ * cartons face by face and `?view=map` the floor plan (StockMap keeps its
+ * own state in the URL: mode, level, q, loc, rack/face); counts arrive
+ * later in Phase 1 and show what they will be until then.
  */
 export default function StockPage() {
   const [rawView, setView] = useUrlFilter<StockView>("view", "sku");
   const view: StockView = STOCK_VIEWS.includes(rawView) ? rawView : "sku";
 
   if (view === "sku") return <StockBySku view={view} onViewChange={setView} />;
+
+  if (view === "map") {
+    return (
+      <div className="space-y-4">
+        <div>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-bold">Stock</h1>
+            <StockViewSwitcher value={view} onChange={setView} />
+          </div>
+          <p className="text-muted-foreground">{PHASE1_VIEWS.map.subtitle}</p>
+        </div>
+        <Suspense fallback={<p className="text-sm text-muted-foreground">Loading the map…</p>}>
+          <StockMap />
+        </Suspense>
+      </div>
+    );
+  }
 
   if (view === "location") {
     return (

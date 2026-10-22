@@ -19,6 +19,7 @@ import type { OutboundMode } from "@/lib/warehouse/outbound";
 import { cn } from "@/lib/utils";
 import LayoutImport from "@/components/warehouse/LayoutImport";
 import LocationsTable from "@/components/warehouse/LocationsTable";
+import { LayoutEditorSection } from "@/components/warehouse/editor/LayoutEditorSection";
 
 // Same mapping the Phase 0 Warehouse overview used for its Outbound card.
 const OUTBOUND_DISPLAY: Record<OutboundMode, { label: string; icon: typeof ShieldCheck; color: string }> = {
@@ -201,8 +202,9 @@ export default function WarehouseSettings() {
               Import workbook
             </h3>
             <LayoutImport />
-            <p className="text-xs text-muted-foreground/70">Edit layout: Phase 1 (the map's layout editor).</p>
           </section>
+
+          <LayoutEditorSection />
 
           <section className="space-y-2 border-t border-border/50 pt-4" aria-labelledby="wh-locations-table">
             <h3 id="wh-locations-table" className="text-sm font-medium">

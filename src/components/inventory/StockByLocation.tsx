@@ -349,7 +349,19 @@ export function StockByLocation() {
                 ) : (
                   tableRows.map((r) => (
                     <tr key={r.id} className="border-b border-border/50 align-middle last:border-0">
-                      <td className="whitespace-nowrap px-4 py-2 font-semibold tabular-nums">{r.code}</td>
+                      <td className="whitespace-nowrap px-4 py-2 font-semibold tabular-nums">
+                        {r.code && r.kind !== "virtual" ? (
+                          <Link
+                            to={`/inventory/stock?${new URLSearchParams({ view: "map", loc: r.code }).toString()}`}
+                            className="hover:text-primary hover:underline"
+                            title="Show on the map"
+                          >
+                            {r.code}
+                          </Link>
+                        ) : (
+                          r.code
+                        )}
+                      </td>
                       <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">{levelLabel(r)}</td>
                       <td className="px-4 py-2">
                         {r.contents.length === 0 ? (

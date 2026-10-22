@@ -159,8 +159,9 @@ Most recently edited files, in rough order:
 
 ## Inventory module (merged 2026-10-21, branch feat/warehouse-phase0)
 
-- One sidebar group **Inventory**: Overview `/inventory`, Stock `/inventory/stock` (`?view=sku|location|map|counts`; location/map/counts are Phase 1 placeholders), Factory Orders, Shipments `/inventory/shipments` (the old freight pages, files still under `src/pages/freight/`), Materials, Floor `/go` (phone hub; Manufacturing Workspace stays its own page). The old Warehouse group is gone.
+- One sidebar group **Inventory**: Overview `/inventory`, Stock `/inventory/stock` (`?view=sku|location|map|counts`; By location and Map are live, Counts is still a Phase 1 placeholder), Factory Orders, Shipments `/inventory/shipments` (the old freight pages, files still under `src/pages/freight/`), Materials, Floor `/go` (phone hub; Manufacturing Workspace stays its own page). The old Warehouse group is gone.
 - Legacy routes (`/freight/*`, `/warehouse/*`, `/inventory/quality-issues`) redirect through `legacyRedirect()` in `src/lib/inventory-routes.ts`; add new redirects there, with a test.
-- Warehouse setup (outbound mode, barcode coverage, future locations/layout) lives in Settings → Warehouse (`/settings?tab=warehouse`).
+- Warehouse setup lives in Settings → Warehouse (`/settings?tab=warehouse`): outbound mode, barcode coverage, workbook import, the Locations table with label printing, printers and stations, and the layout editor (`?edit=layout`).
+- After a staging refresh, restore the layout and practice stock with `python scripts/refresh-staging/load_layout.py --apply` then `load_practice_stock.py --apply` (practice data, no ledger rows); both refuse any project but staging. The Phase 1 SQL suites run with the stubbed pgTAP runner described in `scripts/refresh-staging/README.md`.
 - Design: `docs/design/INVENTORY_MODULE_IA.md`; Phase 0/1 technical design: `docs/design/WAREHOUSE_MODULE_PHASE0_1.md`. Mockups: https://claude.ai/artifact/Eg5UQZMox6LMyG4CJRdsTm
 - `.env.local` points at **staging** (`VITE_APP_ENV=staging`); the two `20261021*` migrations are applied on staging only, not production.

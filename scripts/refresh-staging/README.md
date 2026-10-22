@@ -174,6 +174,30 @@ The same rules live in `src/lib/warehouse/workbook-import.ts` (Settings › Ware
 together, then run `python scripts\refresh-staging\load_layout.py --payload-only --write-fixture` and `npm test`:
 `workbook-import.test.ts` compares the TypeScript output with the fixture the script writes.
 
+## After the layout: practice stock on the shelves
+
+Practice data so Stock › Map, the rack elevation and the location drawer have something to show. Run it after
+`load_layout.py --apply`, on an empty warehouse (it refuses `--apply` while any balance or carton exists, because
+movements are append-only; rebuild staging to start over):
+
+```
+python scripts\refresh-staging\load_practice_stock.py            # plan + rpc_wh_import_stock dry run, writes nothing
+python scripts\refresh-staging\load_practice_stock.py --apply    # ... and import it
+```
+
+It places staging's own `inventory_levels`: for each active SKU with `warehouse_finished > 0`, one open carton (1 to 12
+units) on a pickable RTS bay-level, SKUs spread round robin over the pick faces in walk order, A-class first, and the
+rest as sealed cartons of 12 in that bay's level-3 overflow; `warehouse_raw` as sealed cartons of 12 (plus an open
+remainder) in the RAW bays; `warehouse_prefilled_raw` likewise in the WIP bays. Each bay-level is capped at its
+`capacity_cartons`, or `--default-capacity` (24) where none is set (all of staging today); what does not fit is
+reported as unplaced, and in-production units stay on the line. The import mints `C-OB-nnnn` cartons with
+`opening_balance` movements. **No ledger rows**: `inventory_transactions` and `inventory_levels` are untouched, so
+the books and the shelves differ by the unplaced units, as they would before a go-live count.
+
+As loaded on 2026-10-22: 445 cartons (337 sealed, 108 open) holding 4,739 units in 47 locations (finished 4,087 of
+45,523; raw 628 of 628; prefilled 24 of 24). Exit codes: 0 ok, 1 a call failed or rows were rejected, 3 stock already
+exists, 4 refused (not staging).
+
 ## When something goes wrong
 
 - **A migration fails twice** (before and after the accounts step): fix it, then `--rebuild --no-backup`.
@@ -196,6 +220,7 @@ together, then run `python scripts\refresh-staging\load_layout.py --payload-only
 | `verify.sql` | One read-only query per check, each returning one `jsonb`. |
 | `auth_probe.sql` | Check 4, staging only, always rolls back. |
 | `load_layout.py` | Post-refresh step: the warehouse layout from the digitizing workbook (needs `openpyxl`). |
+| `load_practice_stock.py` | Post-refresh step after the layout: practice cartons on the shelves from `inventory_levels` (no ledger rows). |
 | `backups/` | Timestamped dumps; everything in it is git-ignored. |
 | `refresh.log`, `last-report.txt` | Written by every run (the report only by a real run). |
 
