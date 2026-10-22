@@ -1,0 +1,36 @@
+Fixture,Type,x1 px,y1 px,x2 px,y2 px,X ft,Y ft,W ft,L ft,Notes
+Dock door L,door,197,62,412,78,,,,,"Outbound: carrier pickup. UPS table beside it, gaylords for USPS/DHL."
+Dock door R,door,660,62,875,78,,,,,Inbound freight arrives here; cartons wait on the floor below it.
+Office door,door,408,1505,445,1520,,,,,Regular door to the office (office not drawn).
+AC unit top,fixture,515,72,550,92,,,,,
+AC unit bottom,fixture,488,1490,540,1510,,,,,
+UPS table,OUT,408,80,515,130,,,,,Packed UPS orders staged here (10% of orders).
+Gaylord pallet base 1,OUT,180,197,255,255,,,,,"Gaylord for USPS/DHL packed orders (DHL 80%, USPS 10%)."
+Gaylord pallet base 2,OUT,258,197,330,255,,,,,
+Gaylord cardboard stack,fixture,335,197,410,255,,,,,Flat gaylord stock.
+Inbound staging (assumed),IN,660,82,875,330,,,,,"NOT DRAWN: assumed floor area under the right dock door, bounded by the sandblast machine. Confirm."
+Pack station S1 box stock,PACK,187,265,292,320,,,,,S1 is the 96x36 bench. Box stock above the bench.
+AV cart S1,PACK,295,288,335,320,,,,,"Laptop, scale, label printer."
+Pack station S2/S3 box stock,PACK,187,480,275,590,,,,,"Two stations side by side, double box stock."
+AV cart S2,PACK,277,480,318,510,,,,,
+AV cart S3,PACK,277,560,318,590,,,,,
+Pack station S4 box stock,PACK,187,725,275,780,,,,,
+AV cart S4,PACK,277,725,318,755,,,,,
+Bubble wrap station 1,PACK,180,392,262,418,,,,,"Behind the packer, zero steps."
+Bubble wrap station 2,PACK,180,642,262,668,,,,,
+Bubble wrap machine,fixture,180,795,205,860,,,,,Flat rolls to bubble wrap on site.
+Blue tote 1,PACK,358,362,410,432,,,,,Wheeled tote for packed boxes.
+Blue tote 2,PACK,352,622,400,688,,,,,
+Blue tote 3 (spares),SPARE,642,88,712,130,,,,,Units split for spare parts; location SPARES-01.
+Gaylord overflow position,OUT,540,360,610,415,,,,,"Where overflow gaylords go when the dock-door staging fills (owner, 2026-10-20). Sits on the open-floor route past the centre-right run: the map's 'blocked' toggle for that segment."
+Sandblast machine,MFG,855,255,905,330,,,,,
+Glycerin barrels,MFG,848,970,905,1020,,,,,Four barrels feeding the fill line.
+Fill/cap desk 1,MFG,860,1025,905,1115,,,,,Right wall manufacturing line.
+Fill/cap desk 2,MFG,860,1130,905,1220,,,,,
+Fill/cap desk 3,MFG,860,1235,905,1325,,,,,
+Fill/cap desk 4,MFG,860,1340,905,1430,,,,,
+Empty/RTS desk 1,MFG,597,1075,640,1175,,,,,Emptying and RTS; bulk single-item packing at peak.
+Empty/RTS desk 2,MFG,597,1180,640,1275,,,,,
+Empty/RTS desk 3,MFG,597,1280,640,1375,,,,,
+Tray stack,MFG,370,1395,410,1435,,,,,Trays for the manufacturing line.
+Cart start (assumed),PACK,325,520,345,560,,,,,Beside the pack stations. Move if the real start point differs.

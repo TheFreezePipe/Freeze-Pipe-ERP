@@ -17,6 +17,8 @@ import {
 } from "@/lib/hooks";
 import type { OutboundMode } from "@/lib/warehouse/outbound";
 import { cn } from "@/lib/utils";
+import LayoutImport from "@/components/warehouse/LayoutImport";
+import LocationsTable from "@/components/warehouse/LocationsTable";
 
 // Same mapping the Phase 0 Warehouse overview used for its Outbound card.
 const OUTBOUND_DISPLAY: Record<OutboundMode, { label: string; icon: typeof ShieldCheck; color: string }> = {
@@ -32,15 +34,7 @@ const OUTBOUND_OPTIONS: { value: OutboundMode; hint: string }[] = [
 ];
 
 /** What the Warehouse tab still gains in Phase 1 (design doc, Settings section). */
-const PHASE1_SETUP = [
-  "Layout import and editor, also opened from the Stock map's Edit layout button",
-  "Locations table: zones, racks, bay-levels and their codes",
-  "Rack templates",
-  "Cart definitions",
-  "Tote classes",
-  "Scan rules",
-  "Printer and station setup",
-];
+const PHASE1_SETUP = ["Rack templates", "Cart definitions", "Tote classes", "Scan rules", "Printer and station setup"];
 
 const LABEL_STOCK: Record<string, string> = {
   white_4x2: "White 4×2",
@@ -68,7 +62,8 @@ function isOutboundMode(value: unknown): value is OutboundMode {
 
 /**
  * Settings › Warehouse (admin). Setup data for the Inventory module: the
- * outbound switch, barcode coverage, and, in Phase 1, locations and layout.
+ * outbound switch, barcode coverage, the layout import and the locations
+ * table, printers and stations.
  */
 export default function WarehouseSettings() {
   const { toast } = useToast();
@@ -190,14 +185,9 @@ export default function WarehouseSettings() {
       </Card>
 
       <Card className="lg:col-span-2">
-        <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
-          <div className="space-y-1.5">
-            <CardTitle className="text-base">Locations and layout</CardTitle>
-            <CardDescription>Where stock physically sits. A location is always a bin or a site.</CardDescription>
-          </div>
-          <Badge variant="outline" className="shrink-0 text-[10px] text-muted-foreground">
-            Phase 1
-          </Badge>
+        <CardHeader className="space-y-1.5">
+          <CardTitle className="text-base">Locations and layout</CardTitle>
+          <CardDescription>Where stock physically sits. A location is always a bin or a site.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-3 gap-3 sm:max-w-md">
@@ -205,7 +195,23 @@ export default function WarehouseSettings() {
             <LayoutCount label="Rack locations" value={overview?.locations.rack_locations} />
             <LayoutCount label="Named locations" value={overview?.locations.named} />
           </div>
-          <p className="text-xs text-muted-foreground">
+
+          <section className="space-y-2 border-t border-border/50 pt-4" aria-labelledby="wh-layout-import">
+            <h3 id="wh-layout-import" className="text-sm font-medium">
+              Import workbook
+            </h3>
+            <LayoutImport />
+            <p className="text-xs text-muted-foreground/70">Edit layout: Phase 1 (the map's layout editor).</p>
+          </section>
+
+          <section className="space-y-2 border-t border-border/50 pt-4" aria-labelledby="wh-locations-table">
+            <h3 id="wh-locations-table" className="text-sm font-medium">
+              Locations
+            </h3>
+            <LocationsTable />
+          </section>
+
+          <p className="border-t border-border/50 pt-4 text-xs text-muted-foreground">
             Browse what each location holds on{" "}
             <Link to="/inventory/stock?view=location" className="text-primary hover:underline">
               Stock › By location

@@ -1,0 +1,34 @@
+{
+  "kind": "location",
+  "size": "3x1",
+  "labels": [
+    {
+      "id": "f478d711-d518-468a-bf78-84a494ae4c09",
+      "code": "02-01-2",
+      "kind": "bay_level",
+      "name": null,
+      "words": "Face 02 · Bay 01 · Level 2",
+      "barcode": "%Z02-01-2",
+      "overflow": false
+    },
+    {
+      "id": "484fb521-949e-4c01-acbe-c276c127fdff",
+      "code": "02-01-3",
+      "kind": "bay_level",
+      "name": null,
+      "words": "Face 02 · Bay 01 · Level 3",
+      "barcode": "%Z02-01-3",
+      "overflow": true
+    },
+    {
+      "id": "1653c009-e9b1-4958-82cf-6257e419a32a",
+      "code": "ST-MFG-1",
+      "kind": "station",
+      "name": "Mfg desk 1",
+      "words": "Mfg desk 1",
+      "barcode": "%ZST-MFG-1",
+      "overflow": false
+    }
+  ],
+  "practice": true
+}

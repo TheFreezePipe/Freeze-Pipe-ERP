@@ -1,6 +1,14 @@
 import { describe, it, expect, vi } from "vitest";
 import { whRpc } from "./use-warehouse";
 import { endWhStation, startWhStation } from "./use-warehouse-tasks";
+import {
+  generateWhLocations,
+  markWhPrinted,
+  requestWhLabels,
+  resequenceWh,
+  saveWhLayout,
+  saveWhLocation,
+} from "./use-warehouse-layout";
 
 function mockClient(response: { data: unknown; error: unknown }) {
   return { rpc: vi.fn().mockResolvedValue(response) };
@@ -82,5 +90,93 @@ describe("station session mutations", () => {
   it("end throws when ok is false", async () => {
     const client = mockClient({ data: { ok: false, error: "forbidden", message: "Station sessions need an internal account." }, error: null });
     await expect(endWhStation(client)).rejects.toThrow("Station sessions need an internal account.");
+  });
+});
+
+describe("layout mutations", () => {
+  it("save layout sends the payload as p_payload", async () => {
+    const payload = { templates: [], racks: [{ code: "R01" }], faces: [], fixtures: [] };
+    const client = mockClient({ data: { ok: true, racks: { created: 1, updated: 0 } }, error: null });
+    const result = await saveWhLayout(payload, client);
+    expect(client.rpc).toHaveBeenCalledWith("rpc_wh_save_layout", { p_payload: payload });
+    expect(result.racks.created).toBe(1);
+  });
+
+  it("save layout throws the rejection message", async () => {
+    const client = mockClient({
+      data: { ok: false, error: "layout_rejected", message: "Nothing was saved: rack R99: template not found (template_not_found)." },
+      error: null,
+    });
+    await expect(saveWhLayout({}, client)).rejects.toThrow("Nothing was saved: rack R99");
+  });
+
+  it("save location sends the patch as p_location", async () => {
+    const client = mockClient({ data: { ok: true, created: false, location: { code: "IN-01" } }, error: null });
+    await saveWhLocation({ code: "IN-01", x_mm: 10398, y_mm: 2372, z_mm: 0, width_mm: 3805, depth_mm: 4389 }, client);
+    expect(client.rpc).toHaveBeenCalledWith("rpc_wh_save_location", {
+      p_location: { code: "IN-01", x_mm: 10398, y_mm: 2372, z_mm: 0, width_mm: 3805, depth_mm: 4389 },
+    });
+  });
+
+  it("save location throws when the location still holds stock", async () => {
+    const client = mockClient({
+      data: { ok: false, error: "location_not_empty", message: "02-01-1 still holds stock; move or count it out before deactivating (location_not_empty)." },
+      error: null,
+    });
+    await expect(saveWhLocation({ id: "loc-1", active: false }, client)).rejects.toThrow("02-01-1 still holds stock");
+  });
+
+  it("generate passes the rack and the dry-run flag", async () => {
+    const client = mockClient({ data: { ok: true, dry_run: true, create: ["01-01-1"], update: [], conflicts: [], deactivate: [], codes: [] }, error: null });
+    const dry = await generateWhLocations({ dryRun: true }, client);
+    expect(client.rpc).toHaveBeenCalledWith("rpc_wh_generate_locations", { p_rack_id: null, p_dry_run: true });
+    expect(dry.create).toEqual(["01-01-1"]);
+    await generateWhLocations({ rackId: "rack-1", dryRun: false }, client);
+    expect(client.rpc).toHaveBeenLastCalledWith("rpc_wh_generate_locations", { p_rack_id: "rack-1", p_dry_run: false });
+  });
+
+  it("generate throws when ok is false", async () => {
+    const client = mockClient({ data: { ok: false, error: "forbidden", message: "Generating locations needs an admin (forbidden)." }, error: null });
+    await expect(generateWhLocations({ dryRun: true }, client)).rejects.toThrow("needs an admin");
+  });
+
+  it("resequence sends the rows as p_rows", async () => {
+    const client = mockClient({ data: { ok: true, updated: 2 }, error: null });
+    const rows = [{ code: "02-01-1", pick_sequence: 1021 }, { location_id: "loc-1", pick_sequence: 1011 }];
+    const result = await resequenceWh(rows, client);
+    expect(client.rpc).toHaveBeenCalledWith("rpc_wh_resequence", { p_rows: rows });
+    expect(result.updated).toBe(2);
+  });
+
+  it("resequence throws on a clash", async () => {
+    const client = mockClient({ data: { ok: false, error: "sequence_conflict", message: "Two rows ask for the same pick_sequence (sequence_conflict)." }, error: null });
+    await expect(resequenceWh([{ code: "02-01-1", pick_sequence: 1 }], client)).rejects.toThrow("same pick_sequence");
+  });
+});
+
+describe("label jobs", () => {
+  it("request sends kind, ids, where from and the printer (null when none)", async () => {
+    const client = mockClient({ data: { ok: true, job_id: "job-1", status: "queued", target: "browser", routed_by: "practice" }, error: null });
+    const job = await requestWhLabels({ kind: "location", ids: ["a", "b"], from: "desktop" }, client);
+    expect(client.rpc).toHaveBeenCalledWith("rpc_wh_request_labels", { p_kind: "location", p_ids: ["a", "b"], p_from: "desktop", p_printer_id: null });
+    expect(job.target).toBe("browser");
+  });
+
+  it("request throws when outbound is blocked", async () => {
+    const client = mockClient({ data: { ok: false, error: "outbound_blocked", message: "Printing is blocked on this environment (outbound mode is blocked)." }, error: null });
+    await expect(requestWhLabels({ kind: "station", ids: ["s"], from: "desktop" }, client)).rejects.toThrow("Printing is blocked");
+  });
+
+  it("mark printed sends the job, the status and the error", async () => {
+    const client = mockClient({ data: { ok: true, job_id: "job-1", status: "printed" }, error: null });
+    await markWhPrinted({ jobId: "job-1", status: "printed" }, client);
+    expect(client.rpc).toHaveBeenCalledWith("rpc_wh_mark_printed", { p_job_id: "job-1", p_status: "printed", p_error: null });
+    await markWhPrinted({ jobId: "job-1", status: "failed", error: "paper out" }, client);
+    expect(client.rpc).toHaveBeenLastCalledWith("rpc_wh_mark_printed", { p_job_id: "job-1", p_status: "failed", p_error: "paper out" });
+  });
+
+  it("mark printed throws when ok is false", async () => {
+    const client = mockClient({ data: { ok: false, error: "job_not_found", message: "That print job does not exist." }, error: null });
+    await expect(markWhPrinted({ jobId: "nope", status: "printed" }, client)).rejects.toThrow("That print job does not exist.");
   });
 });

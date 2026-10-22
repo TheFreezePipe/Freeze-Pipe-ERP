@@ -1,0 +1,14 @@
+label,value,note
+Scale and building,,
+Average bay length measured on the drawing (px),155,From the drawing. Do not change unless the drawing changes.
+"Bay width, inside the uprights (inches)",108,TYPE the measured bay width here. Everything else follows.
+Rack depth (inches),42,TYPE the measured rack depth.
+"Level 1 beam height, floor to top of beam (inches)",0,Floor level: 0 unless pallets sit on a bottom beam.
+Level 2 beam height (inches),54,
+Level 3 beam height (inches),108,
+Pixels per foot (computed),,
+"Building inside width, computed (ft)",,
+"Building inside length, computed (ft)",,
+"Floor area, computed (sq ft)",,
+"Building inside width, measured (ft)",,TYPE when measured; if it disagrees with B12 by more than a foot the drawing is not to scale in that direction.
+"Building inside length, measured (ft)",,

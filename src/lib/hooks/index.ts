@@ -23,3 +23,4 @@ export * from "./use-pd";
 export * from "./use-warehouse";
 export * from "./use-warehouse-stock";
 export * from "./use-warehouse-tasks";
+export * from "./use-warehouse-layout";

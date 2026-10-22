@@ -136,6 +136,44 @@ movements are reset along with `inventory_levels`.
 Exit codes: 0 ok, 1 a step failed, 2 verification failed, 3 PII check failed, 4 a safety rule refused the run,
 130 interrupted. The console output is also appended to `refresh.log` (git-ignored by the root `*.log` rule).
 
+## After a refresh: restore the warehouse layout
+
+A `--rebuild` drops `public`, so the warehouse layout (rack templates, racks, faces, fixtures, the named locations'
+floor positions and the bay-level locations) is gone afterwards; the migrations only re-seed the 17 named locations
+with no geometry. `load_layout.py` puts it back from the owner's digitizing workbook. Run it after every `--rebuild`
+(a `--data-only` refresh leaves the `wh_*` tables alone, but re-running is harmless):
+
+```
+pip install openpyxl                                              # once; the only dependency
+python scripts\refresh-staging\load_layout.py                    # save layout + named geometry, dry run, compare
+python scripts\refresh-staging\load_layout.py --apply            # ... and create the bay-level locations
+python scripts\refresh-staging\load_layout.py --payload-only     # print the payload, send nothing
+```
+
+What it does, in order, all on staging (`mgmt.STG`; any other `--ref`, production above all, is refused):
+
+1. Reads `docs/research/warehouse-map/Warehouse digitizing workbook.xlsx`. Its formula cells have no cached values, so
+   feet and millimetres are computed from the raw pixel columns and the Scale tab (origin at pixel 180, 72; px/ft =
+   bay px ÷ bay ft; ft × 304.8, in × 25.4). Rack corners snap to the editor's 100 mm grid.
+2. `rpc_wh_save_layout` with the templates, racks, faces and fixtures (all or nothing).
+3. `rpc_wh_save_location` for each named location's centre and footprint (IN-01, OUT-UPS, OUT-GAY-1/2, ST-S1..4,
+   ST-MFG-1..4, SPARES-01, CART-START, MFG-LINE). ST-DOCK is not on the drawing and keeps no geometry.
+4. `rpc_wh_generate_locations(NULL, true)` and a comparison with the workbook's Locations tab: every bay-level code
+   must match; `pick_sequence` differs only where the design's §5.3 rule interleaves facing faces walked on one pass
+   (01+02, 05+06) and where unrouted faces (08, 09) are numbered `99000 + rank × 10 + level`. Each difference is listed.
+5. With `--apply` and no conflicts, `rpc_wh_generate_locations(NULL, false)`.
+
+Every step is idempotent: a second run updates in place and the generator creates and deactivates nothing. Exit codes:
+0 ok, 1 a call failed or the layout was rejected, 2 code differences or conflicts, 4 refused.
+
+The refresh leaves `wh_settings.outbound` at `blocked` (its last write), which refuses label jobs. To print practice
+labels from the browser (`%Z` barcodes, PRACTICE band), switch it to Practice in Settings › Warehouse › Outbound, or
+run `SELECT rpc_wh_set_setting('outbound', '{"mode":"practice"}')` on staging.
+
+The same rules live in `src/lib/warehouse/workbook-import.ts` (Settings › Warehouse › Import workbook). Change both
+together, then run `python scripts\refresh-staging\load_layout.py --payload-only --write-fixture` and `npm test`:
+`workbook-import.test.ts` compares the TypeScript output with the fixture the script writes.
+
 ## When something goes wrong
 
 - **A migration fails twice** (before and after the accounts step): fix it, then `--rebuild --no-backup`.
@@ -157,6 +195,7 @@ Exit codes: 0 ok, 1 a step failed, 2 verification failed, 3 PII check failed, 4 
 | `post_refresh.sql` | Sections `realtime`, `outbound`. Both are no-ops until the `wh_*` tables exist. |
 | `verify.sql` | One read-only query per check, each returning one `jsonb`. |
 | `auth_probe.sql` | Check 4, staging only, always rolls back. |
+| `load_layout.py` | Post-refresh step: the warehouse layout from the digitizing workbook (needs `openpyxl`). |
 | `backups/` | Timestamped dumps; everything in it is git-ignored. |
 | `refresh.log`, `last-report.txt` | Written by every run (the report only by a real run). |
 

@@ -1,0 +1,874 @@
+{
+  "payload": {
+    "templates": [
+      {
+        "code": "PR-3L",
+        "name": "Pallet rack, 3 levels",
+        "kind": "pallet_rack",
+        "bays": 4,
+        "levels": 3,
+        "bay_width_mm": 2743,
+        "depth_mm": 1067,
+        "level_heights_mm": [
+          0,
+          1372,
+          2743
+        ],
+        "overflow_top_level": true,
+        "capacity_cartons_per_level": null
+      },
+      {
+        "code": "EC-1L",
+        "name": "End cap, 1 level",
+        "kind": "end_cap",
+        "bays": 2,
+        "levels": 1,
+        "bay_width_mm": 956,
+        "depth_mm": 177,
+        "level_heights_mm": [
+          0
+        ],
+        "overflow_top_level": false,
+        "capacity_cartons_per_level": null
+      },
+      {
+        "code": "SH-1L",
+        "name": "Shelving, 1 level",
+        "kind": "shelving",
+        "bays": 2,
+        "levels": 1,
+        "bay_width_mm": 1248,
+        "depth_mm": 531,
+        "level_heights_mm": [
+          0
+        ],
+        "overflow_top_level": false,
+        "capacity_cartons_per_level": null
+      }
+    ],
+    "racks": [
+      {
+        "code": "R01",
+        "description": "Left wall run",
+        "template_code": "PR-3L",
+        "x_mm": 0,
+        "y_mm": 14500,
+        "rot_deg": 90,
+        "bays": 4,
+        "levels": 3,
+        "width_mm": 10972,
+        "depth_mm": 885
+      },
+      {
+        "code": "R02",
+        "description": "Centre-left double run",
+        "template_code": "PR-3L",
+        "x_mm": 3200,
+        "y_mm": 15200,
+        "rot_deg": 90,
+        "bays": 3,
+        "levels": 3,
+        "width_mm": 8229,
+        "depth_mm": 1911
+      },
+      {
+        "code": "R03",
+        "description": "Centre-right double run",
+        "template_code": "PR-3L",
+        "x_mm": 7800,
+        "y_mm": 4700,
+        "rot_deg": 90,
+        "bays": 4,
+        "levels": 3,
+        "width_mm": 10972,
+        "depth_mm": 1911
+      },
+      {
+        "code": "R04",
+        "description": "Right wall run",
+        "template_code": "PR-3L",
+        "x_mm": 11800,
+        "y_mm": 4700,
+        "rot_deg": 90,
+        "bays": 4,
+        "levels": 3,
+        "width_mm": 10972,
+        "depth_mm": 1009
+      },
+      {
+        "code": "R05",
+        "description": "WIP rack (red)",
+        "template_code": "PR-3L",
+        "x_mm": 9500,
+        "y_mm": 20700,
+        "rot_deg": 90,
+        "bays": 1,
+        "levels": 3,
+        "width_mm": 2743,
+        "depth_mm": 956
+      },
+      {
+        "code": "R07",
+        "description": "Accessory end caps",
+        "template_code": "EC-1L",
+        "x_mm": 3200,
+        "y_mm": 15000,
+        "rot_deg": 0,
+        "bays": 2,
+        "levels": 1,
+        "width_mm": 1911,
+        "depth_mm": 177
+      },
+      {
+        "code": "R08",
+        "description": "Bottom-wall shelving, left pair",
+        "template_code": "SH-1L",
+        "x_mm": 6900,
+        "y_mm": 24900,
+        "rot_deg": 0,
+        "bays": 2,
+        "levels": 1,
+        "width_mm": 2513,
+        "depth_mm": 531
+      },
+      {
+        "code": "R09",
+        "description": "Bottom-wall shelving, right",
+        "template_code": "SH-1L",
+        "x_mm": 10900,
+        "y_mm": 24900,
+        "rot_deg": 0,
+        "bays": 1,
+        "levels": 1,
+        "width_mm": 1239,
+        "depth_mm": 531
+      }
+    ],
+    "faces": [
+      {
+        "rack_code": "R01",
+        "face_code": "01",
+        "side": "east",
+        "aisle": "A",
+        "walk_pass": 1,
+        "walk_dir": "S",
+        "first_bay_no": 1,
+        "zone_by_bay": [
+          "RTS",
+          "RTS",
+          "BOX",
+          "BOX"
+        ],
+        "pickable_levels": [
+          1,
+          2
+        ]
+      },
+      {
+        "rack_code": "R02",
+        "face_code": "02",
+        "side": "west",
+        "aisle": "A",
+        "walk_pass": 1,
+        "walk_dir": "S",
+        "first_bay_no": 1,
+        "zone_by_bay": [
+          "RTS",
+          "RTS",
+          "RTS"
+        ],
+        "pickable_levels": [
+          1,
+          2
+        ]
+      },
+      {
+        "rack_code": "R02",
+        "face_code": "03",
+        "side": "east",
+        "aisle": "B",
+        "walk_pass": 3,
+        "walk_dir": "N",
+        "first_bay_no": 1,
+        "zone_by_bay": [
+          "RTS",
+          "RTS",
+          "RTS"
+        ],
+        "pickable_levels": [
+          1,
+          2
+        ]
+      },
+      {
+        "rack_code": "R03",
+        "face_code": "04",
+        "side": "west",
+        "aisle": "C",
+        "walk_pass": 4,
+        "walk_dir": "N",
+        "first_bay_no": 1,
+        "zone_by_bay": [
+          "RTS",
+          "RTS",
+          "RTS",
+          "RTS"
+        ],
+        "pickable_levels": [
+          1,
+          2
+        ]
+      },
+      {
+        "rack_code": "R03",
+        "face_code": "05",
+        "side": "east",
+        "aisle": "D",
+        "walk_pass": 5,
+        "walk_dir": "S",
+        "first_bay_no": 1,
+        "zone_by_bay": [
+          "RAW",
+          "RAW",
+          "RAW",
+          "RAW"
+        ],
+        "pickable_levels": [
+          1,
+          2
+        ]
+      },
+      {
+        "rack_code": "R04",
+        "face_code": "06",
+        "side": "west",
+        "aisle": "D",
+        "walk_pass": 5,
+        "walk_dir": "S",
+        "first_bay_no": 1,
+        "zone_by_bay": [
+          "RAW",
+          "RAW",
+          "RAW",
+          "RAW"
+        ],
+        "pickable_levels": [
+          1,
+          2
+        ]
+      },
+      {
+        "rack_code": "R07",
+        "face_code": "07",
+        "side": "north",
+        "aisle": "B",
+        "walk_pass": 0,
+        "walk_dir": "E",
+        "first_bay_no": 1,
+        "zone_by_bay": [
+          "ACC",
+          "ACC"
+        ],
+        "pickable_levels": [
+          1
+        ]
+      },
+      {
+        "rack_code": "R05",
+        "face_code": "08",
+        "side": "both",
+        "aisle": "MFG",
+        "walk_pass": 99,
+        "walk_dir": null,
+        "first_bay_no": 1,
+        "zone_by_bay": [
+          "WIP"
+        ],
+        "pickable_levels": []
+      },
+      {
+        "rack_code": "R08",
+        "face_code": "09",
+        "side": "north",
+        "aisle": null,
+        "walk_pass": 99,
+        "walk_dir": "E",
+        "first_bay_no": 1,
+        "zone_by_bay": [
+          "MISC",
+          "MISC"
+        ],
+        "pickable_levels": []
+      },
+      {
+        "rack_code": "R09",
+        "face_code": "09",
+        "side": "north",
+        "aisle": null,
+        "walk_pass": 99,
+        "walk_dir": "E",
+        "first_bay_no": 3,
+        "zone_by_bay": [
+          "MISC"
+        ],
+        "pickable_levels": []
+      }
+    ],
+    "fixtures": [
+      {
+        "name": "UV curing rack",
+        "kind": "staging",
+        "x_mm": 9734,
+        "y_mm": 18282,
+        "width_mm": 531,
+        "depth_mm": 2301,
+        "rot_deg": 0,
+        "zone": "MFG",
+        "blocked": false,
+        "location_code": "MFG-LINE"
+      },
+      {
+        "name": "Dock door L",
+        "kind": "door",
+        "x_mm": 301,
+        "y_mm": -177,
+        "width_mm": 3805,
+        "depth_mm": 283,
+        "rot_deg": 0,
+        "zone": "OUT",
+        "blocked": false,
+        "location_code": "OUT-UPS"
+      },
+      {
+        "name": "Dock door R",
+        "kind": "door",
+        "x_mm": 8495,
+        "y_mm": -177,
+        "width_mm": 3805,
+        "depth_mm": 283,
+        "rot_deg": 0,
+        "zone": "IN",
+        "blocked": false,
+        "location_code": "IN-01"
+      },
+      {
+        "name": "Office door",
+        "kind": "door",
+        "x_mm": 4035,
+        "y_mm": 25361,
+        "width_mm": 655,
+        "depth_mm": 265,
+        "rot_deg": 0,
+        "zone": null,
+        "blocked": false,
+        "location_code": null
+      },
+      {
+        "name": "AC unit top",
+        "kind": "obstacle",
+        "x_mm": 5929,
+        "y_mm": 0,
+        "width_mm": 619,
+        "depth_mm": 354,
+        "rot_deg": 0,
+        "zone": null,
+        "blocked": false,
+        "location_code": null
+      },
+      {
+        "name": "AC unit bottom",
+        "kind": "obstacle",
+        "x_mm": 5451,
+        "y_mm": 25096,
+        "width_mm": 920,
+        "depth_mm": 354,
+        "rot_deg": 0,
+        "zone": null,
+        "blocked": false,
+        "location_code": null
+      },
+      {
+        "name": "UPS table",
+        "kind": "staging",
+        "x_mm": 4035,
+        "y_mm": 142,
+        "width_mm": 1894,
+        "depth_mm": 885,
+        "rot_deg": 0,
+        "zone": "OUT",
+        "blocked": false,
+        "location_code": "OUT-UPS"
+      },
+      {
+        "name": "Gaylord pallet base 1",
+        "kind": "staging",
+        "x_mm": 0,
+        "y_mm": 2212,
+        "width_mm": 1327,
+        "depth_mm": 1026,
+        "rot_deg": 0,
+        "zone": "OUT",
+        "blocked": false,
+        "location_code": "OUT-GAY-1"
+      },
+      {
+        "name": "Gaylord pallet base 2",
+        "kind": "staging",
+        "x_mm": 1380,
+        "y_mm": 2212,
+        "width_mm": 1274,
+        "depth_mm": 1026,
+        "rot_deg": 0,
+        "zone": "OUT",
+        "blocked": false,
+        "location_code": "OUT-GAY-2"
+      },
+      {
+        "name": "Gaylord cardboard stack",
+        "kind": "obstacle",
+        "x_mm": 2743,
+        "y_mm": 2212,
+        "width_mm": 1327,
+        "depth_mm": 1026,
+        "rot_deg": 0,
+        "zone": null,
+        "blocked": false,
+        "location_code": null
+      },
+      {
+        "name": "Inbound staging (assumed)",
+        "kind": "staging",
+        "x_mm": 8495,
+        "y_mm": 177,
+        "width_mm": 3805,
+        "depth_mm": 4389,
+        "rot_deg": 0,
+        "zone": "IN",
+        "blocked": false,
+        "location_code": "IN-01"
+      },
+      {
+        "name": "Pack station S1 box stock",
+        "kind": "pack_station",
+        "x_mm": 124,
+        "y_mm": 3416,
+        "width_mm": 1858,
+        "depth_mm": 973,
+        "rot_deg": 0,
+        "zone": "PACK",
+        "blocked": false,
+        "location_code": "ST-S1"
+      },
+      {
+        "name": "AV cart S1",
+        "kind": "pack_station",
+        "x_mm": 2035,
+        "y_mm": 3823,
+        "width_mm": 708,
+        "depth_mm": 566,
+        "rot_deg": 0,
+        "zone": "PACK",
+        "blocked": false,
+        "location_code": "ST-S1"
+      },
+      {
+        "name": "Pack station S2/S3 box stock",
+        "kind": "pack_station",
+        "x_mm": 124,
+        "y_mm": 7221,
+        "width_mm": 1557,
+        "depth_mm": 1947,
+        "rot_deg": 0,
+        "zone": "PACK",
+        "blocked": false,
+        "location_code": null
+      },
+      {
+        "name": "AV cart S2",
+        "kind": "pack_station",
+        "x_mm": 1717,
+        "y_mm": 7221,
+        "width_mm": 726,
+        "depth_mm": 531,
+        "rot_deg": 0,
+        "zone": "PACK",
+        "blocked": false,
+        "location_code": "ST-S2"
+      },
+      {
+        "name": "AV cart S3",
+        "kind": "pack_station",
+        "x_mm": 1717,
+        "y_mm": 8637,
+        "width_mm": 726,
+        "depth_mm": 531,
+        "rot_deg": 0,
+        "zone": "PACK",
+        "blocked": false,
+        "location_code": "ST-S3"
+      },
+      {
+        "name": "Pack station S4 box stock",
+        "kind": "pack_station",
+        "x_mm": 124,
+        "y_mm": 11557,
+        "width_mm": 1557,
+        "depth_mm": 973,
+        "rot_deg": 0,
+        "zone": "PACK",
+        "blocked": false,
+        "location_code": "ST-S4"
+      },
+      {
+        "name": "AV cart S4",
+        "kind": "pack_station",
+        "x_mm": 1717,
+        "y_mm": 11557,
+        "width_mm": 726,
+        "depth_mm": 531,
+        "rot_deg": 0,
+        "zone": "PACK",
+        "blocked": false,
+        "location_code": "ST-S4"
+      },
+      {
+        "name": "Bubble wrap station 1",
+        "kind": "pack_station",
+        "x_mm": 0,
+        "y_mm": 5663,
+        "width_mm": 1451,
+        "depth_mm": 460,
+        "rot_deg": 0,
+        "zone": "PACK",
+        "blocked": false,
+        "location_code": null
+      },
+      {
+        "name": "Bubble wrap station 2",
+        "kind": "pack_station",
+        "x_mm": 0,
+        "y_mm": 10088,
+        "width_mm": 1451,
+        "depth_mm": 460,
+        "rot_deg": 0,
+        "zone": "PACK",
+        "blocked": false,
+        "location_code": null
+      },
+      {
+        "name": "Bubble wrap machine",
+        "kind": "obstacle",
+        "x_mm": 0,
+        "y_mm": 12796,
+        "width_mm": 442,
+        "depth_mm": 1150,
+        "rot_deg": 0,
+        "zone": null,
+        "blocked": false,
+        "location_code": null
+      },
+      {
+        "name": "Blue tote 1",
+        "kind": "other",
+        "x_mm": 3150,
+        "y_mm": 5132,
+        "width_mm": 920,
+        "depth_mm": 1239,
+        "rot_deg": 0,
+        "zone": "PACK",
+        "blocked": false,
+        "location_code": null
+      },
+      {
+        "name": "Blue tote 2",
+        "kind": "other",
+        "x_mm": 3044,
+        "y_mm": 9734,
+        "width_mm": 850,
+        "depth_mm": 1168,
+        "rot_deg": 0,
+        "zone": "PACK",
+        "blocked": false,
+        "location_code": null
+      },
+      {
+        "name": "Blue tote 3 (spares)",
+        "kind": "staging",
+        "x_mm": 8177,
+        "y_mm": 283,
+        "width_mm": 1239,
+        "depth_mm": 743,
+        "rot_deg": 0,
+        "zone": "SPARE",
+        "blocked": false,
+        "location_code": "SPARES-01"
+      },
+      {
+        "name": "Gaylord overflow position",
+        "kind": "staging",
+        "x_mm": 6371,
+        "y_mm": 5097,
+        "width_mm": 1239,
+        "depth_mm": 973,
+        "rot_deg": 0,
+        "zone": "OUT",
+        "blocked": false,
+        "location_code": null
+      },
+      {
+        "name": "Sandblast machine",
+        "kind": "obstacle",
+        "x_mm": 11946,
+        "y_mm": 3239,
+        "width_mm": 885,
+        "depth_mm": 1327,
+        "rot_deg": 0,
+        "zone": "MFG",
+        "blocked": false,
+        "location_code": null
+      },
+      {
+        "name": "Glycerin barrels",
+        "kind": "obstacle",
+        "x_mm": 11822,
+        "y_mm": 15893,
+        "width_mm": 1009,
+        "depth_mm": 885,
+        "rot_deg": 0,
+        "zone": "MFG",
+        "blocked": false,
+        "location_code": null
+      },
+      {
+        "name": "Fill/cap desk 1",
+        "kind": "desk",
+        "x_mm": 12035,
+        "y_mm": 16866,
+        "width_mm": 796,
+        "depth_mm": 1593,
+        "rot_deg": 0,
+        "zone": "MFG",
+        "blocked": false,
+        "location_code": "ST-MFG-1"
+      },
+      {
+        "name": "Fill/cap desk 2",
+        "kind": "desk",
+        "x_mm": 12035,
+        "y_mm": 18725,
+        "width_mm": 796,
+        "depth_mm": 1593,
+        "rot_deg": 0,
+        "zone": "MFG",
+        "blocked": false,
+        "location_code": "ST-MFG-2"
+      },
+      {
+        "name": "Fill/cap desk 3",
+        "kind": "desk",
+        "x_mm": 12035,
+        "y_mm": 20583,
+        "width_mm": 796,
+        "depth_mm": 1593,
+        "rot_deg": 0,
+        "zone": "MFG",
+        "blocked": false,
+        "location_code": "ST-MFG-3"
+      },
+      {
+        "name": "Fill/cap desk 4",
+        "kind": "desk",
+        "x_mm": 12035,
+        "y_mm": 22441,
+        "width_mm": 796,
+        "depth_mm": 1593,
+        "rot_deg": 0,
+        "zone": "MFG",
+        "blocked": false,
+        "location_code": "ST-MFG-4"
+      },
+      {
+        "name": "Empty/RTS desk 1",
+        "kind": "desk",
+        "x_mm": 7380,
+        "y_mm": 17751,
+        "width_mm": 761,
+        "depth_mm": 1770,
+        "rot_deg": 0,
+        "zone": "MFG",
+        "blocked": false,
+        "location_code": null
+      },
+      {
+        "name": "Empty/RTS desk 2",
+        "kind": "desk",
+        "x_mm": 7380,
+        "y_mm": 19609,
+        "width_mm": 761,
+        "depth_mm": 1681,
+        "rot_deg": 0,
+        "zone": "MFG",
+        "blocked": false,
+        "location_code": null
+      },
+      {
+        "name": "Empty/RTS desk 3",
+        "kind": "desk",
+        "x_mm": 7380,
+        "y_mm": 21379,
+        "width_mm": 761,
+        "depth_mm": 1681,
+        "rot_deg": 0,
+        "zone": "MFG",
+        "blocked": false,
+        "location_code": null
+      },
+      {
+        "name": "Tray stack",
+        "kind": "other",
+        "x_mm": 3363,
+        "y_mm": 23415,
+        "width_mm": 708,
+        "depth_mm": 708,
+        "rot_deg": 0,
+        "zone": "MFG",
+        "blocked": false,
+        "location_code": null
+      },
+      {
+        "name": "Cart start (assumed)",
+        "kind": "other",
+        "x_mm": 2566,
+        "y_mm": 7929,
+        "width_mm": 354,
+        "depth_mm": 708,
+        "rot_deg": 0,
+        "zone": "PACK",
+        "blocked": false,
+        "location_code": "CART-START"
+      }
+    ]
+  },
+  "named": [
+    {
+      "code": "IN-01",
+      "x_mm": 10398,
+      "y_mm": 2372,
+      "z_mm": 0,
+      "width_mm": 3805,
+      "depth_mm": 4389
+    },
+    {
+      "code": "OUT-UPS",
+      "x_mm": 4982,
+      "y_mm": 584,
+      "z_mm": 0,
+      "width_mm": 1894,
+      "depth_mm": 885
+    },
+    {
+      "code": "OUT-GAY-1",
+      "x_mm": 664,
+      "y_mm": 2726,
+      "z_mm": 0,
+      "width_mm": 1327,
+      "depth_mm": 1026
+    },
+    {
+      "code": "OUT-GAY-2",
+      "x_mm": 2018,
+      "y_mm": 2726,
+      "z_mm": 0,
+      "width_mm": 1274,
+      "depth_mm": 1026
+    },
+    {
+      "code": "ST-S1",
+      "x_mm": 2389,
+      "y_mm": 4106,
+      "z_mm": 0,
+      "width_mm": 708,
+      "depth_mm": 566
+    },
+    {
+      "code": "ST-S2",
+      "x_mm": 2080,
+      "y_mm": 7486,
+      "z_mm": 0,
+      "width_mm": 726,
+      "depth_mm": 531
+    },
+    {
+      "code": "ST-S3",
+      "x_mm": 2080,
+      "y_mm": 8902,
+      "z_mm": 0,
+      "width_mm": 726,
+      "depth_mm": 531
+    },
+    {
+      "code": "ST-S4",
+      "x_mm": 2080,
+      "y_mm": 11822,
+      "z_mm": 0,
+      "width_mm": 726,
+      "depth_mm": 531
+    },
+    {
+      "code": "ST-MFG-1",
+      "x_mm": 12433,
+      "y_mm": 17663,
+      "z_mm": 0,
+      "width_mm": 796,
+      "depth_mm": 1593
+    },
+    {
+      "code": "ST-MFG-2",
+      "x_mm": 12433,
+      "y_mm": 19521,
+      "z_mm": 0,
+      "width_mm": 796,
+      "depth_mm": 1593
+    },
+    {
+      "code": "ST-MFG-3",
+      "x_mm": 12433,
+      "y_mm": 21379,
+      "z_mm": 0,
+      "width_mm": 796,
+      "depth_mm": 1593
+    },
+    {
+      "code": "ST-MFG-4",
+      "x_mm": 12433,
+      "y_mm": 23238,
+      "z_mm": 0,
+      "width_mm": 796,
+      "depth_mm": 1593
+    },
+    {
+      "code": "SPARES-01",
+      "x_mm": 8796,
+      "y_mm": 655,
+      "z_mm": 0,
+      "width_mm": 1239,
+      "depth_mm": 743
+    },
+    {
+      "code": "CART-START",
+      "x_mm": 2743,
+      "y_mm": 8283,
+      "z_mm": 0,
+      "width_mm": 354,
+      "depth_mm": 708
+    },
+    {
+      "code": "MFG-LINE",
+      "x_mm": 9999,
+      "y_mm": 19432,
+      "z_mm": 0,
+      "width_mm": 531,
+      "depth_mm": 2301
+    }
+  ]
+}

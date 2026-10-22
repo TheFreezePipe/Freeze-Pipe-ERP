@@ -1,0 +1,11 @@
+Face,Rack,Side,Aisle,Walk direction,Bays,First bay at,Zone default,Pickable levels,Walk order of face,Aisle width ft (measure),Notes
+01,R01,east,A,north → south,4,north end,RTS,"1,2",1,"Walk starts at the pack stations and heads south down aisle A. Bays 3-4 are BOX, skipped by pick routes.",
+02,R02,west,A,north → south,3,north end,RTS,"1,2",2,"Same aisle as 01, opposite side; picked on the same pass.",
+03,R02,east,B,south → north,3,south end,RTS,"1,2",3,Turn at the south end and come back north on the east side of R02.,
+04,R03,west,C,south → north,4,south end,RTS,"1,2",4,Continue north along the west face of R03 (open floor on this side).,
+05,R03,east,D,north → south,4,north end,RAW,"1,2",5,Around the north end into the raw aisle. Picked only when RTS is stored here.,
+06,R04,west,D,north → south,4,north end,RAW,"1,2",6,Opposite side of aisle D.,
+07,R07,north,B,west → east,2,west,ACC,1,0,Accessory caps by the cart start; sequenced first because they sit next to the pack stations.,
+08,R05,both,MFG,-,1,-,WIP,-,99,Manufacturing only.,
+09,R08/R09,north,-,west → east,3,west,MISC,-,99,"Misc shelving, not routed.",
+"Yellow = confirm on the floor: the walk direction and which end bay 01 starts at decide every label, so walk it before printing.",,,,,,,,,,,
