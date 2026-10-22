@@ -25,13 +25,16 @@ Both are written on first sighting (`original_price` = live price,
 
 ## One-time setup (go-live)
 
-1. **Shopify custom app** (owner does this in Shopify admin):
-   Settings → Apps and sales channels → Develop apps → Create an app
-   (name: `ERP one-of-one markdown`) → Configure Admin API scopes →
-   tick `read_products` and `write_products` → Save → Install app →
-   reveal the Admin API access token.
-2. **Set the secret** on prod (owner pastes the token; never store it in git):
+1. **Shopify app** with the `read_products` and `write_products` scopes,
+   installed on the store. Either kind works:
+   - Dev Dashboard app: copy its client ID + client secret; the function
+     mints a 24h token per run (client credentials grant).
+   - Legacy admin custom app (Settings → Apps → Develop apps): install it
+     and copy the revealed `shpat_` Admin API access token.
+2. **Set the secret(s)** on prod (never store them in git):
    ```bash
+   supabase secrets set SHOPIFY_API_KEY=... SHOPIFY_API_SECRET=shpss_... --project-ref pnqujtugddxusllkikje
+   # or, for a legacy custom app:
    supabase secrets set SHOPIFY_ADMIN_TOKEN=shpat_... --project-ref pnqujtugddxusllkikje
    ```
    Optional on the same command: `OOO_CLOCK_NOT_BEFORE=2026-10-22` to start

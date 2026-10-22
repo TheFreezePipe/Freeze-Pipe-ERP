@@ -41,8 +41,13 @@
 //                            is NOT written (so the real alert still fires)
 //
 // Secrets / config (Supabase edge secrets):
-//   SHOPIFY_ADMIN_TOKEN   required  custom-app Admin API token
-//                                   (scopes: read_products, write_products)
+//   SHOPIFY_API_KEY +     one of    app client id + secret: the function mints
+//   SHOPIFY_API_SECRET    these     a short-lived Admin token per run (client
+//                                   credentials grant; app must be installed
+//                                   on the store with read_products +
+//                                   write_products)
+//   SHOPIFY_ADMIN_TOKEN             ...or a long-lived shpat_ Admin API token
+//                                   (legacy custom app); wins when set
 //   RESEND_API_KEY        required  for the floor alert
 //   SHOPIFY_SHOP_DOMAIN   optional  default fet-innovations.myshopify.com
 //   SHOPIFY_API_VERSION   optional  default 2026-07
@@ -64,6 +69,8 @@ const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
 const REPORT_FROM = Deno.env.get("REPORT_FROM") ?? "Freeze Pipe ERP <reports@freezepipeinventory.com>";
 
 const SHOPIFY_ADMIN_TOKEN = Deno.env.get("SHOPIFY_ADMIN_TOKEN") ?? "";
+const SHOPIFY_API_KEY = Deno.env.get("SHOPIFY_API_KEY") ?? "";
+const SHOPIFY_API_SECRET = Deno.env.get("SHOPIFY_API_SECRET") ?? "";
 const SHOP_DOMAIN = Deno.env.get("SHOPIFY_SHOP_DOMAIN") ?? "fet-innovations.myshopify.com";
 const API_VERSION = Deno.env.get("SHOPIFY_API_VERSION") ?? "2026-07";
 const PRODUCT_HANDLE = Deno.env.get("OOO_PRODUCT_HANDLE") ?? "one-off-drops";
@@ -92,10 +99,38 @@ function jwtRole(authHeader: string | null): string | null {
 }
 
 // ---- Shopify Admin GraphQL ----
+// Token resolution: a long-lived SHOPIFY_ADMIN_TOKEN wins; otherwise the
+// client-credentials grant turns SHOPIFY_API_KEY + SHOPIFY_API_SECRET into a
+// 24h token, minted once per invocation (the job runs daily, so never reused
+// across runs and never stored).
+let accessToken: string | null = null;
+async function getToken(): Promise<string> {
+  if (accessToken) return accessToken;
+  if (SHOPIFY_ADMIN_TOKEN) return (accessToken = SHOPIFY_ADMIN_TOKEN);
+  if (!SHOPIFY_API_KEY || !SHOPIFY_API_SECRET) throw new Error("no Shopify credentials: set SHOPIFY_ADMIN_TOKEN, or SHOPIFY_API_KEY + SHOPIFY_API_SECRET");
+  const resp = await fetch(`https://${SHOP_DOMAIN}/admin/oauth/access_token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "client_credentials", client_id: SHOPIFY_API_KEY, client_secret: SHOPIFY_API_SECRET }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!resp.ok) {
+    const text = (await resp.text()).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    throw new Error(`Shopify token grant HTTP ${resp.status}: ${text.slice(0, 160)}`);
+  }
+  const body = await resp.json() as { access_token?: string; scope?: string };
+  if (!body.access_token) throw new Error("Shopify token grant returned no access_token");
+  const scopes = (body.scope ?? "").split(",");
+  for (const need of ["read_products", "write_products"]) {
+    if (!scopes.includes(need)) throw new Error(`Shopify app is missing the ${need} scope (has: ${body.scope})`);
+  }
+  return (accessToken = body.access_token);
+}
+
 async function shopify<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
   const resp = await fetch(`https://${SHOP_DOMAIN}/admin/api/${API_VERSION}/graphql.json`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": SHOPIFY_ADMIN_TOKEN },
+    headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": await getToken() },
     body: JSON.stringify({ query, variables }),
     signal: AbortSignal.timeout(30_000),
   });
@@ -323,7 +358,9 @@ Deno.serve(async (req) => {
   try { opts = await req.json(); } catch { /* empty body ok */ }
   const dryRun = opts.dry_run === true;
   const testTo = opts.test_to ? (Array.isArray(opts.test_to) ? opts.test_to : [opts.test_to]) : null;
-  if (!SHOPIFY_ADMIN_TOKEN) return json({ ok: false, error: "SHOPIFY_ADMIN_TOKEN is not set" }, 500);
+  if (!SHOPIFY_ADMIN_TOKEN && !(SHOPIFY_API_KEY && SHOPIFY_API_SECRET)) {
+    return json({ ok: false, error: "no Shopify credentials: set SHOPIFY_ADMIN_TOKEN, or SHOPIFY_API_KEY + SHOPIFY_API_SECRET" }, 500);
+  }
 
   const now = new Date();
   const runId = crypto.randomUUID();
