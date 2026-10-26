@@ -34,6 +34,7 @@ import {
   useFreightLineItems,
   useConfirmFreightReceipt,
   useAllCartonGroupTotals,
+  useShipmentPutawayTotals,
   type FreightLineItemWithProduct,
 } from "@/lib/hooks";
 import type { FreightShipment } from "@/types/database";
@@ -256,6 +257,12 @@ export default function FreightDashboard() {
     };
   }, [filter, revealedOlderCount, freight, linesByShipment]);
 
+  // Putaway progress for the cards that can have it: shipments being
+  // received and the delivered ones on screen (one query for all of them).
+  const { data: putawayTotals } = useShipmentPutawayTotals(
+    [...sortedFreight.pendingReceipt, ...sortedFreight.delivered].map(f => f.id),
+  );
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
@@ -380,6 +387,7 @@ export default function FreightDashboard() {
                   key={f.id}
                   shipment={f}
                   lines={linesByShipment.get(f.id) ?? []}
+                  putaway={putawayTotals?.get(f.id) ?? null}
                 />
               ))}
             </>
@@ -400,6 +408,7 @@ export default function FreightDashboard() {
               key={f.id}
               shipment={f}
               lines={linesByShipment.get(f.id) ?? []}
+              putaway={putawayTotals?.get(f.id) ?? null}
             />
           ))}
 
@@ -418,6 +427,7 @@ export default function FreightDashboard() {
               key={f.id}
               shipment={f}
               lines={linesByShipment.get(f.id) ?? []}
+              putaway={putawayTotals?.get(f.id) ?? null}
             />
           ))}
 
@@ -461,9 +471,12 @@ export default function FreightDashboard() {
 function ShipmentCard({
   shipment,
   lines,
+  putaway = null,
 }: {
   shipment: FreightShipment;
   lines: FreightLineItemWithProduct[];
+  /** Putaway tasks the shipment's check-ins opened (license plates or loose units); null when none. */
+  putaway?: { total: number; done: number } | null;
 }) {
   const navigate = useNavigate();
   const { isAdmin, isManager, user } = useAuth();
@@ -491,6 +504,9 @@ function ShipmentCard({
   // no per-card carton-group fetch is needed.
   const receivedUnits = lines.reduce((s, l) => s + (l.quantity_received ?? 0), 0);
   const isReceiving = receivedUnits > 0 && !shipment.receipt_confirmed_at;
+  // "n of N put away" while receiving, and afterwards until the last one is shelved.
+  const showPutaway = !!putaway && putaway.total > 0 && (isPendingReceipt || putaway.done < putaway.total);
+  const putawayDone = !!putaway && putaway.done >= putaway.total;
   // Cartons physically on the dock (carrier delivered, pieces dropped, or a
   // check-in already happened): the green glow. Merely due / past the water
   // gets the quiet receiving banner without the glow.
@@ -657,6 +673,18 @@ function ShipmentCard({
                     title="Partially received — some units are checked in but the shipment isn't closed out yet"
                   >
                     Receiving · {receivedUnits.toLocaleString()}/{totalUnits.toLocaleString()} units
+                  </Badge>
+                )}
+                {showPutaway && putaway && (
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "text-[10px] py-0 tabular-nums",
+                      putawayDone ? "border-green-500/40 text-green-400" : "border-amber-500/40 text-amber-400",
+                    )}
+                    title="Checked-in cartons (or loose units) moved from IN-01 to a bay"
+                  >
+                    {putaway.done.toLocaleString()} of {putaway.total.toLocaleString()} put away
                   </Badge>
                 )}
                 {missingTracking && (

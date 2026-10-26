@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2, Printer, XCircle } from "lucide-react";
+import { PrintJobStatus, type BrowserPrintJob } from "@/components/warehouse/PrintJobStatus";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,7 +12,6 @@ import {
 } from "@/components/ui/dialog";
 import {
   useWhMarkPrinted,
-  useWhPrintJob,
   useWhRequestLabels,
   type WhLabelKind,
   type WhPrintJobResult,
@@ -35,6 +35,12 @@ import {
  * the label stock (or "Save as PDF" in the print dialog). The person confirms
  * the labels came out; only then does rpc_wh_mark_printed stamp them. Closing
  * without confirming cancels the job.
+ *
+ * A job that went to a station printer shows PrintJobStatus (queued,
+ * printing at <printer>, printed, failed) with Reprint, Print elsewhere and
+ * Print from browser; the last switches this sheet to the browser path for
+ * that job's own labels. `existingJob` opens the sheet straight on that path
+ * for a job made elsewhere (PrintJobStatus on other pages).
  */
 
 interface LabelSheetProps {
@@ -46,6 +52,8 @@ interface LabelSheetProps {
   /** What is being printed, for the title ("3 location labels"). */
   title?: string;
   onPrinted?: () => void;
+  /** Print this existing job from the browser instead of queuing a new one. */
+  existingJob?: BrowserPrintJob | null;
 }
 
 const PREVIEW_LIMIT = 12;
@@ -143,24 +151,42 @@ interface SheetState {
   error: string | null;
 }
 
-export default function LabelSheet({ open, onOpenChange, kind, ids, from = "desktop", title, onPrinted }: LabelSheetProps) {
+export default function LabelSheet({
+  open,
+  onOpenChange,
+  kind,
+  ids,
+  from = "desktop",
+  title,
+  onPrinted,
+  existingJob = null,
+}: LabelSheetProps) {
   const { mutate: requestLabels } = useWhRequestLabels();
   const mark = useWhMarkPrinted();
   const [state, setState] = useState<SheetState | null>(null);
   const [printing, setPrinting] = useState(false);
   const [printError, setPrintError] = useState<string | null>(null);
+  // "Print from browser" on a station job: that job (or its replacement) prints here instead.
+  const [fallback, setFallback] = useState<{ key: string; job: BrowserPrintJob } | null>(null);
   const requestedFor = useRef<string | null>(null);
-  const key = `${kind}:${ids.join(",")}`;
+  const key = existingJob ? `job:${existingJob.id}` : `${kind}:${ids.join(",")}`;
   const current = state?.key === key ? state : null;
-  const phase: Phase = current?.phase ?? "requesting";
+  const phase: Phase = current?.phase ?? (existingJob ? "ready" : "requesting");
   const job = current?.job ?? null;
   const error = printError ?? current?.error ?? null;
 
-  const { data: agentJob } = useWhPrintJob(job?.target === "printer" ? job.job_id : null);
+  // The job this browser prints, if any: one handed in, a station job switched here, or a browser job.
+  const browser: BrowserPrintJob | null = existingJob
+    ? existingJob
+    : fallback?.key === key
+      ? fallback.job
+      : job?.target === "browser" && job.status === "queued"
+        ? { id: job.job_id, payload: job.payload ?? null, kind, itemIds: ids, cancelOnClose: true }
+        : null;
 
   // Queue the job once per opening (a ref, so StrictMode's second effect run does not queue twice).
   useEffect(() => {
-    if (!open || ids.length === 0 || requestedFor.current === key) return;
+    if (!open || existingJob || ids.length === 0 || requestedFor.current === key) return;
     requestedFor.current = key;
     requestLabels(
       { kind, ids, from },
@@ -170,26 +196,28 @@ export default function LabelSheet({ open, onOpenChange, kind, ids, from = "desk
           setState({ key, phase: "error", job: null, error: err instanceof Error ? err.message : "Couldn't queue the labels" }),
       },
     );
-  }, [open, key, ids, kind, from, requestLabels]);
+  }, [open, existingJob, key, ids, kind, from, requestLabels]);
 
+  const viewPayload = browser?.payload ?? job?.payload ?? null;
   const parsed = useMemo(() => {
-    if (!job?.payload) return null;
+    if (!viewPayload) return null;
     try {
-      const payload = parseLabelPayload(job.payload);
+      const payload = parseLabelPayload(viewPayload);
       return { payload, models: labelModels(payload) };
     } catch {
       return null;
     }
-  }, [job]);
+  }, [viewPayload]);
 
-  const browserJob = job?.target === "browser" && job.status === "queued";
+  const browserJob = !!browser;
 
   function close() {
-    if (job && browserJob && phase !== "printed") {
-      mark.mutate({ jobId: job.job_id, status: "cancelled" });
+    if (browser && browser.cancelOnClose && phase !== "printed") {
+      mark.mutate({ jobId: browser.id, status: "cancelled" });
     }
     requestedFor.current = null;
     setState(null);
+    setFallback(null);
     setPrintError(null);
     onOpenChange(false);
   }
@@ -208,9 +236,9 @@ export default function LabelSheet({ open, onOpenChange, kind, ids, from = "desk
   }
 
   function confirmPrinted() {
-    if (!job) return;
+    if (!browser) return;
     mark.mutate(
-      { jobId: job.job_id, status: "printed" },
+      { jobId: browser.id, status: "printed" },
       {
         onSuccess: () => {
           setState({ key, phase: "printed", job, error: null });
@@ -257,33 +285,18 @@ export default function LabelSheet({ open, onOpenChange, kind, ids, from = "desk
           </div>
         )}
 
-        {job && job.target === "printer" && (
+        {job && job.target === "printer" && !browser && (
           <div className="space-y-2 text-sm">
             <p>
               Sent to <span className="font-medium">{job.printer?.name ?? job.printer?.code ?? "the station printer"}</span>.
             </p>
-            <p className="flex items-center gap-2 text-muted-foreground">
-              {agentJob?.status === "printed" ? (
-                <CheckCircle2 className="h-4 w-4 text-green-400" />
-              ) : agentJob?.status === "failed" ? (
-                <XCircle className="h-4 w-4 text-destructive" />
-              ) : (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              )}
-              {agentJob?.status === "failed"
-                ? `Failed: ${agentJob.error ?? "unknown error"}`
-                : agentJob?.status === "printed"
-                  ? "Printed"
-                  : agentJob?.status === "claimed"
-                    ? "Printing…"
-                    : "Waiting for the print agent…"}
-            </p>
+            <PrintJobStatus jobId={job.job_id} from={from} onPrintFromBrowser={(bj) => setFallback({ key, job: bj })} />
           </div>
         )}
 
         {browserJob && (
           <div className="space-y-3">
-            {job?.message && <p className="text-xs text-muted-foreground">{job.message}</p>}
+            {job?.message && !existingJob && !fallback && <p className="text-xs text-muted-foreground">{job.message}</p>}
             {!parsed ? (
               <p className="text-sm text-destructive">The job came back without printable labels.</p>
             ) : (
@@ -323,7 +336,7 @@ export default function LabelSheet({ open, onOpenChange, kind, ids, from = "desk
             </>
           )}
           <Button variant="ghost" onClick={close}>
-            {browserJob && phase !== "printed" ? "Cancel job" : "Close"}
+            {browserJob && phase !== "printed" && browser?.cancelOnClose ? "Cancel job" : "Close"}
           </Button>
         </DialogFooter>
       </DialogContent>

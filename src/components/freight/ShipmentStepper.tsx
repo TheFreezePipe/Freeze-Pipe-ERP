@@ -4,14 +4,23 @@ import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { FreightShipment } from "@/types/database";
-import { STAGE_LABELS, stageStates, type StageShipment, type StageState } from "./shipment-stages";
+import {
+  STAGE_LABELS,
+  stageStates,
+  stagesWithWarehouse,
+  type StageShipment,
+  type StageState,
+  type WarehouseProgress,
+} from "./shipment-stages";
 
 // ---------------------------------------------------------------------------
 // ShipmentStepper — horizontal Created → Shipped → Customs → Ground → Received
 // stepper for the freight detail page (replaces the old status timeline card).
 // Which stage is done, current or future is stageStates' answer
 // (./shipment-stages); MiniStepper at the bottom of this file draws the same
-// answer as five dots for the launch supply ledger.
+// answer as five dots for the launch supply ledger. With the physical layer
+// (`warehouse` given) the detail page shows Label cartons before Received and
+// Put away after it, each with its count under the label instead of a date.
 //
 // Done = green dot with check, current = accent dot with halo, future =
 // hollow dot. Beneath the stepper a right-aligned "Scan history (N events)"
@@ -23,6 +32,8 @@ import { STAGE_LABELS, stageStates, type StageShipment, type StageState } from "
 
 interface Props {
   shipment: FreightShipment;
+  /** LPN and putaway progress; null for a shipment the physical layer never touched. */
+  warehouse?: WarehouseProgress | null;
 }
 
 interface Stage {
@@ -30,6 +41,8 @@ interface Stage {
   state: StageState;
   /** ISO date/timestamp shown under the label (null = no knowledge yet). */
   date: string | null;
+  /** A warehouse stage's count ("21/31"), shown instead of a date. */
+  progress: string | null;
 }
 
 interface ScanEvent {
@@ -41,10 +54,10 @@ interface ScanEvent {
   detail?: string | null;
 }
 
-export function ShipmentStepper({ shipment }: Props) {
+export function ShipmentStepper({ shipment, warehouse = null }: Props) {
   const [historyOpen, setHistoryOpen] = useState(false);
 
-  const { states, deliveredUnconfirmed } = stageStates(shipment);
+  const { stages: stageViews, deliveredUnconfirmed } = stagesWithWarehouse(shipment, warehouse);
   const isHighRisk = shipment.status === "high_risk";
 
   // One date per stage, in STAGE_LABELS order. Ground-phase knowledge
@@ -52,14 +65,15 @@ export function ShipmentStepper({ shipment }: Props) {
   // the carrier-reported arrival date. No dedicated customs-cleared timestamp
   // exists on the shipment row, so Customs renders dateless until one is
   // persisted.
-  const dates: (string | null)[] = [
-    shipment.created_at,
-    shipment.ship_date,
-    null,
-    shipment.carrier_last_piece_event_at ?? shipment.carrier_pieces_updated_at ?? shipment.actual_arrival_date,
-    shipment.receipt_confirmed_at,
-  ];
-  const stages: Stage[] = STAGE_LABELS.map((label, i) => ({ label, state: states[i], date: dates[i] }));
+  const dates: Record<string, string | null> = {
+    [STAGE_LABELS[0]]: shipment.created_at,
+    [STAGE_LABELS[1]]: shipment.ship_date,
+    [STAGE_LABELS[2]]: null,
+    [STAGE_LABELS[3]]:
+      shipment.carrier_last_piece_event_at ?? shipment.carrier_pieces_updated_at ?? shipment.actual_arrival_date,
+    [STAGE_LABELS[4]]: shipment.receipt_confirmed_at,
+  };
+  const stages: Stage[] = stageViews.map((v) => ({ ...v, date: dates[v.label] ?? null }));
 
   const events = useMemo<ScanEvent[]>(() => {
     const list: ScanEvent[] = [];
@@ -168,7 +182,7 @@ export function ShipmentStepper({ shipment }: Props) {
                   {stage.label}
                 </p>
                 <p className="text-[10px] text-muted-foreground tabular-nums">
-                  {stage.date ? format(parseISO(stage.date), "MMM d") : "—"}
+                  {stage.progress ?? (stage.date ? format(parseISO(stage.date), "MMM d") : "—")}
                 </p>
               </div>
             );

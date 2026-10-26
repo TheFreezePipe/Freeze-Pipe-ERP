@@ -6682,6 +6682,48 @@ export type Database = {
         }
         Returns: undefined
       }
+      _freight_lpn_bucket: {
+        Args: { p_pre_filled: boolean; p_sku_id: string }
+        Returns: string
+      }
+      _freight_mint_cartons: {
+        Args: {
+          p_actor: string
+          p_carton_group_id: string
+          p_in01: string
+          p_mv_group: string
+          p_r0: number
+          p_r1: number
+          p_receipt_id: string
+          p_shipment_id: string
+        }
+        Returns: Json
+      }
+      _freight_receive_loose: {
+        Args: {
+          p_actor: string
+          p_bucket: string
+          p_in01: string
+          p_mv_group: string
+          p_receipt_id: string
+          p_shipment_id: string
+          p_sku_id: string
+          p_units: number
+        }
+        Returns: string
+      }
+      _freight_void_cartons: {
+        Args: {
+          p_actor: string
+          p_carton_group_id: string
+          p_mv_group: string
+          p_r0: number
+          p_r1: number
+          p_receipt_id: string
+          p_reversed: Json
+        }
+        Returns: Json
+      }
       _recompute_consumption_for_parent: {
         Args: { p_parent_order_id: string }
         Returns: undefined

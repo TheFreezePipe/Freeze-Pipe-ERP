@@ -1,0 +1,10 @@
+{
+  // Type-checking only (npm run check). tsconfig.json maps bwip-js/generic to the
+  // .mjs first, which is what tsx loads at run time; tsc needs the .d.ts beside it.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "bwip-js/generic": ["./node_modules/bwip-js/dist/bwip-js-gen.d.ts"]
+    }
+  }
+}

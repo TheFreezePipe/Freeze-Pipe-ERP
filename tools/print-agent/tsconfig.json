@@ -1,0 +1,25 @@
+{
+  // tsx reads this at run time. The paths entry resolves bwip-js/generic (imported by
+  // ../../src/lib/warehouse/labels.ts) from this folder's node_modules, so the agent
+  // runs without the web app's dependencies installed. Type-checking: tsconfig.check.json.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "baseUrl": ".",
+    "paths": {
+      "bwip-js/generic": ["./node_modules/bwip-js/dist/bwip-js-gen.mjs", "./node_modules/bwip-js/dist/bwip-js-gen.d.ts"]
+    }
+  },
+  "include": ["src", "test", "../../src/lib/warehouse/labels.ts"]
+}

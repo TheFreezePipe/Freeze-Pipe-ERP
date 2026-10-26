@@ -75,6 +75,8 @@ SELECT is(fn_gtin_normalize('13833251'), '138332000051', 'A8 normalize = first c
 -- =============================================================
 -- B. Outbound guard
 -- =============================================================
+-- Staging runs in practice mode; start from the seeded default inside this transaction.
+UPDATE wh_settings SET value = '{"mode":"blocked"}'::jsonb WHERE key = 'outbound';
 SELECT is(fn_outbound_allowed('browser_print'), false, 'B1 blocked by default');
 UPDATE wh_settings SET value = '{"mode":"practice"}'::jsonb WHERE key = 'outbound';
 SELECT is(fn_outbound_allowed('browser_print'), true,  'B2 practice allows browser print');

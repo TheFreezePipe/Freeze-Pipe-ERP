@@ -42,6 +42,8 @@ import { getCarrierTrackingUrl } from "@/lib/tracking/carrier-urls";
 import { StatusSelectWithOverride } from "@/components/freight/StatusSelectWithOverride";
 import { ShipmentStepper } from "@/components/freight/ShipmentStepper";
 import { ShipmentManifest } from "@/components/freight/ShipmentManifest";
+import { PutawayQueueCard } from "@/components/freight/PutawayQueueCard";
+import { warehouseProgress } from "@/components/freight/lpn-progress";
 import { isReceivingActive } from "@/lib/freight/receiving";
 import { INVENTORY_ROUTES } from "@/lib/inventory-routes";
 import { CloseShortDialog } from "@/components/freight/CloseShortDialog";
@@ -51,6 +53,9 @@ import {
   useUpdateFreightShipment,
   useFactoryOrders,
   useCartonGroups,
+  useShipmentContainers,
+  useShipmentPutaway,
+  useWarehouseSettings,
 } from "@/lib/hooks";
 import { useAuth } from "@/lib/auth-context";
 
@@ -64,6 +69,9 @@ import { useAuth } from "@/lib/auth-context";
 //      with the collapsed scan history beneath it.
 //   4. Dock check-in banner + 5. manifest table (ShipmentManifest — replaces
 //      the old ReceivingPanel and Line Items card).
+//   5b. Putaway queue (PutawayQueueCard) once check-in has minted license
+//      plates or loose-unit putaways (physical_layer.mint_lpns, design §7);
+//      the stepper then adds Label cartons and Put away.
 //   6. Cost strip with expandable breakdown + close-short escape hatch.
 // ---------------------------------------------------------------------------
 
@@ -81,6 +89,11 @@ export default function FreightDetail() {
   const { data: shipment, isLoading: shipmentLoading } = useFreightShipment(id ?? "");
   const { data: lineItemsRaw = [], isLoading: lineItemsLoading } = useFreightLineItems(id);
   const { data: groups = [], isLoading: groupsLoading } = useCartonGroups(id ?? "");
+  // Physical layer: the shipment's license plates and putaway tasks, and whether check-in mints them.
+  const { data: containers = [] } = useShipmentContainers(id);
+  const { data: putaway = [] } = useShipmentPutaway(id);
+  const { data: whSettings } = useWarehouseSettings();
+  const mintLpns = (whSettings?.physical_layer as { mint_lpns?: boolean } | undefined)?.mint_lpns === true;
   // Factory orders — needed to derive the manifest's "From order" links from
   // each line item's source_factory_order_item_id. Building a tiny lookup map
   // below is cheaper than per-row hooks.
@@ -299,6 +312,10 @@ export default function FreightDetail() {
     ? totalCartons > 0 && receivedCartons >= totalCartons
     : totalUnits > 0 && receivedUnits >= totalUnits;
   const partiallyReceived = receivedUnits > 0 && !fullyDone;
+  // The stepper's Label cartons / Put away stages: for a shipment with cartons
+  // or putaways, or one still to be checked in while minting is on.
+  const showWarehouseStages = containers.length > 0 || putaway.length > 0 || (mintLpns && !isConfirmed && hasReceivable);
+  const whProgress = showWarehouseStages ? warehouseProgress(groups, containers, putaway) : null;
 
   const totalCostLineItems = lineItemsRaw.reduce((s, li) => s + (li.unit_cost ?? 0) * li.quantity, 0);
   const totalRetailValue = lineItemsRaw.reduce((s, li) => s + (li.retail_value ?? 0) * li.quantity, 0);
@@ -590,7 +607,7 @@ export default function FreightDetail() {
       </div>
 
       {/* ---- 3. Stepper + scan history -------------------------------------- */}
-      <ShipmentStepper shipment={shipment} />
+      <ShipmentStepper shipment={shipment} warehouse={whProgress} />
 
       {/* ---- 4 + 5. Dock banner + manifest ---------------------------------- */}
       <ShipmentManifest
@@ -599,7 +616,13 @@ export default function FreightDetail() {
         groups={groups}
         receivingActive={receivingActive}
         foItemIdToOrder={foItemIdToOrder}
+        containers={containers}
+        putaway={putaway}
+        mintLpns={mintLpns}
       />
+
+      {/* ---- 5b. Putaway queue ------------------------------------------------- */}
+      <PutawayQueueCard rows={putaway} canEdit={canEdit} />
 
       {/* ---- 6. Cost strip --------------------------------------------------- */}
       <Card>

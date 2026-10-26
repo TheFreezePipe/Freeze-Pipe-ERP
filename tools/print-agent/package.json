@@ -1,0 +1,28 @@
+{
+  "name": "fp-print-agent",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Freeze Pipe ERP print agent: claims warehouse label jobs and sends ZPL to Zebra printers.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.6"
+  },
+  "scripts": {
+    "start": "node --import tsx src/main.ts",
+    "once": "node --import tsx src/main.ts --once",
+    "render": "node --import tsx src/render-cli.ts",
+    "check": "tsc -p tsconfig.check.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.101.1",
+    "bwip-js": "^4.11.4",
+    "dotenv": "^16.4.7",
+    "tsx": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.4"
+  }
+}

@@ -26,3 +26,44 @@ export function parseScan(raw: string): ParsedScan {
   if (/^\d+$/.test(value) && GTIN_LENGTHS.has(value.length)) return { kind: "gtin", value };
   return { kind: "sku", value };
 }
+
+const STATION_RE = /^%Z?(ST-[A-Z0-9]+(?:-[A-Z0-9]+)*)$/;
+const CARTON_RE = /^(?:%Z?)?(C-[A-Z0-9]+(?:-[A-Z0-9]+)*)$/;
+const BAY_RE = /^(\d{2})-(\d{2})-(\d)$/;
+
+/**
+ * A station label ("%ST-MFG-1", or "%ZST-MFG-1" printed in practice mode)
+ * starts a station session wherever a ScanSink is live (§5.5). Returns the
+ * station code, or null for anything else.
+ */
+export function stationCode(raw: string): string | null {
+  const m = STATION_RE.exec(raw.trim().toUpperCase());
+  return m ? m[1] : null;
+}
+
+/**
+ * The carton code of an LPN scan: "%C-466-007", the practice "%ZC-466-007"
+ * or the code typed without the prefix. Upper-cased; null for anything else.
+ */
+export function cartonCode(raw: string): string | null {
+  const m = CARTON_RE.exec(raw.trim().toUpperCase());
+  return m ? m[1] : null;
+}
+
+export interface BayParts {
+  face: string;
+  bay: string;
+  level: string;
+}
+
+/** "02-01-3" → { face: "02", bay: "01", level: "3" }; named codes (IN-01, ST-DOCK) → null. */
+export function bayParts(code: string | null | undefined): BayParts | null {
+  const m = BAY_RE.exec((code ?? "").trim());
+  return m ? { face: m[1], bay: m[2], level: m[3] } : null;
+}
+
+/** "02-01-3" → "Face 02 · Bay 01 · Level 3" (the label's words line); null for named codes. */
+export function bayWords(code: string | null | undefined): string | null {
+  const p = bayParts(code);
+  return p ? `Face ${p.face} · Bay ${p.bay} · Level ${p.level}` : null;
+}

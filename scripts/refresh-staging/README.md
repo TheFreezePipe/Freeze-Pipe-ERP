@@ -198,6 +198,40 @@ As loaded on 2026-10-22: 445 cartons (337 sealed, 108 open) holding 4,739 units 
 45,523; raw 628 of 628; prefilled 24 of 24). Exit codes: 0 ok, 1 a call failed or rows were rejected, 3 stock already
 exists, 4 refused (not staging).
 
+## The print agent on staging
+
+`tools/print-agent` prints label jobs on Zebra printers (its README covers install, the Windows service and the
+address forms). On staging it is set up with two owner-side scripts, both refusing any project but staging:
+
+```
+python tools\print-agent\setup\staging_agent_user.py           # the print-agent login + tools/print-agent/.env
+python tools\print-agent\setup\staging_printer.py --code DOCK-1 --address file://C:/labels-out --agent agent-dev --station ST-DOCK
+cd tools\print-agent && npm ci && npm run once
+```
+
+- `staging_agent_user.py` creates `print-agent@freezepipe.test` (role `user`, `is_print_agent` set as the owner) and
+  writes `tools/print-agent/.env` (git-ignored) with a random password that is never printed; `--rotate` replaces
+  it. A `--rebuild` keeps the login (a staging-only login) but recreates its profile without `is_print_agent`, and
+  drops `wh_printers`: run both scripts again afterwards.
+- `staging_printer.py` upserts a printer by code. `file://` writes one `.zpl` file per job, which is how staging
+  practises without a printer.
+- Staging runs in outbound **practice**, where `rpc_wh_request_labels` sends every job to the browser, so the agent
+  never sees one by itself. To exercise it, queue a job and point it at the printer by hand as the owner (keep
+  outbound off `live` on staging):
+
+  ```sql
+  SELECT rpc_wh_request_labels('location', ARRAY[(SELECT id FROM wh_locations WHERE code = 'IN-01')], 'desktop',
+                               (SELECT id FROM wh_printers WHERE code = 'DOCK-1'));
+  UPDATE wh_print_jobs SET printer_id = (SELECT id FROM wh_printers WHERE code = 'DOCK-1')
+   WHERE id = '<job_id from above>' AND status = 'queued' AND printer_id IS NULL;
+  ```
+
+  A running agent prints it within a second or two over Realtime (15 s at most by polling) and marks it printed.
+
+As left on 2026-10-23: the login above; `DOCK-1` (agent `agent-dev`, station `ST-DOCK`, `white_4x2`, `file://`
+pointing at a temporary folder on the developer's PC, so re-point it with `staging_printer.py` before use); two
+practice jobs printed through it.
+
 ## When something goes wrong
 
 - **A migration fails twice** (before and after the accounts step): fix it, then `--rebuild --no-backup`.

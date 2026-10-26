@@ -78,3 +78,84 @@ export function stageStates(shipment: StageShipment): { states: StageState[]; de
   });
   return { states, deliveredUnconfirmed };
 }
+
+// ---------------------------------------------------------------------------
+// With the physical layer (design §7, migration 20261023000001) the detail
+// page adds two stages around Received:
+//   … Ground → Label cartons → Received → Put away
+// Label cartons is the dock's check-in, each carton getting its LPN label;
+// Put away is the cartons (or loose units) leaving IN-01 for a bay.
+//   * Once check-in has started (an LPN or a putaway task exists) the
+//     transit stages read done: the cartons are on the dock, whatever the
+//     carrier feed says.
+//   * Label cartons: current while any carton is labelled and the shipment
+//     is not fully received or a label is still unprinted; done once
+//     received with every label printed. Shown only for a carton plan.
+//   * Put away: current once received with tasks still open; done when
+//     every task is; before receipt it stays future but shows its count.
+// ---------------------------------------------------------------------------
+
+export const LABEL_STAGE = "Label cartons";
+export const PUTAWAY_STAGE = "Put away";
+
+/** What the physical layer knows about one shipment. */
+export interface WarehouseProgress {
+  /** Cartons in the carton plan (0 for a shipment received as loose units). */
+  cartonsPlanned: number;
+  /** Live LPNs minted so far (voided ones excluded) and how many have their label printed. */
+  labelled: number;
+  printed: number;
+  /** Putaway tasks (cartons and loose units, cancelled excluded) and how many are done. */
+  putawayTotal: number;
+  putawayDone: number;
+}
+
+export interface StageView {
+  label: string;
+  state: StageState;
+  /** "21/31" under a warehouse stage; null for the dated transit stages. */
+  progress: string | null;
+}
+
+export function stagesWithWarehouse(
+  shipment: StageShipment,
+  wh: WarehouseProgress | null,
+): { stages: StageView[]; deliveredUnconfirmed: boolean } {
+  const base = stageStates(shipment);
+  if (!wh) {
+    return {
+      stages: STAGE_LABELS.map((label, i) => ({ label, state: base.states[i], progress: null })),
+      deliveredUnconfirmed: base.deliveredUnconfirmed,
+    };
+  }
+  const received = !!shipment.receipt_confirmed_at;
+  const checkInStarted = wh.labelled > 0 || wh.putawayTotal > 0;
+  const stages: StageView[] = STAGE_LABELS.slice(0, 4).map((label, i) => ({
+    label,
+    state: checkInStarted ? "done" : base.states[i],
+    progress: null,
+  }));
+
+  if (wh.cartonsPlanned > 0 || wh.labelled > 0) {
+    const labelDone = received && wh.labelled > 0 && wh.printed >= wh.labelled;
+    stages.push({
+      label: LABEL_STAGE,
+      state: labelDone ? "done" : wh.labelled > 0 ? "current" : "future",
+      progress:
+        received && wh.printed < wh.labelled
+          ? `${wh.printed}/${wh.labelled} printed`
+          : `${wh.labelled}/${Math.max(wh.cartonsPlanned, wh.labelled)}`,
+    });
+  }
+
+  stages.push({ label: STAGE_LABELS[4], state: base.states[4], progress: null });
+
+  const putawayDone = received && wh.putawayTotal > 0 && wh.putawayDone >= wh.putawayTotal;
+  stages.push({
+    label: PUTAWAY_STAGE,
+    state: putawayDone ? "done" : received && wh.putawayTotal > 0 ? "current" : "future",
+    progress: wh.putawayTotal > 0 ? `${wh.putawayDone}/${wh.putawayTotal}` : null,
+  });
+
+  return { stages, deliveredUnconfirmed: base.deliveredUnconfirmed };
+}

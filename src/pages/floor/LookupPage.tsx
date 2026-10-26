@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import { AlertCircle, ArrowLeft } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { AlertCircle } from "lucide-react";
+import { TaskHeader } from "@/components/layout/TaskShell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -200,15 +201,8 @@ export default function LookupPage() {
     <div className="mx-auto max-w-lg space-y-4 md:space-y-6">
       <ResultFlash tone={flash} label={flash === "ok" ? match?.sku : unknown ? "No match" : undefined} />
 
-      <div className="flex items-center gap-2">
-        <Button asChild variant="ghost" size="icon" className="h-10 w-10 shrink-0 touch-manipulation">
-          <Link to="/go" aria-label="Back to floor">
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-        </Button>
-        <h1 className="flex-1 text-2xl font-bold">Look up</h1>
-        <ScanSink onScan={lookup} />
-      </div>
+      {/* Back arrow, title and scanner here; in the phone task shell they sit in its top bar. */}
+      <TaskHeader title="Look up" right={<ScanSink onScan={lookup} />} />
 
       {!scanned && (
         <Card>

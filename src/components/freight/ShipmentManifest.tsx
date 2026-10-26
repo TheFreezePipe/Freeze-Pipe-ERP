@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, lazy, Suspense } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,10 +7,13 @@ import { Progress } from "@/components/ui/progress";
 import {
   AlertTriangle,
   CheckCircle2,
+  Loader2,
   Minus,
   Package,
   PackageCheck,
   Plus,
+  Printer,
+  XCircle,
 } from "lucide-react";
 import { format, formatDistanceToNow, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -19,10 +22,22 @@ import { describeError } from "@/lib/supabase-error";
 import { useAuth } from "@/lib/auth-context";
 import {
   useRecordFreightReceipt,
+  useWhPrintJob,
   type CartonGroupWithSkus,
   type FreightLineItemWithProduct,
+  type FreightLpn,
+  type RecordFreightReceiptResult,
+  type ShipmentContainer,
+  type ShipmentPutawayRow,
+  type WhPrintJobResult,
 } from "@/lib/hooks";
 import type { FreightShipment } from "@/types/database";
+import { nextCartonPreview } from "@/lib/warehouse/carton-split";
+import type { BrowserPrintJob } from "@/components/warehouse/PrintJobStatus";
+import { groupLpns, loosePutaway, lpnRange, type GroupLpns } from "./lpn-progress";
+
+// Lazy: LabelSheet pulls in the barcode renderer (~1 MB); load it on first print.
+const LabelSheet = lazy(() => import("@/components/warehouse/LabelSheet"));
 
 // ---------------------------------------------------------------------------
 // ShipmentManifest — broker-style manifest table for the freight detail page.
@@ -41,6 +56,15 @@ import type { FreightShipment } from "@/types/database";
 //     sourced from (via line items' source_factory_order_item_id).
 //   * Non-catalog (sample) lines render muted at the bottom — quantity
 //     only, never credited to inventory.
+//
+// License plates (design §7, migration 20261023000001): once check-in mints
+// LPNs (physical_layer.mint_lpns), each group shows its LPN range chip
+// ("C-466-001…040", Reprint), a Put away column (n of N, amber until done)
+// appears, the correction button names the carton it voids ("Void
+// C-466-040"), the stepper previews the next carton ("carton 7 of 40 holds
+// 12"), and every +1 or "Check in all" prints that call's labels: the
+// LabelSheet for the browser path, or an inline status row when the job went
+// to the dock station's printer.
 // ---------------------------------------------------------------------------
 
 // The receiving-active rule (owner decision) lives in
@@ -60,6 +84,75 @@ interface Props {
   receivingActive: boolean;
   /** factory_order_items.id → its parent factory order, for "From order" links. */
   foItemIdToOrder: Map<string, FoRef>;
+  /** Cartons minted for this shipment, every state (useShipmentContainers). */
+  containers?: ShipmentContainer[];
+  /** This shipment's putaway tasks (useShipmentPutaway). */
+  putaway?: ShipmentPutawayRow[];
+  /** physical_layer.mint_lpns: check-in mints a license plate per carton. */
+  mintLpns?: boolean;
+}
+
+/** A label job that went to a station printer, followed inline. */
+interface StationJob {
+  jobId: string;
+  /** The cartons on the job, for Reprint. */
+  ids: string[];
+  codes: string;
+  printer: string;
+}
+
+/**
+ * The status of a receipt's label job at the dock station's printer:
+ * waiting, printing, printed, or failed with Reprint (LabelSheet).
+ */
+function StationPrintRow({
+  job,
+  onReprint,
+  onDismiss,
+}: {
+  job: StationJob;
+  onReprint: () => void;
+  onDismiss: () => void;
+}) {
+  const { data } = useWhPrintJob(job.jobId);
+  const status = data?.status ?? "queued";
+  const failed = status === "failed" || status === "cancelled";
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-2 rounded-lg border px-4 py-2 text-sm",
+        failed ? "border-red-500/30 bg-red-500/10" : "border-border bg-muted/20",
+      )}
+    >
+      {status === "printed" ? (
+        <CheckCircle2 className="h-4 w-4 shrink-0 text-green-400" />
+      ) : failed ? (
+        <XCircle className="h-4 w-4 shrink-0 text-red-400" />
+      ) : (
+        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+      )}
+      <span className="font-mono text-xs">{job.codes}</span>
+      <span className="text-muted-foreground">
+        {status === "printed"
+          ? `printed at ${job.printer}`
+          : status === "claimed"
+            ? `printing at ${job.printer}…`
+            : failed
+              ? `did not print at ${job.printer}${data?.error ? `: ${data.error}` : ""}`
+              : `sent to ${job.printer}, waiting for its print agent…`}
+      </span>
+      <div className="ml-auto flex items-center gap-1">
+        {failed && (
+          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onReprint}>
+            <Printer className="mr-1.5 h-3.5 w-3.5" /> Reprint
+          </Button>
+        )}
+        <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={onDismiss}>
+          Dismiss
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 /** Per-carton SKU breakdown for a multi-SKU group's subline: "SKU ×12 + SKU ×6",
@@ -99,12 +192,21 @@ export function ShipmentManifest({
   groups,
   receivingActive,
   foItemIdToOrder,
+  containers = [],
+  putaway = [],
+  mintLpns = false,
 }: Props) {
   const navigate = useNavigate();
   const { isAdmin, isManager, user } = useAuth();
   const canEdit = isAdmin || isManager;
   const { toast } = useToast();
   const record = useRecordFreightReceipt();
+
+  // License plates: on once minting is on or the shipment already has cartons or tasks.
+  const lpnMode = mintLpns || containers.length > 0 || putaway.length > 0;
+  const lpnsByGroup = new Map<string, GroupLpns>(groups.map((g) => [g.id, groupLpns(g, containers, putaway)]));
+  const [labelSheet, setLabelSheet] = useState<{ ids: string[]; title: string; job?: BrowserPrintJob | null } | null>(null);
+  const [stationJob, setStationJob] = useState<StationJob | null>(null);
 
   // Which stepper is in flight ("<groupId>:+1" / "<groupId>:-1") or which
   // line's Record button ("<lineId>") — lets the tapped control show its
@@ -131,9 +233,53 @@ export function ShipmentManifest({
   // Received column: live (steppers) while receiving is active, read-only
   // values after receipt confirmation, absent entirely before receiving.
   const showReceivedColumn = showActiveReceiving || (isConfirmed && hasReceivable);
-  const columnCount = 5 + (showReceivedColumn ? 1 : 0);
+  // Put away: once there is something to put away (or check-in will mint it).
+  const showPutawayColumn = lpnMode && (putaway.length > 0 || showActiveReceiving);
+  const columnCount = 5 + (showReceivedColumn ? 1 : 0) + (showPutawayColumn ? 1 : 0);
+  const putawayActive = putaway.filter((m) => m.status !== "cancelled");
+  const putawayDoneCount = putawayActive.filter((m) => m.status === "done").length;
 
   const anyPending = record.isPending;
+
+  /** A receipt's labels: the browser path opens the LabelSheet, a station printer gets a status row. */
+  function printReceiptLabels(lpns: FreightLpn[], print: WhPrintJobResult | null | undefined) {
+    if (lpns.length === 0 || !print) return;
+    const codes = lpnRange([...lpns].sort((a, b) => a.carton_seq - b.carton_seq).map((l) => l.code)) ?? "";
+    if (print.target === "printer") {
+      setStationJob({
+        jobId: print.job_id,
+        ids: lpns.map((l) => l.id),
+        codes,
+        printer: print.printer?.name ?? print.printer?.code ?? "the station printer",
+      });
+    } else if (print.target === "browser") {
+      // The receipt already queued a browser job with the label payload;
+      // LabelSheet prints that job and marks it printed (or cancels it if the
+      // sheet closes first), so no second job is created.
+      setLabelSheet({
+        ids: lpns.map((l) => l.id),
+        title: `${lpns.length} carton label${lpns.length === 1 ? "" : "s"} · ${codes}`,
+        job: { id: print.job_id, payload: print.payload ?? null, kind: "lpn", itemIds: lpns.map((l) => l.id), cancelOnClose: true },
+      });
+    } else {
+      toast({ title: `Labels for ${codes} not printed`, description: print.message ?? "Printing is blocked on this environment." });
+    }
+  }
+
+  /** Toasts and label printing that follow any receipt; returns the minted LPNs. */
+  function afterReceipt(result: RecordFreightReceiptResult): FreightLpn[] {
+    const lpns = result.lpns ?? [];
+    const voided = result.voided ?? [];
+    if (voided.length > 0) {
+      const where = voided[0].location_code;
+      toast({
+        title: `Voided ${voided.map((v) => v.code).join(", ")}`,
+        description: `Take ${voided.length === 1 ? "its label" : "their labels"} off${where ? ` (last at ${where})` : ""}; the units were taken back out of stock.`,
+      });
+    }
+    printReceiptLabels(lpns, result.print);
+    return lpns;
+  }
 
   async function tapCarton(group: CartonGroupWithSkus, delta: number) {
     if (!user || delta === 0) return;
@@ -144,10 +290,17 @@ export function ShipmentManifest({
         actorId: user.id,
         entries: [{ carton_group_id: group.id, cartons: delta }],
       });
+      const lpns = afterReceipt(result);
       if (result.fully_received) {
         toast({
           title: "All cartons checked in",
           description: "Shipment fully received — inventory credited and receipt confirmed.",
+        });
+      } else if (lpns.length === 1) {
+        const sug = lpns[0].suggested?.code;
+        toast({
+          title: `Checked in ${lpns[0].code}`,
+          description: `${lpns[0].qty.toLocaleString()} units at IN-01${sug ? ` · put away to ${sug}` : ""}`,
         });
       }
     } catch (err) {
@@ -173,6 +326,7 @@ export function ShipmentManifest({
     setPendingKey("all");
     try {
       const result = await record.mutateAsync({ shipmentId: shipment.id, actorId: user.id, entries });
+      afterReceipt(result);
       toast({
         title: result.fully_received ? "All cartons checked in" : `Checked in ${n} cartons`,
         description: result.fully_received
@@ -215,6 +369,7 @@ export function ShipmentManifest({
         entries: [{ line_item_id: line.id, units }],
       });
       setDrafts((d) => ({ ...d, [line.id]: "" }));
+      afterReceipt(result);
       if (result.fully_received) {
         toast({
           title: "All units checked in",
@@ -363,7 +518,9 @@ export function ShipmentManifest({
                 onClick={checkInAllCartons}
                 disabled={anyPending}
               >
-                {pendingKey === "all" ? "Checking in…" : `Check in all ${(totalCartons - receivedCartons).toLocaleString()} cartons`}
+                {pendingKey === "all"
+                  ? "Checking in…"
+                  : `Check in all ${(totalCartons - receivedCartons).toLocaleString()} cartons${lpnMode ? " · print labels" : ""}`}
               </Button>
             )}
           </div>
@@ -433,11 +590,29 @@ export function ShipmentManifest({
                 onClick={checkInAllCartons}
                 disabled={anyPending}
               >
-                {pendingKey === "all" ? "Checking in…" : `Check in all ${(totalCartons - receivedCartons).toLocaleString()} cartons`}
+                {pendingKey === "all"
+                  ? "Checking in…"
+                  : `Check in all ${(totalCartons - receivedCartons).toLocaleString()} cartons${lpnMode ? " · print labels" : ""}`}
               </Button>
             )}
           </div>
         )
+      )}
+
+      {stationJob && (
+        <StationPrintRow
+          job={stationJob}
+          onReprint={() => {
+            // a carton voided since the job was queued gets no new label
+            const voided = new Set(containers.filter((c) => c.state === "void").map((c) => c.id));
+            const ids = stationJob.ids.filter((id) => !voided.has(id));
+            if (ids.length > 0) {
+              setLabelSheet({ ids, title: `${ids.length} carton label${ids.length === 1 ? "" : "s"} · ${stationJob.codes}` });
+            }
+            setStationJob(null);
+          }}
+          onDismiss={() => setStationJob(null)}
+        />
       )}
 
       {/* Manifest table */}
@@ -464,6 +639,7 @@ export function ShipmentManifest({
                   <th className="px-3 py-3 text-right">Ctns</th>
                   <th className="px-3 py-3">From order</th>
                   {showReceivedColumn && <th className="px-4 py-3 text-right">Received</th>}
+                  {showPutawayColumn && <th className="px-4 py-3 text-right">Put away</th>}
                 </tr>
               </thead>
               <tbody>
@@ -476,6 +652,33 @@ export function ShipmentManifest({
                       const credited = groupUnitsCredited(group);
                       const single = group.skus.length === 1;
                       const orders = ordersForSkus(new Set(group.skus.map((s) => s.sku_id)));
+                      const lpns = lpnsByGroup.get(group.id);
+                      const voidable = lpns?.voidCandidate ?? null;
+                      const preview = lpnMode
+                        ? nextCartonPreview(
+                            group.skus.map((s) => ({ sku_id: s.sku_id, sku: s.product?.sku ?? null, units_total: s.units_total })),
+                            group.carton_qty,
+                            group.received_cartons,
+                          )
+                        : null;
+                      // With license plates the correction names the carton it voids. A group
+                      // checked in before minting (no LPN yet) keeps the plain − (ledger only).
+                      const correction = lpnMode && (lpns?.live.length ?? 0) > 0 ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 font-mono"
+                          onClick={() => tapCarton(group, -1)}
+                          disabled={anyPending || group.received_cartons <= 0 || !voidable}
+                          title={
+                            voidable
+                              ? `Remove one carton: voids ${voidable.code} and takes its units back out of stock`
+                              : "Every carton from this group has been opened or split; count the location instead."
+                          }
+                        >
+                          {pendingKey === `${group.id}:-1` ? "Voiding…" : voidable ? `Void ${voidable.code}` : "Nothing to void"}
+                        </Button>
+                      ) : null;
                       return (
                         <tr key={group.id} className="border-b border-border/50">
                           <td className="px-4 py-3">
@@ -504,6 +707,33 @@ export function ShipmentManifest({
                             {group.notes && (
                               <p className="text-[11px] text-muted-foreground truncate">{group.notes}</p>
                             )}
+                            {lpns?.range && (
+                              <div className="mt-1 flex items-center gap-1">
+                                <span
+                                  className="rounded border border-cyan-500/40 bg-cyan-500/10 px-1.5 py-px font-mono text-[11px] text-cyan-400"
+                                  title={`${lpns.live.length} license plate${lpns.live.length === 1 ? "" : "s"}`}
+                                >
+                                  {lpns.range}
+                                </span>
+                                {canEdit && (
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                                    onClick={() =>
+                                      setLabelSheet({
+                                        ids: lpns.live.map((c) => c.id),
+                                        title: `${lpns.live.length} carton label${lpns.live.length === 1 ? "" : "s"} · ${lpns.range}`,
+                                      })
+                                    }
+                                    title={`Reprint ${lpns.range}`}
+                                    aria-label={`Reprint labels ${lpns.range}`}
+                                  >
+                                    <Printer className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
+                              </div>
+                            )}
                           </td>
                           <td className="px-3 py-3 text-right tabular-nums">{groupUnits.toLocaleString()}</td>
                           <td className="px-3 py-3 text-right tabular-nums">{pack}</td>
@@ -517,7 +747,7 @@ export function ShipmentManifest({
                                   {group.received_cartons}/{group.carton_qty} · {credited.toLocaleString()} credited
                                   {/* Keep the −1 correction available on completed rows while
                                       receiving is still open (parity with the old panel). */}
-                                  {showActiveReceiving && canEdit && (
+                                  {showActiveReceiving && canEdit && (correction ?? (
                                     <Button
                                       size="icon"
                                       variant="ghost"
@@ -528,10 +758,10 @@ export function ShipmentManifest({
                                     >
                                       <Minus className={cn("h-3 w-3", pendingKey === `${group.id}:-1` && "animate-pulse")} />
                                     </Button>
-                                  )}
+                                  ))}
                                 </div>
                               ) : (
-                                <div className="flex items-center justify-end gap-2">
+                                <div className="flex items-center justify-end gap-2 flex-wrap">
                                   <Progress
                                     value={group.carton_qty > 0 ? (group.received_cartons / group.carton_qty) * 100 : 0}
                                     className="h-1.5 w-16 [&>div]:bg-amber-500"
@@ -541,23 +771,25 @@ export function ShipmentManifest({
                                   </span>
                                   {showActiveReceiving && canEdit && (
                                     <div className="flex items-center gap-1 shrink-0">
-                                      <Button
-                                        size="icon"
-                                        variant="outline"
-                                        className="h-7 w-7"
-                                        onClick={() => tapCarton(group, -1)}
-                                        disabled={anyPending || group.received_cartons <= 0}
-                                        title="Remove one carton (correction)"
-                                      >
-                                        <Minus className={cn("h-3.5 w-3.5", pendingKey === `${group.id}:-1` && "animate-pulse")} />
-                                      </Button>
+                                      {correction ?? (
+                                        <Button
+                                          size="icon"
+                                          variant="outline"
+                                          className="h-7 w-7"
+                                          onClick={() => tapCarton(group, -1)}
+                                          disabled={anyPending || group.received_cartons <= 0}
+                                          title="Remove one carton (correction)"
+                                        >
+                                          <Minus className={cn("h-3.5 w-3.5", pendingKey === `${group.id}:-1` && "animate-pulse")} />
+                                        </Button>
+                                      )}
                                       <Button
                                         size="icon"
                                         variant="outline"
                                         className="h-7 w-7 border-green-500/40 text-green-400 hover:text-green-300"
                                         onClick={() => tapCarton(group, 1)}
                                         disabled={anyPending}
-                                        title="Check in one carton"
+                                        title={preview ? `Check in one carton: ${preview}` : "Check in one carton"}
                                       >
                                         <Plus className={cn("h-3.5 w-3.5", pendingKey === `${group.id}:+1` && "animate-pulse")} />
                                       </Button>
@@ -575,8 +807,16 @@ export function ShipmentManifest({
                                       )}
                                     </div>
                                   )}
+                                  {showActiveReceiving && canEdit && preview && (
+                                    <p className="basis-full text-right text-[11px] text-muted-foreground">Next: {preview}</p>
+                                  )}
                                 </div>
                               )}
+                            </td>
+                          )}
+                          {showPutawayColumn && (
+                            <td className="px-4 py-3 text-right">
+                              <PutawayCount done={lpns?.putawayDone ?? 0} total={lpns?.putawayTotal ?? 0} />
                             </td>
                           )}
                         </tr>
@@ -654,6 +894,14 @@ export function ShipmentManifest({
                               </div>
                             </td>
                           )}
+                          {showPutawayColumn && (
+                            <td className="px-4 py-3 text-right">
+                              {(() => {
+                                const loose = line.sku_id ? loosePutaway(line.sku_id, putaway) : { units: 0, done: 0 };
+                                return <PutawayCount done={loose.done} total={loose.units} unit="units" />;
+                              })()}
+                            </td>
+                          )}
                         </tr>
                       );
                     })}
@@ -678,6 +926,7 @@ export function ShipmentManifest({
                         sample — not credited
                       </td>
                     )}
+                    {showPutawayColumn && <td className="px-4 py-2.5" />}
                   </tr>
                 ))}
 
@@ -707,6 +956,11 @@ export function ShipmentManifest({
                         : `${receivedUnits.toLocaleString()} units in`}
                     </td>
                   )}
+                  {showPutawayColumn && (
+                    <td className="px-4 py-2.5 text-right">
+                      <PutawayCount done={putawayDoneCount} total={putawayActive.length} unit={cartonMode ? undefined : "tasks"} />
+                    </td>
+                  )}
                 </tr>
               </tfoot>
             </table>
@@ -718,6 +972,38 @@ export function ShipmentManifest({
           )}
         </CardContent>
       </Card>
+
+      {labelSheet && (
+        <Suspense fallback={null}>
+          <LabelSheet
+            open
+            onOpenChange={(open) => !open && setLabelSheet(null)}
+            kind="lpn"
+            ids={labelSheet.ids}
+            from="dock"
+            title={labelSheet.title}
+            existingJob={labelSheet.job ?? null}
+          />
+        </Suspense>
+      )}
     </div>
+  );
+}
+
+/** "3 of 8": amber until everything is put away, then green with a check; "—" when nothing is. */
+function PutawayCount({ done, total, unit }: { done: number; total: number; unit?: string }) {
+  if (total <= 0) return <span className="text-xs text-muted-foreground">—</span>;
+  const complete = done >= total;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 text-xs tabular-nums whitespace-nowrap",
+        complete ? "text-green-400" : "text-amber-400",
+      )}
+    >
+      {complete && <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />}
+      {done.toLocaleString()} of {total.toLocaleString()}
+      {unit ? ` ${unit}` : ""}
+    </span>
   );
 }

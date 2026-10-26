@@ -3,11 +3,20 @@ import { supabase } from "@/lib/supabase";
 import { supabaseUpdateWithVersion } from "@/lib/concurrency";
 import type { FreightShipment, FreightLineItem, ProductSKU } from "@/types/database";
 import type { Database, Json } from "@/lib/database.types";
+import { useLiveInvalidate } from "@/lib/realtime";
+import {
+  whRpc,
+  type WhBucket,
+  type WhContainerState,
+  type WhPrintJobResult,
+  type WhSuggestion,
+} from "./use-warehouse";
 
 type FreightShipmentInsert = Database["public"]["Tables"]["freight_shipments"]["Insert"];
 type FreightLineItemInsert = Database["public"]["Tables"]["freight_line_items"]["Insert"];
 type FreightCartonGroupRow = Database["public"]["Tables"]["freight_carton_groups"]["Row"];
 type FreightCartonGroupSkuRow = Database["public"]["Tables"]["freight_carton_group_skus"]["Row"];
+type WhMoveTableRow = Database["public"]["Tables"]["wh_moves"]["Row"];
 
 export type FreightLineItemWithProduct = FreightLineItem & { product: ProductSKU | null };
 export type FreightShipmentWithItems = FreightShipment & { line_items: FreightLineItemWithProduct[] };
@@ -24,14 +33,54 @@ export type FreightReceiptEntry =
   | { carton_group_id: string; cartons: number }
   | { line_item_id: string; units: number };
 
+/** One carton minted by a receipt while physical_layer.mint_lpns is on (migration 20261023000001). */
+export interface FreightLpn {
+  id: string;
+  code: string;
+  /** "carton n" across the whole shipment. */
+  carton_seq: number;
+  carton_group_id: string;
+  /** Null for a mixed carton. */
+  sku_id: string | null;
+  qty: number;
+  /** "empty" only when the rounding leaves a carton with no units. */
+  state: "sealed" | "empty";
+  contents: { sku_id: string; sku: string; qty: number; bucket: WhBucket }[];
+  suggested: WhSuggestion | null;
+  move_id: string | null;
+}
+
+/** A carton a negative tap voided. */
+export interface FreightVoidedLpn {
+  id: string;
+  code: string;
+  carton_seq: number | null;
+  qty: number;
+  location_code: string | null;
+}
+
 export interface RecordFreightReceiptResult {
   ok: boolean;
   units_credited?: number;
   fully_received?: boolean;
   credited?: Array<{ sku_id: string; units: number }>;
+  /** Cartons this call minted; empty while minting is off or for unit mode. */
+  lpns?: FreightLpn[];
+  voided?: FreightVoidedLpn[];
+  /** Split differences a void posted at UNLOCATED (units signed). */
+  unlocated?: Array<{ sku_id: string; bucket: WhBucket; units: number }>;
+  /** The call's one lpn label job (null when nothing was minted). */
+  print_job_id?: string | null;
+  print?: WhPrintJobResult | null;
+  putaway_tasks?: string[];
   message?: string;
+  /** e.g. lpn_in_use, units_put_away, admin_or_manager_required */
   error?: string;
 }
+
+type RpcClient = {
+  rpc: (fn: string, args?: object) => PromiseLike<{ data: unknown; error: unknown }>;
+};
 
 export interface CloseFreightShortResult {
   ok: boolean;
@@ -200,8 +249,19 @@ export function useConfirmFreightReceipt() {
       qc.invalidateQueries({ queryKey: ["freight", shipmentId] });
       qc.invalidateQueries({ queryKey: ["freight-line-items"] });
       qc.invalidateQueries({ queryKey: ["inventory"] });
+      // receive-all squares the carton plan and, with minting on, mints LPNs
+      qc.invalidateQueries({ queryKey: ["freight-carton-groups", shipmentId] });
+      qc.invalidateQueries({ queryKey: ["freight-carton-totals"] });
+      invalidateWarehouseAfterReceipt(qc);
     },
   });
+}
+
+/** Query roots a receipt can change on the physical layer (cartons, putaways, IN-01). */
+export const WAREHOUSE_RECEIPT_ROOTS = [["wh-putaway"], ["wh-containers"], ["wh-locations"], ["wh-location"], ["wh-overview"]];
+
+function invalidateWarehouseAfterReceipt(qc: ReturnType<typeof useQueryClient>) {
+  for (const queryKey of WAREHOUSE_RECEIPT_ROOTS) qc.invalidateQueries({ queryKey });
 }
 
 /**
@@ -232,6 +292,33 @@ export function useCartonGroups(shipmentId: string) {
   });
 }
 
+export interface RecordFreightReceiptParams {
+  shipmentId: string;
+  entries: FreightReceiptEntry[];
+  actorId: string;
+}
+
+/**
+ * rpc_record_freight_receipt: throws the envelope's message when ok is false
+ * (lpn_in_use names the fix: "count the location instead"). Exported for tests.
+ */
+export async function recordFreightReceipt(
+  params: RecordFreightReceiptParams,
+  client: unknown = supabase,
+): Promise<RecordFreightReceiptResult> {
+  const { data, error } = await (client as RpcClient).rpc("rpc_record_freight_receipt", {
+    p_shipment_id: params.shipmentId,
+    p_entries: params.entries as unknown as Json,
+    p_actor_id: params.actorId,
+  });
+  if (error) throw error;
+  const result = data as RecordFreightReceiptResult | null;
+  if (!result?.ok) {
+    throw new Error(result?.message ?? result?.error ?? "Failed to record receipt");
+  }
+  return result;
+}
+
 /**
  * Record an incremental freight receipt (rpc_record_freight_receipt).
  *
@@ -239,38 +326,27 @@ export function useCartonGroups(shipmentId: string) {
  * postings ({line_item_id, units: ±n}); negative values are corrections.
  * The RPC credits inventory buckets per units received and — when every
  * catalog line reaches its declared quantity — auto-stamps the shipment
- * delivered + receipt-confirmed. Admin/manager enforced server-side;
+ * delivered + receipt-confirmed. With physical_layer.mint_lpns on it also
+ * mints one LPN per carton at IN-01 (or voids the newest sealed ones on a
+ * correction), opens their putaway tasks and queues one label job, so the
+ * warehouse roots are refreshed too. Admin/manager enforced server-side;
  * hide the affordance from other roles (same contract as
  * useConfirmFreightReceipt above).
  */
 export function useRecordFreightReceipt() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (params: {
-      shipmentId: string;
-      entries: FreightReceiptEntry[];
-      actorId: string;
-    }) => {
-      const { data, error } = await supabase.rpc("rpc_record_freight_receipt", {
-        p_shipment_id: params.shipmentId,
-        p_entries: params.entries as unknown as Json,
-        p_actor_id: params.actorId,
-      });
-      if (error) throw error;
-      const result = data as unknown as RecordFreightReceiptResult;
-      if (!result?.ok) {
-        throw new Error(result?.message ?? result?.error ?? "Failed to record receipt");
-      }
-      return result;
-    },
+    mutationFn: (params: RecordFreightReceiptParams) => recordFreightReceipt(params),
     onSuccess: (_data, { shipmentId }) => {
       qc.invalidateQueries({ queryKey: ["freight"] });
       qc.invalidateQueries({ queryKey: ["freight", shipmentId] });
       qc.invalidateQueries({ queryKey: ["freight-line-items"] });
       qc.invalidateQueries({ queryKey: ["inventory"] });
       qc.invalidateQueries({ queryKey: ["freight-carton-groups", shipmentId] });
+      qc.invalidateQueries({ queryKey: ["freight-carton-totals"] });
       // trg_pd_archive_on_arrival may retire an Ordered PD card on first receipt.
       qc.invalidateQueries({ queryKey: ["pd-board"] });
+      invalidateWarehouseAfterReceipt(qc);
     },
   });
 }
@@ -342,5 +418,162 @@ export function useAllCartonGroupTotals() {
       return m;
     },
     staleTime: 60 * 1000,
+  });
+}
+
+// ---- Physical layer on the shipment page (design §7, §9.3) --------------------
+
+/** One carton minted for a shipment, with what it holds. */
+export interface ShipmentContainer {
+  id: string;
+  code: string;
+  carton_seq: number | null;
+  carton_group_id: string | null;
+  sku_id: string | null;
+  qty: number;
+  qty_initial: number;
+  state: WhContainerState;
+  label_stock: "white" | "green";
+  printed_at: string | null;
+  print_count: number;
+  created_at: string;
+  location: { code: string } | null;
+  balances: { sku_id: string; bucket: WhBucket; on_hand: number }[];
+}
+
+/**
+ * Every carton minted for a shipment, voided ones included (the manifest's
+ * LPN range, the correction button's "Void C-466-040" and the stepper's
+ * label stage read them). Live over Realtime.
+ */
+export function useShipmentContainers(shipmentId: string | null | undefined) {
+  useLiveInvalidate("wh-stock", ["wh_containers"], [["wh-containers"]]);
+  return useQuery({
+    queryKey: ["wh-containers", "shipment", shipmentId],
+    enabled: !!shipmentId,
+    queryFn: async (): Promise<ShipmentContainer[]> => {
+      const { data, error } = await supabase
+        .from("wh_containers")
+        .select(
+          "id, code, carton_seq, carton_group_id, sku_id, qty, qty_initial, state, label_stock, printed_at, print_count, created_at, location:wh_locations(code), balances:wh_inventory_balances(sku_id, bucket, on_hand)",
+        )
+        .eq("freight_shipment_id", shipmentId as string)
+        .order("carton_seq", { ascending: true })
+        .limit(2000);
+      if (error) throw error;
+      return (data ?? []) as unknown as ShipmentContainer[];
+    },
+    staleTime: 30 * 1000,
+  });
+}
+
+/** A shipment's putaway task with its carton (or loose SKU) and locations. */
+export type ShipmentPutawayRow = WhMoveTableRow & {
+  container: {
+    id: string;
+    code: string;
+    carton_seq: number | null;
+    carton_group_id: string | null;
+    sku_id: string | null;
+    qty: number;
+    qty_initial: number;
+    state: WhContainerState;
+    label_stock: "white" | "green";
+    printed_at: string | null;
+    location: { code: string } | null;
+    balances: { sku_id: string; bucket: WhBucket; on_hand: number; sku: { sku: string } | null }[];
+  } | null;
+  sku: { sku: string; product_name: string } | null;
+  suggested: { code: string } | null;
+  to: { code: string } | null;
+};
+
+/**
+ * Putaway tasks a shipment's receipts opened (source_type freight_shipment),
+ * every status, cartons in shipment order then loose units. Live over
+ * Realtime, so a phone putaway turns the row green on the dock.
+ */
+export function useShipmentPutaway(shipmentId: string | null | undefined) {
+  useLiveInvalidate("wh-tasks", ["wh_moves"], [["wh-putaway"]]);
+  return useQuery({
+    queryKey: ["wh-putaway", "shipment", shipmentId],
+    enabled: !!shipmentId,
+    queryFn: async (): Promise<ShipmentPutawayRow[]> => {
+      const { data, error } = await supabase
+        .from("wh_moves")
+        .select(
+          "*, container:wh_containers(id, code, carton_seq, carton_group_id, sku_id, qty, qty_initial, state, label_stock, printed_at, location:wh_locations(code), balances:wh_inventory_balances(sku_id, bucket, on_hand, sku:product_skus(sku))), sku:product_skus(sku, product_name), suggested:wh_locations!wh_moves_suggested_location_id_fkey(code), to:wh_locations!wh_moves_to_location_id_fkey(code)",
+        )
+        .eq("kind", "putaway")
+        .eq("source_type", "freight_shipment")
+        .eq("source_id", shipmentId as string)
+        .order("created_at", { ascending: true })
+        .limit(2000);
+      if (error) throw error;
+      const rows = (data ?? []) as unknown as ShipmentPutawayRow[];
+      const seq = (r: ShipmentPutawayRow) => r.container?.carton_seq ?? Number.MAX_SAFE_INTEGER;
+      return rows.sort((a, b) => seq(a) - seq(b) || a.created_at.localeCompare(b.created_at));
+    },
+    staleTime: 30 * 1000,
+  });
+}
+
+/**
+ * Putaway progress per shipment for the Shipments list: shipment id →
+ * {total, done} over its non-cancelled putaway tasks (cartons and loose
+ * units). Absent from the map = nothing to put away.
+ */
+export function useShipmentPutawayTotals(shipmentIds: string[]) {
+  const ids = [...new Set(shipmentIds)].sort();
+  return useQuery({
+    queryKey: ["wh-putaway", "shipment-totals", ids],
+    enabled: ids.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("wh_moves")
+        .select("source_id, status")
+        .eq("kind", "putaway")
+        .eq("source_type", "freight_shipment")
+        .in("source_id", ids)
+        .neq("status", "cancelled")
+        .limit(5000);
+      if (error) throw error;
+      const m = new Map<string, { total: number; done: number }>();
+      for (const row of data ?? []) {
+        if (!row.source_id) continue;
+        const cur = m.get(row.source_id) ?? { total: 0, done: 0 };
+        cur.total += 1;
+        if (row.status === "done") cur.done += 1;
+        m.set(row.source_id, cur);
+      }
+      return m;
+    },
+    staleTime: 60 * 1000,
+  });
+}
+
+export interface ResuggestPutawayParams {
+  containerId: string;
+  /** Locations not to suggest again: at least the current suggestion. */
+  exclude: string[];
+}
+
+/** rpc_wh_suggest_putaway with the given locations excluded; it rewrites the open task's suggestion. Exported for tests. */
+export function resuggestPutaway(params: ResuggestPutawayParams, client?: unknown) {
+  return whRpc(
+    "rpc_wh_suggest_putaway",
+    { p_container_id: params.containerId, p_exclude: params.exclude },
+    "Couldn't suggest another location",
+    client,
+  );
+}
+
+export function useResuggestPutaway() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (params: ResuggestPutawayParams) => resuggestPutaway(params),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["wh-putaway"] });
+    },
   });
 }

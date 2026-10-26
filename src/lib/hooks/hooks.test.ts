@@ -1,5 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { createElement, type ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { renderHook } from "@testing-library/react";
 import { supabaseUpdateWithVersion, ConcurrencyConflictError } from "@/lib/concurrency";
+import {
+  recordFreightReceipt,
+  resuggestPutaway,
+  useConfirmFreightReceipt,
+  useRecordFreightReceipt,
+  WAREHOUSE_RECEIPT_ROOTS,
+} from "./use-freight";
+
+// The freight hooks reach the module-level client; the seam tests below pass
+// their own. Only the hook tests (useRecordFreightReceipt, useConfirmFreightReceipt) use this mock.
+const supabaseMock = vi.hoisted(() => ({ rpc: vi.fn() }));
+vi.mock("@/lib/supabase", () => ({ supabase: supabaseMock }));
 
 /**
  * These tests verify the critical hook behaviors that the audit identified
@@ -279,5 +294,151 @@ describe("Supplier portal RPC contracts", () => {
       p_target_user_id: "user-1",
       p_supplier_id: "sup-1",
     });
+  });
+});
+
+describe("Freight receipt with license plates (rpc_record_freight_receipt)", () => {
+  const lpn = {
+    id: "ctr-1",
+    code: "C-466-007",
+    carton_seq: 7,
+    carton_group_id: "g-1",
+    sku_id: "sku-1",
+    qty: 12,
+    state: "sealed",
+    contents: [{ sku_id: "sku-1", sku: "BW20", qty: 12, bucket: "finished" }],
+    suggested: { location_id: "loc-1", code: "02-01-3", reason: "same_sku_reserve" },
+    move_id: "mv-1",
+  };
+
+  it("sends the shipment, the carton taps and the actor, and returns the minted LPNs and print job", async () => {
+    const client = {
+      rpc: vi.fn().mockResolvedValue({
+        data: { ok: true, units_credited: 12, fully_received: false, lpns: [lpn], print_job_id: "job-1", putaway_tasks: ["mv-1"] },
+        error: null,
+      }),
+    };
+    const result = await recordFreightReceipt(
+      { shipmentId: "ship-1", entries: [{ carton_group_id: "g-1", cartons: 1 }], actorId: "user-1" },
+      client,
+    );
+    expect(client.rpc).toHaveBeenCalledWith("rpc_record_freight_receipt", {
+      p_shipment_id: "ship-1",
+      p_entries: [{ carton_group_id: "g-1", cartons: 1 }],
+      p_actor_id: "user-1",
+    });
+    expect(result.lpns?.[0].code).toBe("C-466-007");
+    expect(result.print_job_id).toBe("job-1");
+  });
+
+  it("throws the refusal's sentence when a correction finds no sealed carton", async () => {
+    const client = {
+      rpc: vi.fn().mockResolvedValue({
+        data: {
+          ok: false,
+          error: "lpn_in_use",
+          message: "Every carton from this group has been opened or split; count the location instead.",
+        },
+        error: null,
+      }),
+    };
+    await expect(
+      recordFreightReceipt({ shipmentId: "ship-1", entries: [{ carton_group_id: "g-1", cartons: -1 }], actorId: "user-1" }, client),
+    ).rejects.toThrow("count the location instead");
+  });
+
+  it("falls back to the error code, then a generic message", async () => {
+    const withCode = { rpc: vi.fn().mockResolvedValue({ data: { ok: false, error: "already_confirmed" }, error: null }) };
+    await expect(
+      recordFreightReceipt({ shipmentId: "s", entries: [{ line_item_id: "l", units: 1 }], actorId: "u" }, withCode),
+    ).rejects.toThrow("already_confirmed");
+    const empty = { rpc: vi.fn().mockResolvedValue({ data: null, error: null }) };
+    await expect(
+      recordFreightReceipt({ shipmentId: "s", entries: [{ line_item_id: "l", units: 1 }], actorId: "u" }, empty),
+    ).rejects.toThrow("Failed to record receipt");
+  });
+
+  it("rethrows a transport error untouched", async () => {
+    const transport = { code: "42883", message: "function does not exist" };
+    const client = { rpc: vi.fn().mockResolvedValue({ data: null, error: transport }) };
+    await expect(
+      recordFreightReceipt({ shipmentId: "s", entries: [{ carton_group_id: "g", cartons: 1 }], actorId: "u" }, client),
+    ).rejects.toBe(transport);
+  });
+});
+
+describe("Re-suggest a putaway (rpc_wh_suggest_putaway)", () => {
+  it("excludes the current suggestion", async () => {
+    const client = {
+      rpc: vi.fn().mockResolvedValue({
+        data: { ok: true, container: { id: "ctr-1" }, suggestion: { location_id: "loc-2", code: "02-02-3", reason: "nearest_empty" }, move_id: "mv-1" },
+        error: null,
+      }),
+    };
+    const result = await resuggestPutaway({ containerId: "ctr-1", exclude: ["loc-1"] }, client);
+    expect(client.rpc).toHaveBeenCalledWith("rpc_wh_suggest_putaway", { p_container_id: "ctr-1", p_exclude: ["loc-1"] });
+    expect(result.suggestion.code).toBe("02-02-3");
+  });
+
+  it("throws the server's message when ok is false", async () => {
+    const client = {
+      rpc: vi.fn().mockResolvedValue({
+        data: { ok: false, error: "container_void", message: "C-466-040 is void; nothing to put away." },
+        error: null,
+      }),
+    };
+    await expect(resuggestPutaway({ containerId: "ctr-9", exclude: [] }, client)).rejects.toThrow("C-466-040 is void");
+  });
+});
+
+describe("Receipts refresh the physical layer", () => {
+  function wrapperFor(qc: QueryClient) {
+    return ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client: qc }, children);
+  }
+  function invalidatedRoots(spy: { mock: { calls: unknown[][] } }): string[] {
+    return spy.mock.calls.map((c) => JSON.stringify((c[0] as { queryKey: unknown[] }).queryKey));
+  }
+
+  beforeEach(() => {
+    supabaseMock.rpc.mockReset();
+  });
+
+  it("names the putaway and carton roots", () => {
+    expect(WAREHOUSE_RECEIPT_ROOTS).toEqual(expect.arrayContaining([["wh-putaway"], ["wh-containers"]]));
+  });
+
+  it("useRecordFreightReceipt invalidates the freight and warehouse roots after a receipt", async () => {
+    supabaseMock.rpc.mockResolvedValue({ data: { ok: true, units_credited: 12, lpns: [] }, error: null });
+    const qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    const spy = vi.spyOn(qc, "invalidateQueries");
+    const { result } = renderHook(() => useRecordFreightReceipt(), { wrapper: wrapperFor(qc) });
+    await result.current.mutateAsync({ shipmentId: "ship-1", entries: [{ carton_group_id: "g-1", cartons: 1 }], actorId: "user-1" });
+    const roots = invalidatedRoots(spy);
+    expect(roots).toEqual(
+      expect.arrayContaining(['["wh-putaway"]', '["wh-containers"]', '["freight-carton-groups","ship-1"]', '["inventory"]']),
+    );
+  });
+
+  it("useRecordFreightReceipt invalidates nothing when the RPC refuses", async () => {
+    supabaseMock.rpc.mockResolvedValue({ data: { ok: false, error: "lpn_in_use", message: "count the location instead" }, error: null });
+    const qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    const spy = vi.spyOn(qc, "invalidateQueries");
+    const { result } = renderHook(() => useRecordFreightReceipt(), { wrapper: wrapperFor(qc) });
+    await expect(
+      result.current.mutateAsync({ shipmentId: "ship-1", entries: [{ carton_group_id: "g-1", cartons: -1 }], actorId: "user-1" }),
+    ).rejects.toThrow("count the location instead");
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("useConfirmFreightReceipt (receive-all) refreshes cartons and putaways too", async () => {
+    supabaseMock.rpc.mockResolvedValue({ data: { ok: true, line_items_processed: 2, lpns_minted: 2 }, error: null });
+    const qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    const spy = vi.spyOn(qc, "invalidateQueries");
+    const { result } = renderHook(() => useConfirmFreightReceipt(), { wrapper: wrapperFor(qc) });
+    await result.current.mutateAsync({ shipmentId: "ship-2", actorId: "user-1" });
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("rpc_apply_freight_delivery", { p_shipment_id: "ship-2", p_actor_id: "user-1" });
+    expect(invalidatedRoots(spy)).toEqual(
+      expect.arrayContaining(['["wh-putaway"]', '["wh-containers"]', '["freight-carton-groups","ship-2"]']),
+    );
   });
 });

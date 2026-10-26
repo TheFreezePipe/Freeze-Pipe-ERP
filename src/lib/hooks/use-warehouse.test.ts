@@ -1,6 +1,24 @@
 import { describe, it, expect, vi } from "vitest";
 import { whRpc } from "./use-warehouse";
-import { endWhStation, startWhStation } from "./use-warehouse-tasks";
+import {
+  describePrintJob,
+  endWhStation,
+  labelStockFor,
+  openWhContainer,
+  orderPutawayQueue,
+  PINNED_STATION_KEY,
+  printerAddressProblem,
+  printerDraftProblems,
+  printerUpsertSql,
+  putawayRank,
+  putawayWhContainer,
+  putawayWhLoose,
+  readPinnedStation,
+  resolveWhScan,
+  startWhStation,
+  suggestWhPutaway,
+  writePinnedStation,
+} from "./use-warehouse-tasks";
 import {
   generateWhLocations,
   markWhPrinted,
@@ -227,5 +245,224 @@ describe("map mutations", () => {
     expect(result.racks.updated).toBe(2);
     const transport = { code: "PGRST", message: "network" };
     await expect(saveWhLayoutChecked({}, mockClient({ data: null, error: transport }))).rejects.toBe(transport);
+  });
+});
+
+// ---- Slice 3D: phone putaway, stations, print jobs, printers ---------------------
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+describe("phone putaway calls", () => {
+  it("putaway sends the carton, the location, the task and a fresh client_event_id", async () => {
+    const client = mockClient({
+      data: { ok: true, container: { code: "C-OB-9001-PA" }, followed_suggestion: true, next: null },
+      error: null,
+    });
+    const result = await putawayWhContainer({ containerId: "ctr-1", locationId: "loc-1", moveId: "mv-1" }, client);
+    const [name, args] = client.rpc.mock.calls[0];
+    expect(name).toBe("rpc_wh_putaway_container");
+    expect(args).toMatchObject({ p_container_id: "ctr-1", p_location_id: "loc-1", p_move_id: "mv-1" });
+    expect(args.p_client_event_id).toMatch(UUID_RE);
+    expect(result.followed_suggestion).toBe(true);
+    await putawayWhContainer({ containerId: "ctr-1", locationId: "loc-1" }, client);
+    expect(client.rpc.mock.calls[1][1].p_client_event_id).not.toBe(args.p_client_event_id);
+    expect(client.rpc.mock.calls[1][1].p_move_id).toBeNull();
+  });
+
+  it("putaway keeps a client_event_id it is given and throws the refusal", async () => {
+    const client = mockClient({
+      data: { ok: false, error: "already_there", message: "C-OB-9001-PA is already in 02-01-3." },
+      error: null,
+    });
+    await expect(
+      putawayWhContainer({ containerId: "ctr-1", locationId: "loc-1", clientEventId: "evt-1" }, client),
+    ).rejects.toThrow("C-OB-9001-PA is already in 02-01-3.");
+    expect(client.rpc.mock.calls[0][1].p_client_event_id).toBe("evt-1");
+  });
+
+  it("a loose putaway is a stock move against its task", async () => {
+    const client = mockClient({ data: { ok: true, sku: "BW20", qty: 6 }, error: null });
+    await putawayWhLoose(
+      { skuId: "sku-1", qty: 6, fromLocationId: "line", toLocationId: "face", bucket: "finished", moveId: "mv-2" },
+      client,
+    );
+    const [name, args] = client.rpc.mock.calls[0];
+    expect(name).toBe("rpc_wh_move_stock");
+    expect(args).toMatchObject({
+      p_sku_id: "sku-1",
+      p_qty: 6,
+      p_from_location_id: "line",
+      p_to_location_id: "face",
+      p_bucket: "finished",
+      p_move_id: "mv-2",
+    });
+    expect(args.p_client_event_id).toMatch(UUID_RE);
+  });
+
+  it("suggest another sends the locations already shown", async () => {
+    const client = mockClient({
+      data: { ok: true, suggestion: { location_id: "loc-9", code: "05-02-3", reason: "nearest_empty" }, move_id: "mv-1" },
+      error: null,
+    });
+    const res = await suggestWhPutaway({ containerId: "ctr-1", exclude: ["loc-1", "loc-2"] }, client);
+    expect(client.rpc).toHaveBeenCalledWith("rpc_wh_suggest_putaway", { p_container_id: "ctr-1", p_exclude: ["loc-1", "loc-2"] });
+    expect(res.suggestion.code).toBe("05-02-3");
+  });
+
+  it("open to pick face moves and opens the carton with a client_event_id", async () => {
+    const client = mockClient({ data: { ok: true, units_moved: 12, warning: "not_pickable", message: "x" }, error: null });
+    const res = await openWhContainer({ containerId: "ctr-1", toLocationId: "face-1" }, client);
+    const [name, args] = client.rpc.mock.calls[0];
+    expect(name).toBe("rpc_wh_open_container");
+    expect(args).toMatchObject({ p_container_id: "ctr-1", p_to_location_id: "face-1", p_unpack: false });
+    expect(args.p_client_event_id).toMatch(UUID_RE);
+    expect(res.warning).toBe("not_pickable");
+  });
+
+  it("resolve keeps the id, kind and match the putaway screen needs", async () => {
+    const client = mockClient({
+      data: { ok: true, kind: "location", id: "loc-1", code: "02-01-3", match: { kind: "bay_level", active: true }, candidates: [] },
+      error: null,
+    });
+    const r = await resolveWhScan("%Z02-01-3", client);
+    expect(client.rpc).toHaveBeenCalledWith("rpc_wh_resolve_scan", { p_scan: "%Z02-01-3" });
+    expect(r).toMatchObject({ kind: "location", id: "loc-1", code: "02-01-3", match: { kind: "bay_level", active: true } });
+  });
+});
+
+describe("orderPutawayQueue", () => {
+  type Row = Parameters<typeof orderPutawayQueue>[0][number];
+  const row = (id: string, created: string, extra: Partial<Row> = {}): Row =>
+    ({
+      id,
+      origin: "receipt",
+      created_by: null,
+      created_at: created,
+      container: { code: id, sku_id: null, qty: 1, state: "sealed", label_stock: "white", location: { code: "02-01-1" } },
+      from: { code: "IN-01" },
+      ...extra,
+    }) as Row;
+
+  it("puts the worker's own RTS cartons first, then IN-01, then the rest, oldest first", () => {
+    const at = (code: string) => ({ code, sku_id: null, qty: 1, state: "sealed" as const, label_stock: "white" as const, location: { code } });
+    const rows = [
+      row("elsewhere-old", "2026-10-20T08:00:00Z", { container: at("05-01-1") }),
+      row("in-new", "2026-10-22T09:00:00Z", { container: at("IN-01") }),
+      row("rts-other", "2026-10-21T09:00:00Z", { origin: "rts", created_by: "someone", container: at("MFG-LINE") }),
+      row("rts-mine", "2026-10-22T10:00:00Z", { origin: "rts", created_by: "me", container: at("MFG-LINE") }),
+      row("in-old", "2026-10-21T07:00:00Z", { container: at("IN-01") }),
+    ];
+    expect(orderPutawayQueue(rows, "me").map((r) => r.id)).toEqual(["rts-mine", "in-old", "in-new", "elsewhere-old", "rts-other"]);
+    expect(putawayRank(rows[3], null)).toBe(2);
+  });
+
+  it("ranks loose units by where the task started", () => {
+    const loose = row("loose", "2026-10-22T00:00:00Z", { container: null, from: { code: "IN-01" } });
+    expect(putawayRank(loose, "me")).toBe(1);
+  });
+});
+
+describe("describePrintJob", () => {
+  const now = Date.parse("2026-10-23T12:00:00Z");
+  const base = {
+    status: "queued",
+    created_at: "2026-10-23T11:59:55Z",
+    claimed_at: null,
+    error: null,
+    printer_id: "p-1",
+    attempts: 0,
+  };
+  const online = { name: "Dock printer", code: "DOCK-1", last_seen_at: "2026-10-23T11:59:40Z" };
+
+  it("reads queued, printing, printed and failed", () => {
+    expect(describePrintJob(base, online, now)).toMatchObject({ phase: "queued", text: "Queued for Dock printer", needsAction: false });
+    expect(describePrintJob({ ...base, status: "claimed", claimed_at: "2026-10-23T11:59:58Z" }, online, now)).toMatchObject({
+      phase: "printing",
+      text: "Printing at Dock printer…",
+    });
+    expect(describePrintJob({ ...base, status: "printed" }, online, now)).toMatchObject({ phase: "printed", text: "Printed at Dock printer" });
+    expect(describePrintJob({ ...base, status: "failed", error: "connect ECONNREFUSED" }, online, now)).toMatchObject({
+      phase: "failed",
+      text: "Failed: connect ECONNREFUSED",
+      needsAction: true,
+    });
+  });
+
+  it("calls a job stale after 30 s, or soon when its agent is offline", () => {
+    expect(describePrintJob({ ...base, created_at: "2026-10-23T11:59:00Z" }, online, now)).toMatchObject({
+      phase: "stale",
+      needsAction: true,
+    });
+    const offline = { ...online, last_seen_at: "2026-10-23T11:50:00Z" };
+    expect(describePrintJob({ ...base, created_at: "2026-10-23T11:59:50Z" }, offline, now)).toMatchObject({
+      phase: "stale",
+      text: "Queued for Dock printer, but its print agent is offline",
+    });
+    // last_seen_at unknown (printer list still loading): not judged offline
+    expect(describePrintJob(base, { name: "Dock printer", code: "DOCK-1" }, now).phase).toBe("queued");
+  });
+
+  it("mentions the retry error while a failed attempt is back in the queue", () => {
+    const view = describePrintJob({ ...base, attempts: 1, error: "paper out" }, online, now);
+    expect(view.text).toBe("Queued for Dock printer (retrying after: paper out)");
+  });
+
+  it("maps label kinds to their stock", () => {
+    expect(labelStockFor("lpn")).toBe("white_4x2");
+    expect(labelStockFor("lpn_rts")).toBe("green_4x2");
+    expect(labelStockFor("station")).toBe("white_3x1");
+  });
+});
+
+describe("printer registration SQL (workaround)", () => {
+  const draft = {
+    code: "DOCK-1",
+    name: "Dock's printer",
+    stationLocationId: "0a1b2c3d-1111-4222-8333-944455566677",
+    address: "tcp://192.168.1.50:9100",
+    labelStock: "white_4x2" as const,
+    dpi: 203 as const,
+    active: true,
+    agentId: "agent-dock",
+  };
+
+  it("accepts the three address forms and refuses others", () => {
+    expect(printerAddressProblem("tcp://192.168.1.50:9100")).toBeNull();
+    expect(printerAddressProblem("share://DOCK-PC/Zebra")).toBeNull();
+    expect(printerAddressProblem("file://C:/labels")).toBeNull();
+    expect(printerAddressProblem("Zebra ZD421")).toMatch(/tcp:\/\/, share:\/\/ or file:\/\//);
+    expect(printerAddressProblem("share://DOCK PC/Zebra")).toMatch(/share:\/\//);
+    expect(printerAddressProblem("tcp://")).toMatch(/tcp:\/\//);
+  });
+
+  it("lists every problem of a draft", () => {
+    expect(printerDraftProblems(draft)).toEqual([]);
+    expect(printerDraftProblems({ ...draft, code: "dock 1", name: " ", agentId: "" })).toHaveLength(3);
+  });
+
+  it("builds an upsert by code with quotes escaped", () => {
+    const sql = printerUpsertSql(draft);
+    expect(sql).toContain("INSERT INTO public.wh_printers");
+    expect(sql).toContain("'Dock''s printer'");
+    expect(sql).toContain("'0a1b2c3d-1111-4222-8333-944455566677'::uuid");
+    expect(sql).toContain("'tcp://192.168.1.50:9100'");
+    expect(sql).toContain("ON CONFLICT (code) DO UPDATE");
+    expect(printerUpsertSql({ ...draft, stationLocationId: "x'; drop table y; --" })).toContain(", NULL, 'agent',");
+  });
+});
+
+describe("pinned station", () => {
+  it("stores and clears the pin", () => {
+    writePinnedStation("ST-MFG-2");
+    expect(window.localStorage.getItem(PINNED_STATION_KEY)).toBe("ST-MFG-2");
+    expect(readPinnedStation()).toBe("ST-MFG-2");
+    writePinnedStation(null);
+    expect(readPinnedStation()).toBeNull();
+  });
+
+  it("ignores a value that is not a station code", () => {
+    window.localStorage.setItem(PINNED_STATION_KEY, "02-01-3");
+    expect(readPinnedStation()).toBeNull();
+    window.localStorage.removeItem(PINNED_STATION_KEY);
   });
 });

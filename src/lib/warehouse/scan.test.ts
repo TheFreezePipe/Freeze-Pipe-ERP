@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseScan } from "./scan";
+import { bayParts, bayWords, cartonCode, parseScan, stationCode } from "./scan";
 
 describe("parseScan", () => {
   it("reads ERP labels by prefix", () => {
@@ -37,5 +37,48 @@ describe("parseScan", () => {
   it("trims scanner whitespace", () => {
     expect(parseScan("  BW20\r\n")).toEqual({ kind: "sku", value: "BW20" });
     expect(parseScan(" 138332000051 ")).toEqual({ kind: "gtin", value: "138332000051" });
+  });
+});
+
+describe("stationCode", () => {
+  it("reads station labels, practice ones included", () => {
+    expect(stationCode("%ST-MFG-1")).toBe("ST-MFG-1");
+    expect(stationCode("%st-dock\r\n")).toBe("ST-DOCK");
+    expect(stationCode("%ZST-S4")).toBe("ST-S4");
+  });
+
+  it("ignores locations, cartons and unprefixed codes", () => {
+    expect(stationCode("%02-01-2")).toBeNull();
+    expect(stationCode("%C-466-007")).toBeNull();
+    expect(stationCode("ST-MFG-1")).toBeNull();
+    expect(stationCode("%ST-")).toBeNull();
+  });
+});
+
+describe("cartonCode", () => {
+  it("reads LPN labels with or without the prefix", () => {
+    expect(cartonCode("%C-466-007")).toBe("C-466-007");
+    expect(cartonCode("%ZC-466-007R1")).toBe("C-466-007R1");
+    expect(cartonCode(" c-ob-0012-pa ")).toBe("C-OB-0012-PA");
+  });
+
+  it("ignores everything else", () => {
+    expect(cartonCode("%02-01-2")).toBeNull();
+    expect(cartonCode("%ST-DOCK")).toBeNull();
+    expect(cartonCode("BW20")).toBeNull();
+    expect(cartonCode("%C-")).toBeNull();
+  });
+});
+
+describe("bayParts and bayWords", () => {
+  it("splits a bay-level code into face, bay and level", () => {
+    expect(bayParts("02-01-3")).toEqual({ face: "02", bay: "01", level: "3" });
+    expect(bayWords("02-01-3")).toBe("Face 02 · Bay 01 · Level 3");
+  });
+
+  it("returns null for named locations", () => {
+    expect(bayParts("IN-01")).toBeNull();
+    expect(bayWords("ST-MFG-2")).toBeNull();
+    expect(bayParts(null)).toBeNull();
   });
 });

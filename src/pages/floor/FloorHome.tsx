@@ -2,8 +2,13 @@ import { Link, useNavigate } from "react-router-dom";
 import { ArrowDownToLine, ArrowLeftRight, ClipboardCheck, Factory, ScanSearch, type LucideIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScanSink } from "@/components/warehouse/ScanSink";
+import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
+import { useWhPutawayQueue, useWhStartStation } from "@/lib/hooks";
+import { stationCode } from "@/lib/warehouse/scan";
 import { cn } from "@/lib/utils";
+import { FloorFlash } from "./FloorFlash";
+import { useFloorFlash } from "./use-floor-flash";
 
 interface FloorTile {
   label: string;
@@ -14,10 +19,12 @@ interface FloorTile {
   /** Not built yet: renders disabled with this badge. */
   phase?: string;
   wide?: boolean;
+  /** Which live count the tile carries. */
+  count?: "putaway";
 }
 
 const TILES: FloorTile[] = [
-  { label: "Put away", icon: ArrowDownToLine, tone: "text-green-400 bg-green-400/10", phase: "Phase 1" },
+  { label: "Put away", icon: ArrowDownToLine, tone: "text-green-400 bg-green-400/10", to: "/go/putaway", count: "putaway" },
   { label: "Count", icon: ClipboardCheck, tone: "text-amber-400 bg-amber-400/10", phase: "Phase 1" },
   { label: "Move", icon: ArrowLeftRight, tone: "text-blue-400 bg-blue-400/10", phase: "Phase 1" },
   { label: "Look up", icon: ScanSearch, tone: "text-primary bg-primary/10", to: "/go/lookup" },
@@ -27,7 +34,7 @@ const TILES: FloorTile[] = [
 const TILE_CLASS =
   "flex min-h-[88px] flex-col justify-between gap-3 rounded-lg border p-4 text-left transition-all touch-manipulation";
 
-function TileBody({ tile }: { tile: FloorTile }) {
+function TileBody({ tile, count }: { tile: FloorTile; count?: number }) {
   const Icon = tile.icon;
   return (
     <>
@@ -35,11 +42,18 @@ function TileBody({ tile }: { tile: FloorTile }) {
         <span className={cn("rounded-md p-2", tile.tone)}>
           <Icon className="h-5 w-5" />
         </span>
-        {tile.phase && (
+        {tile.phase ? (
           <Badge variant="outline" className="text-[10px] text-muted-foreground">
             {tile.phase}
           </Badge>
-        )}
+        ) : count != null && count > 0 ? (
+          <span
+            className="rounded-full border border-amber-500/35 bg-amber-500/10 px-2.5 py-0.5 text-xs font-semibold tabular-nums text-amber-400"
+            aria-label={`${count} open`}
+          >
+            {count}
+          </span>
+        ) : null}
       </div>
       <span className="text-base font-semibold">{tile.label}</span>
     </>
@@ -50,12 +64,40 @@ export default function FloorHome() {
   const { profile } = useAuth();
   const navigate = useNavigate();
   const firstName = profile?.full_name?.trim().split(/\s+/)[0];
+  const { data: putaways } = useWhPutawayQueue({}, { refetchInterval: 60_000 });
+  const { mutate: startStation } = useWhStartStation();
+  const { flash, show } = useFloorFlash();
+  const counts = { putaway: putaways?.length };
+
+  function onScan(value: string) {
+    // A station label starts (or switches) this person's station session (§5.5).
+    if (stationCode(value)) {
+      startStation(
+        { scan: value },
+        {
+          onSuccess: (r) => show("ok", r.session.name ?? r.session.code),
+          onError: (err) => {
+            show("fail", "Station not started");
+            toast({
+              title: "Couldn't start the station",
+              description: err instanceof Error ? err.message : "Unknown error",
+              variant: "destructive",
+            });
+          },
+        },
+      );
+      return;
+    }
+    navigate(`/go/lookup?scan=${encodeURIComponent(value)}`);
+  }
 
   return (
     <div className="mx-auto max-w-lg space-y-4 md:space-y-6">
+      <FloorFlash flash={flash} />
+
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">{firstName ? `Hi, ${firstName}` : "Floor"}</h1>
-        <ScanSink onScan={(value) => navigate(`/go/lookup?scan=${encodeURIComponent(value)}`)} />
+        <ScanSink onScan={onScan} />
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -70,7 +112,7 @@ export default function FloorHome() {
                 tile.wide && "col-span-2",
               )}
             >
-              <TileBody tile={tile} />
+              <TileBody tile={tile} count={tile.count ? counts[tile.count] : undefined} />
             </Link>
           ) : (
             <div
@@ -83,6 +125,10 @@ export default function FloorHome() {
           ),
         )}
       </div>
+
+      <p className="text-center text-xs text-muted-foreground">
+        Scan any location or carton label to look it up, or a station label to print there.
+      </p>
     </div>
   );
 }

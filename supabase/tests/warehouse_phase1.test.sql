@@ -28,6 +28,10 @@ BEGIN;
 
 SELECT plan(67);
 
+-- Staging may carry live printers (DOCK-1 at ST-DOCK); routing prefers an
+-- active station printer, so park them for the duration of this transaction.
+UPDATE wh_printers SET active = false;
+
 -- =============================================================
 -- Fixtures
 -- =============================================================

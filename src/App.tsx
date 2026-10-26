@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { RequireRole } from "@/components/shared/RequireRole";
 import { Toaster } from "@/components/ui/toaster";
 import { Layout } from "@/components/layout/Layout";
+import { GoLayout } from "@/components/layout/GoLayout";
 import { EnvBanner } from "@/components/layout/EnvBanner";
 import { landingPathFor } from "@/lib/landing";
 import { LEGACY_ROUTE_PATHS, legacyRedirect } from "@/lib/inventory-routes";
@@ -52,6 +53,7 @@ import BreakageInbox from "@/pages/supplier/BreakageInbox";
 import VarianceInbox from "@/pages/supplier/VarianceInbox";
 import FloorHome from "@/pages/floor/FloorHome";
 import LookupPage from "@/pages/floor/LookupPage";
+import GoPutaway from "@/pages/floor/GoPutaway";
 
 import { isDemoMode } from "@/lib/env";
 
@@ -110,6 +112,32 @@ export default function App() {
               <Route key={path} path={path} element={<LegacyRedirect />} />
             ))}
 
+            {/* Floor (/go): phone-first screens for every internal role. GoLayout
+                is the task-mode shell below md and the normal Layout above. */}
+            <Route
+              element={
+                <RequireAuth>
+                  <GoLayout />
+                </RequireAuth>
+              }
+            >
+              <Route path="/go" element={
+                <RequireRole allowed={["admin", "manager", "user"]}>
+                  <FloorHome />
+                </RequireRole>
+              } />
+              <Route path="/go/lookup" element={
+                <RequireRole allowed={["admin", "manager", "user"]}>
+                  <LookupPage />
+                </RequireRole>
+              } />
+              <Route path="/go/putaway" element={
+                <RequireRole allowed={["admin", "manager", "user"]}>
+                  <GoPutaway />
+                </RequireRole>
+              } />
+            </Route>
+
             {/* Protected routes */}
             <Route
               element={
@@ -122,18 +150,6 @@ export default function App() {
               <Route path="/dashboard" element={
                 <RequireRole allowed={["admin", "manager"]}>
                   <Dashboard />
-                </RequireRole>
-              } />
-
-              {/* Floor (phone-first home for every internal role) */}
-              <Route path="/go" element={
-                <RequireRole allowed={["admin", "manager", "user"]}>
-                  <FloorHome />
-                </RequireRole>
-              } />
-              <Route path="/go/lookup" element={
-                <RequireRole allowed={["admin", "manager", "user"]}>
-                  <LookupPage />
                 </RequireRole>
               } />
 
