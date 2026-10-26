@@ -4,15 +4,27 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TASK_TYPES, type TaskType } from "@/lib/constants";
 import { useAuth } from "@/lib/auth-context";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Check, Minus, Plus, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { taskCompletionSchema, safeValidate } from "@/lib/schemas";
-import { useProducts, useLogTask } from "@/lib/hooks";
+import { useProducts, useLogTask, useWarehouseSettings, useWhStartStation } from "@/lib/hooks";
 import { MyOutputStrip } from "@/components/manufacturing/MyOutputStrip";
+import { LineCartonsBanner } from "@/components/manufacturing/LineCartonsBanner";
+import { RtsCartonStep } from "@/components/manufacturing/RtsCartonStep";
+import { TakeToLineStep, type StepScanTarget } from "@/components/manufacturing/TakeToLineStep";
+import { toast } from "@/hooks/use-toast";
+import {
+  noCartonNote,
+  physicalLayerLive,
+  takenUnits,
+  type NoCartonReason,
+  type TakenCarton,
+} from "@/lib/warehouse/rts-cartons";
+import { cartonCode, stationCode } from "@/lib/warehouse/scan";
 
 export default function Workspace() {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const [selectedSKU, setSelectedSKU] = useState<string>("");
   const [taskType, setTaskType] = useState<TaskType | "">("");
   const [quantity, setQuantity] = useState(0);
@@ -22,6 +34,21 @@ export default function Workspace() {
 
   const { data: products = [] } = useProducts();
   const logTask = useLogTask();
+
+  // Cartons through manufacturing (design §5.7): the carton steps appear only
+  // once wh_settings.physical_layer.live_since has passed. Until then nothing
+  // below changes what the Workspace shows or logs.
+  const { data: whSettings, dataUpdatedAt: whSettingsAt } = useWarehouseSettings();
+  const live = physicalLayerLive(whSettings, whSettingsAt);
+  const liveEmptying = live && taskType === "emptying";
+  const liveRts = live && (taskType === "rtsing" || taskType === "prefilled_rtsing");
+  const { mutate: startStation } = useWhStartStation();
+  const [taken, setTaken] = useState<TakenCarton[]>([]);
+  const [noCarton, setNoCarton] = useState<NoCartonReason | null>(null);
+  // An RTS task whose log has landed: SKU, type and quantity stay put until its labels are done.
+  const [rtsLocked, setRtsLocked] = useState(false);
+  const [submittedNote, setSubmittedNote] = useState<string | null>(null);
+  const stepRef = useRef<StepScanTarget>(null);
 
   // Fillable-only for the manufacturing tasks; any active SKU for breakage
   // (non-fillables break too — a clip, a base, etc.).
@@ -38,7 +65,9 @@ export default function Workspace() {
     // nowhere near a full carton; pre-populating the carton qty would be
     // misleading. Leave qty at whatever it was.
     if (product && taskType !== "breakage") {
-      setQuantity(product.standard_quantity_per_carton ?? 0);
+      // Live emptying with cartons already scanned: their units, not a standard carton.
+      const scanned = liveEmptying ? takenUnits(taken, product.id) : 0;
+      setQuantity(scanned > 0 ? scanned : (product.standard_quantity_per_carton ?? 0));
     }
   }
 
@@ -49,36 +78,36 @@ export default function Workspace() {
     if (next === "breakage") setQuantity(0);
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-
+  /**
+   * Validate and write the task log; resolves with the task_log id and throws
+   * the sentence to show. `extraNote` (live emptying with no carton scanned)
+   * is appended to the worker's notes.
+   */
+  async function logCurrentTask(extraNote: string | null = null): Promise<string | null> {
     if (!selectedProduct) {
-      setError("Please select a SKU");
-      return;
+      throw new Error("Please select a SKU");
     }
 
+    const typed = notes.trim();
     const validation = safeValidate(taskCompletionSchema, {
       skuId: selectedProduct.id,
       taskType,
       quantity,
-      notes: notes.trim() || undefined,
+      notes: (extraNote ? [typed, extraNote].filter(Boolean).join(" · ") : typed) || undefined,
     });
     if (!validation.ok) {
       const firstMsg = Object.values(validation.errors)[0] ?? "Invalid input";
-      setError(firstMsg);
-      return;
+      throw new Error(firstMsg);
     }
 
     if (!profile?.id) {
-      setError("Not authenticated");
-      return;
+      throw new Error("Not authenticated");
     }
 
     try {
       // Single atomic RPC: moves inventory + inserts task_log + inserts audit row.
       // Server-side enforcement rejects insufficient source stock with a descriptive error.
-      await logTask.mutateAsync({
+      const result = await logTask.mutateAsync({
         skuId: validation.value.skuId,
         taskType: validation.value.taskType,
         quantity: validation.value.quantity,
@@ -86,21 +115,99 @@ export default function Workspace() {
         actorId: profile.id,
         timeCompleted: new Date().toISOString(),
       });
-
-      setSubmitted(true);
-      setTimeout(() => {
-        setSubmitted(false);
-        setSelectedSKU("");
-        setTaskType("");
-        setQuantity(0);
-        setNotes("");
-      }, 1500);
+      return result.task_log_id ?? null;
     } catch (err) {
       // The RPC returns structured errors — surface them directly. Includes:
       //   "insufficient_source_stock" with current/requested quantities
       //   "sku is archived"
       //   "sku not found"
+      throw new Error(err instanceof Error ? err.message : "Failed to log task");
+    }
+  }
+
+  function resetTask() {
+    setSubmitted(false);
+    setSelectedSKU("");
+    setTaskType("");
+    setQuantity(0);
+    setNotes("");
+    setTaken([]);
+    setNoCarton(null);
+    setRtsLocked(false);
+    setSubmittedNote(null);
+  }
+
+  function finishLogged(note: string | null = null) {
+    setSubmittedNote(note);
+    setSubmitted(true);
+    setTimeout(resetTask, 1500);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+
+    try {
+      await logCurrentTask(liveEmptying && taken.length === 0 && noCarton ? noCartonNote(noCarton) : null);
+    } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to log task");
+      return;
+    }
+    finishLogged();
+  }
+
+  // ---- live physical layer only -------------------------------------------------
+
+  /** The RTS step writes the log through here, then relabels against its id. */
+  async function logForRts(): Promise<string | null> {
+    setError(null);
+    const id = await logCurrentTask();
+    setRtsLocked(true);
+    return id;
+  }
+
+  function completeRts(opts: { overlay: boolean; note?: string }) {
+    if (opts.overlay) finishLogged(opts.note ?? null);
+    else resetTask();
+  }
+
+  /** A carton taken to the line: its SKU becomes the task's, and the quantity is the scanned cartons' units. */
+  function onTaken(carton: TakenCarton) {
+    const next = [...taken, carton];
+    setTaken(next);
+    setNoCarton(null);
+    setError(null);
+    let skuId = selectedProduct?.id ?? null;
+    if (!selectedProduct && carton.sku_id) {
+      const product = products.find((p) => p.id === carton.sku_id);
+      if (product) {
+        setSelectedSKU(product.sku);
+        skuId = product.id;
+      }
+    }
+    const units = takenUnits(next, skuId);
+    if (units > 0) setQuantity(units);
+  }
+
+  /** A scanner aimed at the SKU box: ERP labels (%C-…, %ST-…) go to the carton step, not the search. */
+  function onSkuKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== "Enter") return;
+    const raw = e.currentTarget.value.trim();
+    if (!raw.startsWith("%") || (!cartonCode(raw) && !stationCode(raw))) return;
+    e.preventDefault();
+    setSelectedSKU("");
+    if (stepRef.current) {
+      stepRef.current.scan(raw);
+    } else if (stationCode(raw)) {
+      startStation(
+        { scan: raw },
+        {
+          onSuccess: (r) => toast({ title: `Station: ${r.session.name ?? r.session.code}` }),
+          onError: (err) => setError(err instanceof Error ? err.message : "Couldn't start the station"),
+        },
+      );
+    } else {
+      setError("Pick Emptying or an RTS task first, then scan the carton.");
     }
   }
 
@@ -110,6 +217,9 @@ export default function Workspace() {
         <h1 className="text-2xl font-bold">Workspace</h1>
         <p className="text-muted-foreground">Log manufacturing tasks</p>
       </div>
+
+      {/* Cartons at the line once the physical layer is live (design §5.7). */}
+      {live && <LineCartonsBanner me={user?.id ?? null} />}
 
       {/* Personal scoreboard — today / this week, links to Performance
           (which defaults staff to the "Just me" scope). */}
@@ -123,6 +233,7 @@ export default function Workspace() {
               <Check className="h-10 w-10 text-green-400" />
             </div>
             <p className="text-lg font-semibold text-green-400">Task Logged!</p>
+            {submittedNote && <p className="max-w-xs text-center text-sm text-muted-foreground">{submittedNote}</p>}
           </div>
         </div>
       )}
@@ -135,8 +246,10 @@ export default function Workspace() {
             placeholder="Search or scan SKU..."
             value={selectedSKU}
             onChange={(e) => setSelectedSKU(e.target.value)}
+            onKeyDown={live ? onSkuKeyDown : undefined}
             className="h-12 text-base"
             autoFocus
+            disabled={rtsLocked}
           />
         </CardHeader>
         <CardContent>
@@ -149,6 +262,7 @@ export default function Workspace() {
                 key={p.id}
                 type="button"
                 onClick={() => selectSKU(p.sku)}
+                disabled={rtsLocked}
                 className={cn(
                   "flex flex-col items-start rounded-lg border p-3 text-left transition-all min-h-[56px]",
                   "active:scale-[0.97] touch-manipulation",
@@ -184,6 +298,7 @@ export default function Workspace() {
                 key={key}
                 type="button"
                 onClick={() => selectTaskType(key as TaskType)}
+                disabled={rtsLocked}
                 className={cn(
                   "rounded-lg border px-3 py-3 text-center text-sm font-medium leading-tight transition-all",
                   "min-h-[64px] flex items-center justify-center",
@@ -200,6 +315,19 @@ export default function Workspace() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Emptying, once live: scan the carton being emptied (it moves to the line). */}
+      {liveEmptying && (
+        <TakeToLineStep
+          ref={stepRef}
+          product={selectedProduct ? { id: selectedProduct.id, sku: selectedProduct.sku } : null}
+          taken={taken}
+          noCarton={noCarton}
+          onTaken={onTaken}
+          onNoCarton={setNoCarton}
+          disabled={submitted}
+        />
+      )}
 
       {/* Quantity — step by carton for manufacturing tasks, by 1 for breakage.
           The carton hint is hidden for breakage since breakage events are
@@ -226,6 +354,7 @@ export default function Workspace() {
               className="h-14 w-14 rounded-full text-lg touch-manipulation"
               onClick={() => setQuantity(Math.max(0, quantity - 1))}
               type="button"
+              disabled={rtsLocked}
             >
               <Minus className="h-6 w-6" />
             </Button>
@@ -239,6 +368,7 @@ export default function Workspace() {
               className="h-14 w-14 rounded-full text-lg touch-manipulation"
               onClick={() => setQuantity(quantity + 1)}
               type="button"
+              disabled={rtsLocked}
             >
               <Plus className="h-6 w-6" />
             </Button>
@@ -246,7 +376,38 @@ export default function Workspace() {
         </CardContent>
       </Card>
 
-      {/* Notes + submit */}
+      {/* RTS and pre-filled RTS, once live: green carton labels before the task is complete. */}
+      {liveRts ? (
+        <RtsCartonStep
+          ref={stepRef}
+          product={
+            selectedProduct
+              ? {
+                  id: selectedProduct.id,
+                  sku: selectedProduct.sku,
+                  standard_quantity_per_carton: selectedProduct.standard_quantity_per_carton ?? null,
+                }
+              : null
+          }
+          quantity={quantity}
+          canSubmit={!!selectedSKU && !!taskType && !!quantity && !submitted && !logTask.isPending}
+          onLog={logForRts}
+          onComplete={completeRts}
+        >
+          <div className="space-y-2">
+            <Label htmlFor="notes">Notes (optional)</Label>
+            <Input
+              id="notes"
+              placeholder="Any notes..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="h-12 text-base"
+              disabled={rtsLocked}
+            />
+          </div>
+        </RtsCartonStep>
+      ) : (
+      /* Notes + submit */
       <Card>
         <CardContent className="pt-6 space-y-4">
           <div className="space-y-2">
@@ -283,6 +444,7 @@ export default function Workspace() {
           )}
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }

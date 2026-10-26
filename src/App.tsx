@@ -54,6 +54,8 @@ import VarianceInbox from "@/pages/supplier/VarianceInbox";
 import FloorHome from "@/pages/floor/FloorHome";
 import LookupPage from "@/pages/floor/LookupPage";
 import GoPutaway from "@/pages/floor/GoPutaway";
+import GoCount from "@/pages/floor/GoCount";
+import GoMove from "@/pages/floor/GoMove";
 
 import { isDemoMode } from "@/lib/env";
 
@@ -134,6 +136,16 @@ export default function App() {
               <Route path="/go/putaway" element={
                 <RequireRole allowed={["admin", "manager", "user"]}>
                   <GoPutaway />
+                </RequireRole>
+              } />
+              <Route path="/go/count" element={
+                <RequireRole allowed={["admin", "manager", "user"]}>
+                  <GoCount />
+                </RequireRole>
+              } />
+              <Route path="/go/move" element={
+                <RequireRole allowed={["admin", "manager", "user"]}>
+                  <GoMove />
                 </RequireRole>
               } />
             </Route>

@@ -5,6 +5,7 @@ import { ScanSink } from "@/components/warehouse/ScanSink";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import { useWhPutawayQueue, useWhStartStation } from "@/lib/hooks";
+import { useWhCountTasks } from "@/lib/hooks/use-warehouse-counts";
 import { stationCode } from "@/lib/warehouse/scan";
 import { cn } from "@/lib/utils";
 import { FloorFlash } from "./FloorFlash";
@@ -20,13 +21,13 @@ interface FloorTile {
   phase?: string;
   wide?: boolean;
   /** Which live count the tile carries. */
-  count?: "putaway";
+  count?: "putaway" | "counts";
 }
 
 const TILES: FloorTile[] = [
   { label: "Put away", icon: ArrowDownToLine, tone: "text-green-400 bg-green-400/10", to: "/go/putaway", count: "putaway" },
-  { label: "Count", icon: ClipboardCheck, tone: "text-amber-400 bg-amber-400/10", phase: "Phase 1" },
-  { label: "Move", icon: ArrowLeftRight, tone: "text-blue-400 bg-blue-400/10", phase: "Phase 1" },
+  { label: "Count", icon: ClipboardCheck, tone: "text-amber-400 bg-amber-400/10", to: "/go/count", count: "counts" },
+  { label: "Move", icon: ArrowLeftRight, tone: "text-blue-400 bg-blue-400/10", to: "/go/move" },
   { label: "Look up", icon: ScanSearch, tone: "text-primary bg-primary/10", to: "/go/lookup" },
   { label: "Manufacture", icon: Factory, tone: "text-orange-400 bg-orange-400/10", to: "/manufacturing/workspace", wide: true },
 ];
@@ -65,9 +66,10 @@ export default function FloorHome() {
   const navigate = useNavigate();
   const firstName = profile?.full_name?.trim().split(/\s+/)[0];
   const { data: putaways } = useWhPutawayQueue({}, { refetchInterval: 60_000 });
+  const { data: dueCounts } = useWhCountTasks(["open", "counting"], { refetchInterval: 60_000 });
   const { mutate: startStation } = useWhStartStation();
   const { flash, show } = useFloorFlash();
-  const counts = { putaway: putaways?.length };
+  const counts = { putaway: putaways?.length, counts: dueCounts?.length };
 
   function onScan(value: string) {
     // A station label starts (or switches) this person's station session (§5.5).

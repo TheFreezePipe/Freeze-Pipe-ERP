@@ -50,6 +50,8 @@ const ROUTE_TITLES: Record<string, string> = {
   "/go": "Floor",
   "/go/lookup": "Look up",
   "/go/putaway": "Put away",
+  "/go/count": "Count",
+  "/go/move": "Move",
 };
 
 export function TaskShell() {

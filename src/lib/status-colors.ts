@@ -91,3 +91,23 @@ export const CONTAINER_STATE_COLORS: Record<string, string> = {
   empty: "bg-slate-500/10 text-slate-400 border-slate-500/30",
   void: "bg-slate-500/10 text-slate-500 border-slate-500/30",
 };
+
+/**
+ * open / counting / submitted / approved / cancelled (wh_count_tasks.status).
+ * Submitted is amber: it waits on a manager's approval.
+ */
+export const COUNT_STATUS_COLORS: Record<string, string> = {
+  open: "bg-blue-500/10 text-blue-400 border-blue-500/30",
+  counting: "bg-cyan-500/10 text-cyan-400 border-cyan-500/30",
+  submitted: "bg-amber-500/10 text-amber-400 border-amber-500/30",
+  approved: "bg-green-500/10 text-green-400 border-green-500/30",
+  cancelled: "bg-slate-500/10 text-slate-400 border-slate-500/30",
+};
+
+/** open / in_progress / done / cancelled (wh_moves.status: putaway, replenish, move). */
+export const MOVE_STATUS_COLORS: Record<string, string> = {
+  open: "bg-amber-500/10 text-amber-400 border-amber-500/30",
+  in_progress: "bg-blue-500/10 text-blue-400 border-blue-500/30",
+  done: "bg-green-500/10 text-green-400 border-green-500/30",
+  cancelled: "bg-slate-500/10 text-slate-400 border-slate-500/30",
+};

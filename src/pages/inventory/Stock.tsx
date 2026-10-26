@@ -3,7 +3,7 @@ import { ModeTile } from "@/components/shared/ModeTile";
 import { Warehouse, Ship, Factory, Pencil, X, Save, Search, DollarSign, ShoppingCart, Trash2, ArrowRight, Megaphone } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format, parseISO, differenceInDays } from "date-fns";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -57,6 +57,7 @@ import type { FreightLineItemWithProduct, FactoryOrderWithItems } from "@/lib/ho
 
 // The map (SVG plan, rack elevation, drawer, Find) loads only on ?view=map.
 const StockMap = lazy(() => import("@/components/warehouse/map/StockMap").then((m) => ({ default: m.StockMap })));
+const CountsView = lazy(() => import("@/components/inventory/counts/CountsView").then((m) => ({ default: m.CountsView })));
 
 // Category priority + rank helper moved to src/lib/constants.ts so the
 // SKU Economics page can share the exact same sequence without drift.
@@ -520,8 +521,8 @@ function StockViewSwitcher({
  * Stock page (`/inventory/stock`, formerly Stock Levels at `/inventory`).
  * `?view=sku` is today's per-SKU table, `?view=location` the bins and
  * cartons face by face and `?view=map` the floor plan (StockMap keeps its
- * own state in the URL: mode, level, q, loc, rack/face); counts arrive
- * later in Phase 1 and show what they will be until then.
+ * own state in the URL: mode, level, q, loc, rack/face) and `?view=counts`
+ * the count tasks, variances, schedule, moves and reconcile (`?tab=`).
  */
 export default function StockPage() {
   const [rawView, setView] = useUrlFilter<StockView>("view", "sku");
@@ -561,7 +562,7 @@ export default function StockPage() {
     );
   }
 
-  const info = PHASE1_VIEWS[view];
+  // view === "counts": tasks, variances, the schedule, moves and the reconcile (`?tab=`).
   return (
     <div className="space-y-6">
       <div>
@@ -569,19 +570,11 @@ export default function StockPage() {
           <h1 className="text-2xl font-bold">Stock</h1>
           <StockViewSwitcher value={view} onChange={setView} />
         </div>
-        <p className="text-muted-foreground">{info.subtitle}</p>
+        <p className="text-muted-foreground">{PHASE1_VIEWS.counts.subtitle}</p>
       </div>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-base">{STOCK_VIEW_LABELS[view]}</CardTitle>
-          <Badge variant="outline" className="text-[10px] text-muted-foreground">
-            Phase 1
-          </Badge>
-        </CardHeader>
-        <CardContent>
-          <p className="max-w-2xl text-sm text-muted-foreground">{info.description}</p>
-        </CardContent>
-      </Card>
+      <Suspense fallback={<p className="text-sm text-muted-foreground">Loading counts…</p>}>
+        <CountsView />
+      </Suspense>
     </div>
   );
 }

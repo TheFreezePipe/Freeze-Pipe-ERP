@@ -62,26 +62,28 @@ export function OverviewPanel({
 }
 
 /**
- * A work card whose data arrives in Phase 1 (locations, cartons, count
- * tasks). Muted, no number, same footprint as a StatCard.
+ * A work card whose data arrives in a later phase (low pick faces need
+ * Phase 2 replenishment). Muted, no number, same footprint as a StatCard.
  */
 export function PhaseCard({
   title,
   subtitle,
   icon: Icon,
+  phase = "Phase 2",
 }: {
   title: string;
   subtitle: string;
   icon: ComponentType<{ className?: string }>;
+  phase?: string;
 }) {
   return (
-    <Card className="bg-muted/20 opacity-60" title="Arrives with Phase 1">
+    <Card className="bg-muted/20 opacity-60" title={`Arrives with ${phase}`}>
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-2">
           <div className="space-y-1">
             <p className="text-sm text-muted-foreground">{title}</p>
             <Badge variant="outline" className="text-[10px] text-muted-foreground">
-              Phase 1
+              {phase}
             </Badge>
             <p className="text-xs italic text-muted-foreground">{subtitle}</p>
           </div>

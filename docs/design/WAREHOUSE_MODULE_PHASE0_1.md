@@ -1,6 +1,6 @@
 # Warehouse module, Phase 0 and Phase 1: technical design
 
-Date 2026-10-20, revised 2026-10-21 · Branch `feat/warehouse-phase0` · Status: ready for implementation review
+Date 2026-10-20, revised 2026-10-21 · Branch `feat/warehouse-phase0` · Status: Phase 0 and Phase 1 built on staging (slices 1-4, 2026-10-22 to 2026-10-27, branch feat/warehouse-phase0); production untouched; see CLAUDE.md for what runs where
 
 Revision 2026-10-21: cartons keep a location through manufacturing, with a green relabel at RTS and a two-step put-back (5.7); labels print through a queue to the printer at the station a worker scanned into (5.5); the sidebar and routes follow the merged Inventory module in `docs/design/INVENTORY_MODULE_IA.md`, which supersedes 3.8 and the paths in 9.1 and Appendix A.
 

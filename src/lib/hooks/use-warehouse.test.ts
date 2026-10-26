@@ -28,6 +28,36 @@ import {
   saveWhLocation,
 } from "./use-warehouse-layout";
 import { createWhCount, saveWhLayoutChecked, setWhFixtureBlocked, WhLayoutRejectedError } from "./use-warehouse-map";
+import {
+  addCartonEntries,
+  addLooseUnit,
+  approveWhVariance,
+  cartonKey,
+  countLinesPayload,
+  deleteWhPrinter,
+  EMPTY_PRINTER_FORM,
+  isCountDue,
+  labelColourFlag,
+  likelyCause,
+  looseKey,
+  nextCountTask,
+  orderCountPath,
+  printerFormFrom,
+  printerFormProblems,
+  printerPayload,
+  readPhysicalLayer,
+  recordWhCount,
+  removeEntry,
+  runWhReconcile,
+  saveWhPrinter,
+  scheduleWhCounts,
+  setEntryQty,
+  setWhPhysicalLayerLive,
+  sortReconcileLines,
+  WhPrinterStaleError,
+  type WhCountEntry,
+  type WhCountMovement,
+} from "./use-warehouse-counts";
 
 function mockClient(response: { data: unknown; error: unknown }) {
   return { rpc: vi.fn().mockResolvedValue(response) };
@@ -510,5 +540,363 @@ describe("ledger sync, reconcile and printer RPC contracts", () => {
       error: null,
     });
     await expect(whRpc("rpc_wh_delete_printer", { p_id: "p-1" }, "fallback", busy)).rejects.toThrow("MFG-1 still has 2 label jobs");
+  });
+});
+
+// ---- Slice 4F: counts, moves, reconcile, printers, physical layer ------------------
+
+describe("count RPC contracts", () => {
+  const lines = [
+    { sku_id: "sku-1", container_id: "ctr-1", counted_qty: 12, scan_value: "%C-466-007" },
+    { sku_id: "sku-2", container_id: null, counted_qty: 3, scan_value: "850001234567" },
+  ];
+
+  it("record count sends the location, lines, task, start time and a fresh client_event_id", async () => {
+    const client = mockClient({
+      data: { ok: true, count_task_id: "t-1", status: "submitted", location: { code: "02-01-2" }, lines: [] },
+      error: null,
+    });
+    const res = await recordWhCount(
+      { locationId: "loc-1", lines, countTaskId: "t-1", startedAt: "2026-10-26T14:00:00Z" },
+      client,
+    );
+    const [name, args] = client.rpc.mock.calls[0];
+    expect(name).toBe("rpc_wh_record_count");
+    expect(args).toMatchObject({
+      p_location_id: "loc-1",
+      p_lines: lines,
+      p_count_task_id: "t-1",
+      p_started_at: "2026-10-26T14:00:00Z",
+    });
+    expect(args.p_client_event_id).toMatch(UUID_RE);
+    expect(res.status).toBe("submitted");
+  });
+
+  it("record count without a task sends nulls, keeps a given event id and throws the refusal", async () => {
+    const client = mockClient({
+      data: { ok: false, error: "container_void", message: "C-466-007 was relabelled as C-466-007R1; scan the green label." },
+      error: null,
+    });
+    await expect(recordWhCount({ locationId: "loc-1", lines: [], clientEventId: "evt-9" }, client)).rejects.toThrow(
+      "scan the green label",
+    );
+    expect(client.rpc.mock.calls[0][1]).toMatchObject({ p_count_task_id: null, p_started_at: null, p_client_event_id: "evt-9" });
+  });
+
+  it("approve sends the task and the decisions; unlisted lines are the server's accept", async () => {
+    const client = mockClient({
+      data: { ok: true, count_task_id: "t-1", lines: 2, adjusted_units: 3, levels_delta: -3, recounts: [] },
+      error: null,
+    });
+    const decisions = [{ line_id: "l-1", resolution: "misplaced" as const }];
+    const res = await approveWhVariance({ countTaskId: "t-1", decisions }, client);
+    expect(client.rpc).toHaveBeenCalledWith("rpc_wh_approve_variance", { p_count_task_id: "t-1", p_decisions: decisions });
+    expect(res.levels_delta).toBe(-3);
+    const refused = mockClient({
+      data: { ok: false, error: "forbidden", message: "Approving count variances needs a manager or admin." },
+      error: null,
+    });
+    await expect(approveWhVariance({ countTaskId: "t-1", decisions: [] }, refused)).rejects.toThrow("needs a manager or admin");
+  });
+
+  it("the scheduler takes no arguments; the reconcile passes p_create_counts", async () => {
+    const sched = mockClient({
+      data: { ok: true, created: 4, due: 9, already_open: 1, left_for_later: 4, daily_cap: 4, scheduled_today: 4 },
+      error: null,
+    });
+    const s = await scheduleWhCounts(sched);
+    expect(sched.rpc).toHaveBeenCalledWith("rpc_wh_schedule_counts", {});
+    expect(s.left_for_later).toBe(4);
+    const rec = mockClient({ data: { ok: true, run_id: "r-1", counts_created: 0, counts_enabled: false }, error: null });
+    await runWhReconcile({ createCounts: false }, rec);
+    expect(rec.rpc).toHaveBeenCalledWith("rpc_wh_reconcile_physical", { p_create_counts: false });
+    const denied = mockClient({ data: { ok: false, error: "forbidden", message: "The physical reconciliation needs an admin." }, error: null });
+    await expect(runWhReconcile({ createCounts: true }, denied)).rejects.toThrow("needs an admin");
+  });
+});
+
+describe("printer RPC contracts", () => {
+  const row = {
+    id: "p-1",
+    code: "DOCK-1",
+    name: "Dock printer",
+    station_location_id: "st-1",
+    transport: "agent",
+    address: "tcp://10.0.0.5:9100",
+    label_stock: "white_4x2",
+    dpi: 203,
+    agent_id: "agent-dock",
+    last_seen_at: null,
+    active: true,
+    created_at: "2026-10-26T00:00:00Z",
+    updated_at: "2026-10-26T00:00:00Z",
+    row_version: 4,
+  };
+
+  it("save sends the payload as p_printer and returns the row", async () => {
+    const client = mockClient({ data: { ok: true, created: false, printer: row }, error: null });
+    const res = await saveWhPrinter({ id: "p-1", name: "Dock", row_version: 4 }, client);
+    expect(client.rpc).toHaveBeenCalledWith("rpc_wh_save_printer", { p_printer: { id: "p-1", name: "Dock", row_version: 4 } });
+    expect(res.printer.code).toBe("DOCK-1");
+  });
+
+  it("a stale save throws WhPrinterStaleError carrying the current row; other refusals throw their message", async () => {
+    const stale = mockClient({
+      data: {
+        ok: false,
+        error: "stale",
+        message: "DOCK-1 changed since it was loaded; reload it and try again.",
+        printer: { ...row, row_version: 5 },
+      },
+      error: null,
+    });
+    const err = await saveWhPrinter({ id: "p-1", row_version: 4 }, stale).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(WhPrinterStaleError);
+    expect((err as WhPrinterStaleError).printer?.row_version).toBe(5);
+    const bad = mockClient({ data: { ok: false, error: "invalid_address", message: "Unknown printer address lpt1" }, error: null });
+    const plain = await saveWhPrinter({ code: "X" }, bad).catch((e: unknown) => e);
+    expect(plain).not.toBeInstanceOf(WhPrinterStaleError);
+    expect((plain as Error).message).toContain("Unknown printer address");
+    const transport = { code: "PGRST", message: "network" };
+    await expect(saveWhPrinter({ code: "X" }, mockClient({ data: null, error: transport }))).rejects.toBe(transport);
+  });
+
+  it("delete sends p_id and throws while jobs wait", async () => {
+    const ok = mockClient({
+      data: { ok: true, printer: { ...row, active: false }, deactivated: true, already_inactive: false },
+      error: null,
+    });
+    await deleteWhPrinter("p-1", ok);
+    expect(ok.rpc).toHaveBeenCalledWith("rpc_wh_delete_printer", { p_id: "p-1" });
+    const busy = mockClient({
+      data: { ok: false, error: "printer_has_jobs", message: "DOCK-1 still has 1 label job queued or printing." },
+      error: null,
+    });
+    await expect(deleteWhPrinter("p-1", busy)).rejects.toThrow("still has 1 label job");
+  });
+
+  it("the form round-trips a row and builds the payload the RPC takes", () => {
+    const form = printerFormFrom(row as never);
+    expect(form).toMatchObject({ id: "p-1", rowVersion: 4, transport: "agent", agentId: "agent-dock", dpi: 203 });
+    expect(printerFormProblems(form)).toEqual([]);
+    expect(printerPayload(form)).toEqual({
+      id: "p-1",
+      row_version: 4,
+      code: "DOCK-1",
+      name: "Dock printer",
+      transport: "agent",
+      address: "tcp://10.0.0.5:9100",
+      label_stock: "white_4x2",
+      dpi: 203,
+      station_location_id: "st-1",
+      agent_id: "agent-dock",
+      active: true,
+    });
+    const browser = printerPayload({ ...EMPTY_PRINTER_FORM, code: "desk-2", transport: "browser", address: "tcp://x" });
+    expect(browser).toMatchObject({ code: "DESK-2", name: "DESK-2", transport: "browser", address: null });
+    expect(browser.id).toBeUndefined();
+  });
+
+  it("lists what is wrong with a form; only agent printers need an address and an agent id", () => {
+    expect(printerFormProblems({ ...EMPTY_PRINTER_FORM, code: "DOCK 1", address: "lpt1", agentId: "" })).toHaveLength(3);
+    expect(printerFormProblems({ ...EMPTY_PRINTER_FORM, code: "DESK-2", transport: "browser", address: "" })).toEqual([]);
+  });
+});
+
+describe("physical layer switch", () => {
+  function settingsClient(physical: unknown) {
+    return {
+      rpc: vi.fn(async (fn: string, args?: { p_key?: string; p_value?: unknown }) => {
+        if (fn === "rpc_wh_get_settings") {
+          return { data: { ok: true, settings: { physical_layer: physical, outbound: { mode: "practice" } } }, error: null };
+        }
+        return { data: { ok: true, key: args?.p_key, value: args?.p_value }, error: null };
+      }),
+    };
+  }
+
+  it("set live reads the current value and changes only live_since", async () => {
+    const client = settingsClient({ enabled: false, mint_lpns: true, live_since: null, note: "kept" });
+    await setWhPhysicalLayerLive({ liveSince: "2026-10-26T15:00:00.000Z" }, client);
+    expect(client.rpc.mock.calls[0][0]).toBe("rpc_wh_get_settings");
+    expect(client.rpc).toHaveBeenLastCalledWith("rpc_wh_set_setting", {
+      p_key: "physical_layer",
+      p_value: { enabled: false, mint_lpns: true, live_since: "2026-10-26T15:00:00.000Z", note: "kept" },
+    });
+  });
+
+  it("clear live writes null and survives a missing setting", async () => {
+    const client = settingsClient(undefined);
+    await setWhPhysicalLayerLive({ liveSince: null }, client);
+    expect(client.rpc).toHaveBeenLastCalledWith("rpc_wh_set_setting", { p_key: "physical_layer", p_value: { live_since: null } });
+  });
+
+  it("reads live only once live_since has passed", () => {
+    const now = Date.parse("2026-10-26T12:00:00Z");
+    expect(readPhysicalLayer({ live_since: "2026-10-26T11:00:00Z", mint_lpns: true }, now)).toMatchObject({
+      live: true,
+      mint_lpns: true,
+      enabled: false,
+    });
+    expect(readPhysicalLayer({ live_since: "2026-10-27T00:00:00Z" }, now).live).toBe(false);
+    expect(readPhysicalLayer({ live_since: null }, now)).toMatchObject({ live: false, live_since: null });
+    expect(readPhysicalLayer("junk", now)).toMatchObject({ live: false, enabled: false, mint_lpns: false });
+  });
+});
+
+describe("count path and the phone's scanned lines", () => {
+  const task = (id: string, seq: number | null, code: string, due: string | null = "2026-10-26") => ({
+    id,
+    due_date: due,
+    created_at: "2026-10-26T08:00:00Z",
+    location: { code, pick_sequence: seq },
+  });
+
+  it("orders the path by pick_sequence, unsequenced last", () => {
+    const path = orderCountPath([task("c", 3010, "03-01-1"), task("a", null, "IN-01"), task("b", 2021, "02-02-1")]);
+    expect(path.map((t) => t.id)).toEqual(["b", "c", "a"]);
+  });
+
+  it("finds the next task after the current one, skipping done ones and wrapping", () => {
+    const path = [task("a", 1, "A"), task("b", 2, "B"), task("c", 3, "C")];
+    expect(nextCountTask(path, "a", new Set(["a"]))?.id).toBe("b");
+    expect(nextCountTask(path, "b", new Set(["a", "b"]))?.id).toBe("c");
+    expect(nextCountTask(path, "c", new Set(["c"]))?.id).toBe("a");
+    expect(nextCountTask(path, null, new Set(["a"]))?.id).toBe("b");
+    expect(nextCountTask(path, "c", new Set(["a", "b", "c"]))).toBeNull();
+  });
+
+  it("treats undated and past-due tasks as due", () => {
+    expect(isCountDue({ due_date: null }, "2026-10-26")).toBe(true);
+    expect(isCountDue({ due_date: "2026-10-25" }, "2026-10-26")).toBe(true);
+    expect(isCountDue({ due_date: "2026-10-27" }, "2026-10-26")).toBe(false);
+  });
+
+  it("flags a white label in RTS and a green one in RAW", () => {
+    expect(labelColourFlag("white", "RTS")).toBe("needs_green");
+    expect(labelColourFlag("green", "RAW")).toBe("needs_white");
+    expect(labelColourFlag("green", "RTS")).toBeNull();
+    expect(labelColourFlag("white", "RAW")).toBeNull();
+  });
+
+  const carton = (over: Partial<WhCountEntry> = {}): WhCountEntry => ({
+    key: "ctr-1",
+    skuId: "sku-1",
+    sku: "BW20",
+    productName: "Bowl 20",
+    containerId: "ctr-1",
+    containerCode: "C-466-007",
+    containerState: "sealed",
+    qty: 12,
+    scanValue: "%C-466-007",
+    labelFlag: null,
+    needsUnits: false,
+    ...over,
+  });
+
+  it("adds one loose unit per product scan, newest line first", () => {
+    let e: WhCountEntry[] = [carton()];
+    e = addLooseUnit(e, { skuId: "sku-2", sku: "NB4", productName: null, scanValue: "850001" });
+    e = addLooseUnit(e, { skuId: "sku-2", sku: "NB4", productName: null, scanValue: "850001" });
+    expect(e.map((x) => [x.key, x.qty])).toEqual([
+      [looseKey("sku-2"), 2],
+      ["ctr-1", 12],
+    ]);
+  });
+
+  it("never counts a carton twice and keys mixed cartons per SKU", () => {
+    const first = addCartonEntries([], [carton()]);
+    expect(first.duplicate).toBe(false);
+    const again = addCartonEntries(first.entries, [carton({ qty: 99 })]);
+    expect(again.duplicate).toBe(true);
+    expect(again.entries).toHaveLength(1);
+    expect(again.entries[0].qty).toBe(12);
+    expect(cartonKey("ctr-2", "sku-1", true)).toBe("ctr-2:sku-1");
+    expect(cartonKey("ctr-2", "sku-1", false)).toBe("ctr-2");
+  });
+
+  it("the stepper clamps and clears needsUnits; remove drops a line", () => {
+    const open = [carton({ containerState: "open", qty: 0, needsUnits: true })];
+    expect(setEntryQty(open, "ctr-1", 7)[0]).toMatchObject({ qty: 7, needsUnits: false });
+    expect(setEntryQty(open, "ctr-1", -4)[0].qty).toBe(0);
+    expect(removeEntry(open, "ctr-1")).toEqual([]);
+  });
+
+  it("builds p_lines: loose zeros dropped, an empty carton kept", () => {
+    const loose = (skuId: string, qty: number, scan: string): WhCountEntry =>
+      carton({ key: looseKey(skuId), skuId, containerId: null, containerCode: null, containerState: null, qty, scanValue: scan });
+    const entries = [carton({ qty: 0, containerState: "open" }), loose("sku-2", 0, "850001"), loose("sku-3", 4, "NB4")];
+    expect(countLinesPayload(entries)).toEqual([
+      { sku_id: "sku-1", container_id: "ctr-1", counted_qty: 0, scan_value: "%C-466-007" },
+      { sku_id: "sku-3", container_id: null, counted_qty: 4, scan_value: "NB4" },
+    ]);
+  });
+});
+
+describe("likelyCause", () => {
+  const now = Date.parse("2026-10-26T16:00:00Z");
+  const task = {
+    location_id: "loc-1",
+    started_at: "2026-10-26T14:00:00Z",
+    submitted_at: "2026-10-26T14:20:00Z",
+    moved_during_count: false,
+  };
+  const line = { sku_id: "sku-1", container_id: null, expected_qty: 10, counted_qty: 8, found_container_elsewhere: false, variance: -2 };
+  const mv = (type: string, at: string, over: Partial<WhCountMovement> = {}): WhCountMovement => ({
+    id: `${type}-${at}`,
+    type,
+    sku_id: "sku-1",
+    qty: 2,
+    from_location_id: "loc-1",
+    to_location_id: null,
+    from_container_id: null,
+    to_container_id: null,
+    created_at: at,
+    note: null,
+    sku: { sku: "BW20" },
+    from_container: null,
+    to_container: null,
+    ...over,
+  });
+
+  it("says a matching line matches and names a carton found elsewhere", () => {
+    expect(likelyCause(task, { ...line, counted_qty: 10, variance: 0 }, [], now)).toBe("Matches");
+    expect(
+      likelyCause(
+        task,
+        { ...line, found_container_elsewhere: true, container: { code: "C-466-007", location: { code: "02-01-3" } } },
+        [],
+        now,
+      ),
+    ).toBe("C-466-007 was booked at 02-01-3; found here");
+  });
+
+  it("blames a movement during the count first", () => {
+    const moved = [mv("putaway", "2026-10-26T14:10:00Z", { to_location_id: "loc-1" })];
+    expect(likelyCause({ ...task, moved_during_count: true }, line, moved, now)).toMatch(/^Stock moved during the count: put away 2/);
+  });
+
+  it("names a ship settlement, then a carton opened without a move", () => {
+    expect(likelyCause(task, line, [mv("ship_settle", "2026-10-26T09:00:00Z")], now)).toMatch(/^Ship settlement drew 2 here/);
+    const opened = [mv("open_container", "2026-10-26T10:00:00Z", { from_container: { code: "C-466-009" } })];
+    expect(likelyCause(task, line, opened, now)).toMatch(/^C-466-009 opened .* without a move$/);
+  });
+
+  it("ignores other SKUs and falls back to the shape of the variance", () => {
+    const other = [mv("ship_settle", "2026-10-26T09:00:00Z", { sku_id: "sku-9" })];
+    expect(likelyCause(task, { ...line, expected_qty: 0, counted_qty: 3, variance: 3 }, other, now)).toBe(
+      "Not booked here: misplaced from another bin?",
+    );
+    expect(likelyCause(task, { ...line, counted_qty: 0, variance: -10 }, [], now)).toBe("Nothing found: moved without a scan?");
+    expect(likelyCause(task, line, [], now)).toBe("Fewer than booked; no recent movement");
+  });
+
+  it("sorts reconcile lines by the size of the residual", () => {
+    const lines = [
+      { residual: 2, bucket: "finished", sku: { sku: "NB4" } },
+      { residual: -5, bucket: "finished", sku: { sku: "BW20" } },
+      { residual: 2, bucket: "finished", sku: { sku: "AB1" } },
+    ];
+    expect(sortReconcileLines(lines).map((l) => l.sku.sku)).toEqual(["BW20", "AB1", "NB4"]);
   });
 });

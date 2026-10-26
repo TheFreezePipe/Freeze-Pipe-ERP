@@ -1,22 +1,29 @@
 import { lazy, Suspense, useState } from "react";
 import { Link } from "react-router-dom";
 import { formatDistanceToNow, parseISO } from "date-fns";
-import { AlertTriangle, Copy, Plus, Printer, ScanBarcode, ShieldAlert, ShieldCheck, ShieldOff } from "lucide-react";
+import { AlertTriangle, Loader2, Plus, Power, Printer, Radio, ScanBarcode, ShieldAlert, ShieldCheck, ShieldOff } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import {
   AGENT_OFFLINE_MS,
-  printerDraftProblems,
-  printerUpsertSql,
   useBarcodeCoverage,
   useOutboundMode,
   useSetWarehouseSetting,
@@ -28,9 +35,21 @@ import {
   useWhRequestLabels,
   useWhStations,
   type WhLabelStock,
-  type WhPrinterDraft,
   type WhPrinterRow,
 } from "@/lib/hooks";
+import {
+  EMPTY_PRINTER_FORM,
+  printerFormFrom,
+  printerFormProblems,
+  printerPayload,
+  readPhysicalLayer,
+  useWhDeletePrinter,
+  useWhSavePrinter,
+  useWhSetPhysicalLayer,
+  WhPrinterStaleError,
+  type WhPrinterForm,
+} from "@/lib/hooks/use-warehouse-counts";
+import { APP_ENV } from "@/lib/env";
 import { PrintJobStatus } from "@/components/warehouse/PrintJobStatus";
 import type { OutboundMode } from "@/lib/warehouse/outbound";
 import { cn } from "@/lib/utils";
@@ -54,7 +73,7 @@ const OUTBOUND_OPTIONS: { value: OutboundMode; hint: string }[] = [
 ];
 
 /** What the Warehouse tab still gains in Phase 1 (design doc, Settings section). */
-const PHASE1_SETUP = ["Rack templates", "Cart definitions", "Tote classes", "Scan rules", "Printer and station setup"];
+const PHASE1_SETUP = ["Rack templates", "Cart definitions", "Tote classes", "Scan rules"];
 
 const LABEL_STOCK: Record<string, string> = {
   white_4x2: "White 4×2",
@@ -82,8 +101,8 @@ function isOutboundMode(value: unknown): value is OutboundMode {
 
 /**
  * Settings › Warehouse (admin). Setup data for the Inventory module: the
- * outbound switch, barcode coverage, the layout import and the locations
- * table, printers and stations.
+ * outbound switch, barcode coverage, the physical-layer switch, the layout
+ * import and the locations table, printers and stations.
  */
 export default function WarehouseSettings() {
   const { toast } = useToast();
@@ -201,6 +220,8 @@ export default function WarehouseSettings() {
         </CardContent>
       </Card>
 
+      <PhysicalLayerCard />
+
       <Card className="lg:col-span-2">
         <CardHeader className="space-y-1.5">
           <CardTitle className="text-base">Locations and layout</CardTitle>
@@ -252,40 +273,144 @@ export default function WarehouseSettings() {
   );
 }
 
-// ---- Printers and stations ------------------------------------------------------
+// ---- Physical layer ---------------------------------------------------------------
 
-const EMPTY_PRINTER: WhPrinterDraft = {
-  code: "",
-  name: "",
-  stationLocationId: null,
-  address: "tcp://",
-  labelStock: "white_4x2",
-  dpi: 203,
-  active: true,
-  agentId: "",
-};
+/**
+ * physical_layer (§5.6, §11): enabled and mint_lpns as they stand, and the
+ * moment the physical layer went live. "Set live now" stamps live_since; from
+ * then the ledger mirror, ship settlement and the nightly reconcile and count
+ * scheduler run. "Clear live" exists off production only, for practice resets.
+ */
+function PhysicalLayerCard() {
+  const { toast } = useToast();
+  const { data: settings, isLoading } = useWarehouseSettings();
+  const setLive = useWhSetPhysicalLayer();
+  const [confirm, setConfirm] = useState<"live" | "clear" | null>(null);
+  const layer = readPhysicalLayer(settings?.physical_layer);
+  const canClear = APP_ENV !== "prod";
+
+  function apply(kind: "live" | "clear") {
+    setLive.mutate(
+      { liveSince: kind === "live" ? new Date().toISOString() : null },
+      {
+        onSuccess: () => {
+          setConfirm(null);
+          toast({ title: kind === "live" ? "Physical layer is live" : "Physical layer back to practice" });
+        },
+        onError: (err) =>
+          toast({
+            title: "Couldn't change the physical layer",
+            description: err instanceof Error ? err.message : "Unknown error",
+            variant: "destructive",
+          }),
+      },
+    );
+  }
+
+  return (
+    <Card className="lg:col-span-2">
+      <CardHeader className="space-y-1.5">
+        <CardTitle className="text-base">Physical layer</CardTitle>
+        <CardDescription>
+          Whether bins and cartons follow the books. Until it is live the ledger mirror, ship settlement and the nightly
+          reconcile stay dormant, so practice on the floor never moves stock figures.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="flex items-center gap-3 rounded-md border border-border/50 px-3 py-2">
+            <div className={cn("rounded-md bg-muted p-2", layer.live ? "text-green-400" : "text-muted-foreground")}>
+              <Radio className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-lg font-semibold">{isLoading ? "…" : layer.live ? "Live" : "Not live"}</p>
+              <p className="text-xs text-muted-foreground">
+                {layer.live_since ? `since ${new Date(layer.live_since).toLocaleString()}` : "live_since is not set"}
+              </p>
+            </div>
+          </div>
+          <div className="rounded-md border border-border/50 px-3 py-2">
+            <p className="text-lg font-semibold">{layer.mint_lpns ? "On" : "Off"}</p>
+            <p className="text-xs text-muted-foreground">Carton labels (LPNs) minted at check-in</p>
+          </div>
+          <div className="rounded-md border border-border/50 px-3 py-2">
+            <p className="text-lg font-semibold">{layer.enabled ? "On" : "Off"}</p>
+            <p className="text-xs text-muted-foreground">physical_layer.enabled</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {!layer.live && (
+            <Button size="sm" disabled={isLoading || setLive.isPending} onClick={() => setConfirm("live")}>
+              <Power className="mr-1.5 h-4 w-4" /> Set live now
+            </Button>
+          )}
+          {canClear && layer.live_since && (
+            <Button size="sm" variant="outline" disabled={setLive.isPending} onClick={() => setConfirm("clear")}>
+              Clear live
+            </Button>
+          )}
+          <p className="text-xs text-muted-foreground">
+            {canClear
+              ? "Off production, Clear live returns the floor to practice; what the mirror already posted stays."
+              : "Going live is one-way on production."}
+          </p>
+        </div>
+      </CardContent>
+
+      <AlertDialog open={confirm != null} onOpenChange={(o) => !o && setConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirm === "clear" ? "Clear live?" : "Set the physical layer live now?"}</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              {confirm === "clear" ? (
+                <div className="space-y-2 text-sm text-muted-foreground">
+                  <p>
+                    The mirror, settlement and nightly jobs stop from now. Movements, settlements and counts they already
+                    posted stay as they are; reload practice stock if you need a clean floor.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2 text-sm text-muted-foreground">
+                  <p>From the moment you confirm:</p>
+                  <ul className="list-disc space-y-1 pl-5">
+                    <li>the ledger mirror gives every task log, stock count and freight delivery its physical twin in the bins;</li>
+                    <li>ship settlement draws each shipped order&apos;s units from the pick faces;</li>
+                    <li>the nightly reconcile (09:00 UTC) and count scheduler (09:10 UTC) run, and open counts where a SKU is off.</li>
+                  </ul>
+                  <p>Nothing before that moment is replayed. Set it once the opening stock is in the bins.</p>
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={setLive.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={setLive.isPending}
+              onClick={(e) => {
+                e.preventDefault();
+                if (confirm) apply(confirm);
+              }}
+            >
+              {setLive.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+              {confirm === "clear" ? "Clear live" : "Set live now"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
+  );
+}
+
+// ---- Printers and stations ------------------------------------------------------
 
 const NO_STATION = "__none__";
 
-function draftFrom(p: WhPrinterRow): WhPrinterDraft {
-  return {
-    code: p.code,
-    name: p.name,
-    stationLocationId: p.station_location_id,
-    address: p.address ?? "",
-    labelStock: (p.label_stock as WhLabelStock) ?? "white_4x2",
-    dpi: p.dpi === 300 || p.dpi === 600 ? p.dpi : 203,
-    active: p.active,
-    agentId: p.agent_id ?? "",
-  };
-}
-
 /**
  * Printers with their agent's heartbeat and queue, a test print per printer
- * and station labels (all through rpc_wh_request_labels). Registering or
- * editing a printer has no RPC yet and wh_printers has no client write
- * policy, so the dialog builds the SQL for the database owner (labelled as
- * a workaround in the card).
+ * and station labels (rpc_wh_request_labels). Add and Edit save through
+ * rpc_wh_save_printer (a stale row_version is caught and offered for
+ * reload); Deactivate goes through rpc_wh_delete_printer, which refuses while
+ * jobs wait.
  */
 function PrintersAndStations() {
   const { toast } = useToast();
@@ -294,13 +419,23 @@ function PrintersAndStations() {
   const { data: queues = {} } = useWhPrinterQueues();
   const { mutate: requestLabels, isPending: testing } = useWhRequestLabels();
   const { mutate: markPrinted } = useWhMarkPrinted();
-  const [draft, setDraft] = useState<WhPrinterDraft | null>(null);
-  const [editing, setEditing] = useState<string | null>(null);
+  const save = useWhSavePrinter();
+  const remove = useWhDeletePrinter();
+  const [form, setForm] = useState<WhPrinterForm | null>(null);
+  const [stale, setStale] = useState<WhPrinterStaleError | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [testJob, setTestJob] = useState<{ printerId: string; jobId: string } | null>(null);
   const [stationLabels, setStationLabels] = useState(false);
+  const [deactivating, setDeactivating] = useState<WhPrinterRow | null>(null);
 
-  const problems = draft ? printerDraftProblems(draft) : [];
-  const sql = draft && problems.length === 0 ? printerUpsertSql(draft) : "";
+  const problems = form ? printerFormProblems(form) : [];
+  const editing = form?.id ? (printers.find((p) => p.id === form.id)?.code ?? form.code) : null;
+
+  function openForm(next: WhPrinterForm) {
+    setForm(next);
+    setStale(null);
+    setSaveError(null);
+  }
 
   function testPrint(p: WhPrinterRow) {
     const stationId = p.station_location_id ?? stations[0]?.id;
@@ -330,13 +465,44 @@ function PrintersAndStations() {
     );
   }
 
-  async function copySql() {
-    try {
-      await navigator.clipboard.writeText(sql);
-      toast({ title: "SQL copied", description: "Run it in the Supabase SQL editor, then wait for the agent's next heartbeat." });
-    } catch {
-      toast({ title: "Couldn't copy", description: "Select the text and copy it by hand.", variant: "destructive" });
-    }
+  function submit() {
+    if (!form || problems.length > 0) return;
+    setSaveError(null);
+    setStale(null);
+    save.mutate(printerPayload(form), {
+      onSuccess: (res) => {
+        toast({ title: `${res.printer.code} ${res.created ? "added" : "saved"}` });
+        setForm(null);
+      },
+      onError: (err) => {
+        if (err instanceof WhPrinterStaleError) setStale(err);
+        else setSaveError(err instanceof Error ? err.message : "Couldn't save the printer");
+      },
+    });
+  }
+
+  function deactivate(p: WhPrinterRow) {
+    remove.mutate(p.id, {
+      onSuccess: () => {
+        toast({ title: `${p.code} deactivated` });
+        setDeactivating(null);
+      },
+      onError: (err) => {
+        setDeactivating(null);
+        toast({ title: `Couldn't deactivate ${p.code}`, description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
+      },
+    });
+  }
+
+  function reactivate(p: WhPrinterRow) {
+    save.mutate(
+      { id: p.id, active: true, row_version: p.row_version },
+      {
+        onSuccess: () => toast({ title: `${p.code} active again` }),
+        onError: (err) =>
+          toast({ title: `Couldn't reactivate ${p.code}`, description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" }),
+      },
+    );
   }
 
   return (
@@ -347,41 +513,25 @@ function PrintersAndStations() {
             <CardTitle className="text-base">Printers and stations</CardTitle>
             <CardDescription>
               A label prints at the station a worker scanned into, on the printer whose label stock fits. A print agent on
-              a PC (tools/print-agent) prints the jobs for its printers.
+              a PC (tools/print-agent) prints the jobs of the printers carrying its agent id.
             </CardDescription>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              setEditing(null);
-              setDraft({ ...EMPTY_PRINTER });
-            }}
-          >
+          <Button size="sm" variant="outline" onClick={() => openForm({ ...EMPTY_PRINTER_FORM })}>
             <Plus className="mr-1.5 h-4 w-4" /> Add printer
           </Button>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-200">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
-          <p>
-            <span className="font-semibold">Workaround:</span> the app cannot save printers yet (wh_printers has no client
-            write policy and there is no printer RPC), so Add printer and Edit build the SQL statement for the database owner
-            to run in the Supabase SQL editor. Test print, the queue and station labels work from here.
-          </p>
-        </div>
-
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : printers.length === 0 ? (
           <div className="flex items-center gap-3 rounded-md border border-border/50 px-4 py-3 text-sm text-muted-foreground">
             <Printer className="h-4 w-4 shrink-0" />
-            No printers registered yet. Labels print from the browser until one is registered and its agent runs.
+            No printers registered yet. Labels print from the browser until one is added and its agent runs.
           </div>
         ) : (
           <div className="overflow-x-auto rounded-md border border-border/50">
-            <table className="w-full min-w-[820px] text-sm">
+            <table className="w-full min-w-[900px] text-sm">
               <thead className="border-b border-border/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2.5 font-medium">Printer</th>
@@ -400,7 +550,7 @@ function PrintersAndStations() {
                   const online = seen != null && dataUpdatedAt - seen < AGENT_OFFLINE_MS;
                   const q = queues[p.id];
                   return (
-                    <tr key={p.id} className="border-b border-border/50 align-top last:border-0">
+                    <tr key={p.id} className={cn("border-b border-border/50 align-top last:border-0", !p.active && "opacity-60")}>
                       <td className="px-3 py-2">
                         <span className="font-medium">{p.code}</span>
                         <span className="text-muted-foreground"> · {p.name}</span>
@@ -428,11 +578,11 @@ function PrintersAndStations() {
                       <td className="whitespace-nowrap px-3 py-2 tabular-nums text-muted-foreground">
                         {q ? (
                           <>
-                            {q.queued + q.claimed} open
+                            {q.queued} queued{q.claimed > 0 ? ` · ${q.claimed} printing` : ""}
                             {q.failed > 0 && <span className="text-destructive"> · {q.failed} failed</span>}
                           </>
                         ) : (
-                          "0 open"
+                          "0 queued"
                         )}
                       </td>
                       <td className="whitespace-nowrap px-3 py-1.5 text-right">
@@ -445,17 +595,24 @@ function PrintersAndStations() {
                         >
                           Test
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 px-2"
-                          onClick={() => {
-                            setEditing(p.code);
-                            setDraft(draftFrom(p));
-                          }}
-                        >
+                        <Button size="sm" variant="ghost" className="h-8 px-2" onClick={() => openForm(printerFormFrom(p))}>
                           Edit
                         </Button>
+                        {p.active ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 px-2 text-muted-foreground"
+                            disabled={remove.isPending}
+                            onClick={() => setDeactivating(p)}
+                          >
+                            Deactivate
+                          </Button>
+                        ) : (
+                          <Button size="sm" variant="ghost" className="h-8 px-2" disabled={save.isPending} onClick={() => reactivate(p)}>
+                            Reactivate
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -508,42 +665,57 @@ function PrintersAndStations() {
         </div>
       </CardContent>
 
-      <Dialog open={!!draft} onOpenChange={(o) => !o && setDraft(null)}>
+      <Dialog open={!!form} onOpenChange={(o) => !o && setForm(null)}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>{editing ? `Edit ${editing}` : "Add printer"}</DialogTitle>
             <DialogDescription>
-              Builds the statement for the database owner (no printer RPC yet). Saving by code updates the printer if it
-              exists.
+              The print agent whose AGENT_ID matches prints this printer&apos;s jobs; a browser printer is printed by the page
+              that asked for the label.
             </DialogDescription>
           </DialogHeader>
-          {draft && (
+          {form && (
             <div className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label htmlFor="wh-printer-code">Code</Label>
                   <Input
                     id="wh-printer-code"
-                    value={draft.code}
-                    disabled={!!editing}
+                    value={form.code}
+                    disabled={!!form.id}
                     placeholder="DOCK-1"
-                    onChange={(e) => setDraft({ ...draft, code: e.target.value.toUpperCase() })}
+                    onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
                   />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="wh-printer-name">Name</Label>
                   <Input
                     id="wh-printer-name"
-                    value={draft.name}
+                    value={form.name}
                     placeholder="Dock printer"
-                    onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
                   />
+                </div>
+                <div className="space-y-1">
+                  <Label>Transport</Label>
+                  <Select
+                    value={form.transport}
+                    onValueChange={(v) => setForm({ ...form, transport: v === "browser" ? "browser" : "agent" })}
+                  >
+                    <SelectTrigger aria-label="Transport">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="agent">Print agent</SelectItem>
+                      <SelectItem value="browser">Browser</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-1">
                   <Label>Station</Label>
                   <Select
-                    value={draft.stationLocationId ?? NO_STATION}
-                    onValueChange={(v) => setDraft({ ...draft, stationLocationId: v === NO_STATION ? null : v })}
+                    value={form.stationLocationId ?? NO_STATION}
+                    onValueChange={(v) => setForm({ ...form, stationLocationId: v === NO_STATION ? null : v })}
                   >
                     <SelectTrigger aria-label="Station">
                       <SelectValue />
@@ -559,17 +731,8 @@ function PrintersAndStations() {
                   </Select>
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="wh-printer-agent">Agent id</Label>
-                  <Input
-                    id="wh-printer-agent"
-                    value={draft.agentId}
-                    placeholder="agent-dock"
-                    onChange={(e) => setDraft({ ...draft, agentId: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-1">
                   <Label>Label stock</Label>
-                  <Select value={draft.labelStock} onValueChange={(v) => setDraft({ ...draft, labelStock: v as WhLabelStock })}>
+                  <Select value={form.labelStock} onValueChange={(v) => setForm({ ...form, labelStock: v as WhLabelStock })}>
                     <SelectTrigger aria-label="Label stock">
                       <SelectValue />
                     </SelectTrigger>
@@ -585,8 +748,8 @@ function PrintersAndStations() {
                 <div className="space-y-1">
                   <Label>Resolution</Label>
                   <Select
-                    value={String(draft.dpi)}
-                    onValueChange={(v) => setDraft({ ...draft, dpi: (Number(v) as WhPrinterDraft["dpi"]) || 203 })}
+                    value={String(form.dpi)}
+                    onValueChange={(v) => setForm({ ...form, dpi: (Number(v) as WhPrinterForm["dpi"]) || 203 })}
                   >
                     <SelectTrigger aria-label="Resolution">
                       <SelectValue />
@@ -601,49 +764,119 @@ function PrintersAndStations() {
                   </Select>
                 </div>
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="wh-printer-address">Address</Label>
-                <Input
-                  id="wh-printer-address"
-                  value={draft.address}
-                  placeholder="tcp://192.168.1.50:9100"
-                  className="font-mono"
-                  onChange={(e) => setDraft({ ...draft, address: e.target.value })}
-                />
-                <p className="text-xs text-muted-foreground">
-                  tcp://ip:9100 for a network printer; share://PC-NAME/ShareName for a USB printer shared on the agent&apos;s
-                  PC; file://C:/labels to write .zpl files (practice, or no printer yet). Labels render at 203 dpi.
-                </p>
-              </div>
+              {form.transport === "agent" && (
+                <>
+                  <div className="space-y-1">
+                    <Label htmlFor="wh-printer-agent">Agent id</Label>
+                    <Input
+                      id="wh-printer-agent"
+                      value={form.agentId}
+                      placeholder="agent-dock"
+                      onChange={(e) => setForm({ ...form, agentId: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">The AGENT_ID in the .env of the PC that runs the print agent.</p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="wh-printer-address">Address</Label>
+                    <Input
+                      id="wh-printer-address"
+                      value={form.address}
+                      placeholder="tcp://192.168.1.50:9100"
+                      className="font-mono"
+                      onChange={(e) => setForm({ ...form, address: e.target.value })}
+                    />
+                    <ul className="space-y-0.5 text-xs text-muted-foreground">
+                      <li>
+                        <span className="font-mono text-foreground/80">tcp://192.168.1.50:9100</span>: a network printer (raw
+                        port 9100 when the port is left off).
+                      </li>
+                      <li>
+                        <span className="font-mono text-foreground/80">share://DOCK-PC/Zebra</span>: a USB printer shared from
+                        the agent&apos;s PC under that share name.
+                      </li>
+                      <li>
+                        <span className="font-mono text-foreground/80">file://C:/labels</span>: writes .zpl files to a folder
+                        (practice, or no printer yet).
+                      </li>
+                    </ul>
+                  </div>
+                </>
+              )}
               <div className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2">
                 <Label htmlFor="wh-printer-active">Active</Label>
-                <Switch
-                  id="wh-printer-active"
-                  checked={draft.active}
-                  onCheckedChange={(on) => setDraft({ ...draft, active: on })}
-                />
+                <Switch id="wh-printer-active" checked={form.active} onCheckedChange={(on) => setForm({ ...form, active: on })} />
               </div>
-              {problems.length > 0 ? (
+              {problems.length > 0 && (
                 <ul className="space-y-0.5 text-xs text-amber-300">
                   {problems.map((p) => (
                     <li key={p}>{p}</li>
                   ))}
                 </ul>
-              ) : (
-                <Textarea readOnly value={sql} rows={8} className="font-mono text-xs" aria-label="SQL for the database owner" />
+              )}
+              {stale && (
+                <div
+                  className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-200"
+                  role="alert"
+                >
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+                  <div className="space-y-1.5">
+                    <p>{stale.message} Your changes were not saved.</p>
+                    {stale.printer && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7"
+                        onClick={() => stale.printer && openForm(printerFormFrom(stale.printer))}
+                      >
+                        Load the latest
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+              {saveError && (
+                <p className="text-xs text-destructive" role="alert">
+                  {saveError}
+                </p>
               )}
             </div>
           )}
           <DialogFooter className="gap-2 sm:gap-2">
-            <Button variant="ghost" onClick={() => setDraft(null)}>
-              Close
+            <Button variant="ghost" onClick={() => setForm(null)}>
+              Cancel
             </Button>
-            <Button onClick={copySql} disabled={!sql}>
-              <Copy className="mr-1.5 h-4 w-4" /> Copy SQL
+            <Button onClick={submit} disabled={!form || problems.length > 0 || save.isPending}>
+              {save.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+              {form?.id ? "Save" : "Add printer"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deactivating} onOpenChange={(o) => !o && setDeactivating(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Deactivate {deactivating?.code}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Labels stop routing to it; its past jobs keep their printer. It is refused while jobs are queued or printing.
+              Reactivate it any time.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={remove.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={remove.isPending}
+              onClick={(e) => {
+                e.preventDefault();
+                if (deactivating) deactivate(deactivating);
+              }}
+            >
+              {remove.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+              Deactivate
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {stationLabels && (
         <Suspense fallback={null}>

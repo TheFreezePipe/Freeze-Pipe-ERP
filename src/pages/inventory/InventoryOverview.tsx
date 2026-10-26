@@ -1,14 +1,17 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { differenceInDays, format, parseISO } from "date-fns";
+import { differenceInDays, format, formatDistanceToNow, parseISO } from "date-fns";
 import {
   AlertCircle,
   AlertTriangle,
   ArrowDownToLine,
   ClipboardCheck,
+  ListChecks,
   MapPin,
   PackageCheck,
+  PackageSearch,
   Plus,
+  Scale,
   Ship,
   TrendingDown,
 } from "lucide-react";
@@ -42,8 +45,11 @@ import {
   useProductBoms,
   useShipmentVariances,
   useSuppliers,
+  useWhOverview,
+  useWhPutawayQueue,
   type FreightLineItemWithProduct,
 } from "@/lib/hooks";
+import { useWhCountTasks } from "@/lib/hooks/use-warehouse-counts";
 import { buildInTransitMap, buildOnOrderMap, inventoryTotalsReal } from "@/lib/inventory-aggregates";
 import { buildPlannedAllocationMap } from "@/lib/allocation";
 import { computeDOS, NO_DEMAND_DOS } from "@/lib/inventory-math";
@@ -51,7 +57,7 @@ import { getEffectiveDemand } from "@/lib/demand";
 import { productLifecycle } from "@/lib/product-lifecycle";
 import { isReceivingActive } from "@/lib/freight/receiving";
 import { computeAllMaterialRunways } from "@/lib/materials/runway";
-import { INVENTORY_ROUTES } from "@/lib/inventory-routes";
+import { INVENTORY_ROUTES, stockView } from "@/lib/inventory-routes";
 import { cn, humanizeEnum } from "@/lib/utils";
 import type { FreightShipment } from "@/types/database";
 
@@ -65,10 +71,25 @@ const ISSUE_ROWS = 4;
 
 const isOpenIssue = (status: string) => status !== "resolved" && status !== "written_off";
 
+/** Stock › Counts on a given tab. */
+const countsTab = (tab: string) => `${stockView("counts")}&tab=${tab}`;
+
+/** Below Tailwind's md breakpoint the putaway card opens the phone screen. */
+function isPhone(): boolean {
+  return typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
+}
+
+interface LastReconcile {
+  run_at?: string;
+  mismatched_skus?: number;
+  abs_residual_units?: number;
+}
+
 /**
  * Inventory Overview (`/inventory`): the work waiting today above one stock
- * strip, built only on data the database has now. Phase 1 adds putaway,
- * counts and pick faces; their cards are placeholders until then.
+ * strip, built only on data the database has now. The warehouse cards read
+ * the putaway queue, the count tasks and rpc_wh_overview (variances,
+ * unlocated units, the latest reconcile); low pick faces wait for Phase 2.
  * Design: docs/design/INVENTORY_MODULE_IA.md.
  */
 export default function InventoryOverview() {
@@ -87,6 +108,11 @@ export default function InventoryOverview() {
   const { data: materials = [], isLoading: materialsLoading, isError: materialsError } = useMaterials();
   const { data: allRecipes = [] } = useAllRecipes();
   const { data: usageRates } = useMaterialUsageRates();
+  const putawayQ = useWhPutawayQueue();
+  const liveCountsQ = useWhCountTasks(["open", "counting"]);
+  const whOverviewQ = useWhOverview();
+  const whOverview = whOverviewQ.data;
+  const lastReconcile = (whOverview?.last_reconcile ?? null) as LastReconcile | null;
 
   const supplierName = useMemo(() => new Map(suppliers.map((s) => [s.id, s.name])), [suppliers]);
 
@@ -324,9 +350,77 @@ export default function InventoryOverview() {
           iconColor="text-red-400"
           onClick={() => navigate(INVENTORY_ROUTES.issues)}
         />
-        <PhaseCard title="To put away" subtitle="Cartons checked in, waiting for a slot" icon={ArrowDownToLine} />
-        <PhaseCard title="Counts due" subtitle="Count tasks and variances to approve" icon={ClipboardCheck} />
-        <PhaseCard title="Low pick faces" subtitle="Faces below their minimum" icon={MapPin} />
+        <StatCard
+          title="To put away"
+          value={dash(putawayQ.data?.length ?? 0, putawayQ.isLoading)}
+          subtitle={sub(
+            whOverview && (whOverview.rts_unplaced > 0 || whOverview.putaways_over_24h > 0)
+              ? [
+                  whOverview.rts_unplaced > 0 ? `${whOverview.rts_unplaced} green RTS` : null,
+                  whOverview.putaways_over_24h > 0 ? `${whOverview.putaways_over_24h} over 24 h` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              : (putawayQ.data?.length ?? 0) > 0
+                ? "Cartons waiting for a bay"
+                : "Nothing waiting for a bay",
+            putawayQ.isLoading,
+          )}
+          icon={ArrowDownToLine}
+          iconColor="text-cyan-400"
+          onClick={() => navigate(isPhone() ? "/go/putaway" : `${INVENTORY_ROUTES.shipments}?filter=receiving`)}
+        />
+        <StatCard
+          title="Counts due"
+          value={dash(liveCountsQ.data?.length ?? 0, liveCountsQ.isLoading)}
+          subtitle={sub(
+            whOverview ? `${whOverview.counts_due} due by today · open or counting` : "Open or counting",
+            liveCountsQ.isLoading,
+          )}
+          icon={ClipboardCheck}
+          iconColor="text-blue-400"
+          onClick={() => navigate(countsTab("tasks"))}
+        />
+        <PhaseCard title="Low pick faces" subtitle="Faces below their minimum" icon={MapPin} phase="Phase 2" />
+        <StatCard
+          title="Variances to approve"
+          value={dash(whOverview?.variances ?? 0, whOverviewQ.isLoading)}
+          subtitle={sub(
+            (whOverview?.variances ?? 0) > 0 ? "Submitted counts that differ" : "No count waiting for approval",
+            whOverviewQ.isLoading,
+          )}
+          icon={ListChecks}
+          iconColor="text-amber-400"
+          onClick={() => navigate(countsTab("variances"))}
+        />
+        <StatCard
+          title="Unlocated"
+          value={whOverviewQ.isLoading ? "—" : whOverview ? whOverview.unlocated_units.toLocaleString() : "—"}
+          subtitle={sub(
+            whOverview
+              ? whOverview.unlocated_units !== 0
+                ? "Net units at UNLOCATED, waiting for a home"
+                : "Nothing without a location"
+              : "No warehouse data",
+            whOverviewQ.isLoading,
+          )}
+          icon={PackageSearch}
+          iconColor="text-orange-400"
+          onClick={() => navigate(countsTab("reconcile"))}
+        />
+        <StatCard
+          title="Off-by SKUs"
+          value={whOverviewQ.isLoading ? "—" : lastReconcile ? (lastReconcile.mismatched_skus ?? 0) : "—"}
+          subtitle={sub(
+            lastReconcile?.run_at
+              ? `Σ ${(lastReconcile.abs_residual_units ?? 0).toLocaleString()} units · reconciled ${formatDistanceToNow(parseISO(lastReconcile.run_at), { addSuffix: true })}`
+              : "No reconcile run yet",
+            whOverviewQ.isLoading,
+          )}
+          icon={Scale}
+          iconColor="text-red-400"
+          onClick={() => navigate(countsTab("reconcile"))}
+        />
       </div>
 
       <StockStrip stages={stock.stages} activeSkus={stock.activeSkus} loading={inventoryLoading || shipmentsLoading} />
