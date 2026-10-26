@@ -613,7 +613,7 @@ The scope report's Phase 1 also listed a 3D overview (dropped by the owner) and 
 
 | Risk | Effect | Mitigation |
 |---|---|---|
-| Settlement guesses the shelf | Bin drift, never total drift | Weekly A counts; ends with Phase 2 pick scans |
+| Settlement guesses the shelf | Bin drift, never total drift | Weekly A counts; ends with Phase 2 pick scans. Owner decision 2026-10-26 for Phase 2: the pick confirm is a product scan; a carton (LPN) scan is asked for only when the open carton reaches zero ("C-466-004 is empty, scan the carton you open next"), one scan per carton opened; a skipped scan opens the oldest sealed carton on paper and flags the bay for its next count |
 | "Take to line" scans skipped | Negative raw at `MFG-LINE` | Overview tile; reconcile line names it; one-scan take to line at the start of the emptying task |
 | RTS logged without the relabel | Finished units loose at `MFG-LINE`, invisible to settlement | Loose putaway task and Overview tile; `rts.require_relabel` blocks the Workspace step when a station session exists |
 | Print agent PC off, or printer out of labels | No labels at that station | Agent runs as a service with a heartbeat shown in Settings; browser print fallback; any agent may claim a network printer's jobs |
