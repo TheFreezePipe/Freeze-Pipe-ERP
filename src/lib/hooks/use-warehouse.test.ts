@@ -466,3 +466,49 @@ describe("pinned station", () => {
     window.localStorage.removeItem(PINNED_STATION_KEY);
   });
 });
+
+describe("ledger sync, reconcile and printer RPC contracts", () => {
+  it("reconcile passes p_create_counts and returns the run's numbers", async () => {
+    const client = mockClient({
+      data: { ok: true, run_id: "run-1", live: false, mismatched_skus: 3, counts_enabled: false, counts_created: 0 },
+      error: null,
+    });
+    const run = await whRpc("rpc_wh_reconcile_physical", { p_create_counts: false }, "fallback", client);
+    expect(client.rpc).toHaveBeenCalledWith("rpc_wh_reconcile_physical", { p_create_counts: false });
+    expect(run.mismatched_skus).toBe(3);
+    expect(run.counts_enabled).toBe(false);
+  });
+
+  it("a label request can force the browser with p_target", async () => {
+    const client = mockClient({
+      data: { ok: true, job_id: "job-2", status: "queued", target: "browser", routed_by: "requested", printer: null },
+      error: null,
+    });
+    const job = await whRpc(
+      "rpc_wh_request_labels",
+      { p_kind: "lpn", p_ids: ["ctr-1"], p_from: "phone", p_printer_id: null, p_target: "browser" },
+      "fallback",
+      client,
+    );
+    expect(client.rpc).toHaveBeenCalledWith("rpc_wh_request_labels", {
+      p_kind: "lpn", p_ids: ["ctr-1"], p_from: "phone", p_printer_id: null, p_target: "browser",
+    });
+    expect(job.routed_by).toBe("requested");
+  });
+
+  it("saving a printer sends the payload as p_printer; removing one with jobs throws its message", async () => {
+    const saved = mockClient({ data: { ok: true, created: true, printer: { id: "p-1", code: "MFG-1" } }, error: null });
+    const result = await whRpc(
+      "rpc_wh_save_printer",
+      { p_printer: { code: "MFG-1", transport: "agent", address: "tcp://10.0.0.5:9100", label_stock: "green_4x2" } },
+      "fallback",
+      saved,
+    );
+    expect(result.created).toBe(true);
+    const busy = mockClient({
+      data: { ok: false, error: "printer_has_jobs", message: "MFG-1 still has 2 label jobs queued or printing; let them finish or cancel them first." },
+      error: null,
+    });
+    await expect(whRpc("rpc_wh_delete_printer", { p_id: "p-1" }, "fallback", busy)).rejects.toThrow("MFG-1 still has 2 label jobs");
+  });
+});

@@ -66,6 +66,10 @@ const TYPE_COLORS: Record<string, string> = {
   shipstation_ledger_rebase: "border-muted text-muted-foreground",
   shipstation_oversell_warning: "border-red-500 text-red-400",
   shipstation_pre_bootstrap_skip: "border-muted text-muted-foreground",
+  // warehouse physical layer: count approvals, write-offs, bucket locks
+  wh_count_adjust: "border-violet-500 text-violet-400",
+  wh_write_off: "border-red-500 text-red-400",
+  wh_bucket_move: "border-lime-500 text-lime-400",
   factory_order_update: "border-orange-500 text-orange-400",
   tracking_eta_update: "border-sky-500 text-sky-400",
   tracking_status_auto: "border-cyan-500 text-cyan-400",

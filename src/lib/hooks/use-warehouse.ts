@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { APP_ENV } from "@/lib/env";
-import type { Json } from "@/lib/database.types";
+import type { Database, Json } from "@/lib/database.types";
 import { effectiveOutboundMode, type OutboundMode } from "@/lib/warehouse/outbound";
 import { baselineWindow } from "@/lib/warehouse/baseline";
 
@@ -133,11 +133,72 @@ export interface WhPrintJobResult {
   status: "queued" | "blocked";
   /** Where it prints: the station's agent printer, this browser, or nowhere (outbound blocked). */
   target: "printer" | "browser" | "none";
-  routed_by: "named" | "station" | "no_matching_printer" | "no_station" | "practice";
+  /** "requested": the caller passed p_target 'browser'. */
+  routed_by: "named" | "station" | "no_matching_printer" | "no_station" | "practice" | "requested";
   printer: { id: string; code: string; name: string } | null;
   station_location_id: string | null;
   message: string | null;
   payload?: Json;
+}
+
+/** rpc_wh_request_labels p_target: 'browser' forces the browser path; 'station' (or null) routes as usual. */
+export type WhPrintTarget = "browser" | "station";
+
+/** One nightly reconciliation (design §6); also what rpc_wh_reconcile_physical returns. */
+export interface WhReconcileResult {
+  run_id: string;
+  run_at: string;
+  /** physical_layer.live_since has passed; before that no counts and no settlement sweep. */
+  live: boolean;
+  skus_checked: number;
+  /** SKUs with a non-zero residual in any bucket. */
+  mismatched_skus: number;
+  /** Σ|R| over every (SKU, bucket). */
+  abs_residual_units: number;
+  /** Σ|on_hand| at UNLOCATED. */
+  unlocated_units: number;
+  /** Green cartons still at MFG-LINE more than two hours after their relabel. */
+  rts_unplaced_cartons: number;
+  /** wh_reconcile_lines written (non-zero R, H or S). */
+  lines: number;
+  counts_enabled: boolean;
+  counts_created: number;
+  sweep: { orders: number; units: number; shortfall: number; errors: number };
+  pruned_balances: number;
+}
+
+export interface WhScheduleCountsResult {
+  created: number;
+  count_task_ids: string[];
+  /** Locations past their ABC cadence, including those already open. */
+  due: number;
+  already_open: number;
+  /** Due locations the daily cap pushed to a later day. */
+  left_for_later: number;
+  daily_cap: number;
+  scheduled_today: number;
+}
+
+export type WhPrinterRecord = Database["public"]["Tables"]["wh_printers"]["Row"];
+
+/**
+ * rpc_wh_save_printer payload: found by id, else by code; omitted fields keep
+ * their value on an edit. address forms: tcp://host[:port], share://HOST/Share,
+ * file://<directory> (agent printers only). row_version guards against a stale edit.
+ */
+export interface WhPrinterInput {
+  id?: string;
+  code?: string;
+  name?: string;
+  transport?: "agent" | "browser";
+  address?: string | null;
+  label_stock?: "white_4x2" | "green_4x2" | "white_3x1";
+  dpi?: 203 | 300 | 600;
+  station_location_id?: string | null;
+  station_code?: string | null;
+  agent_id?: string | null;
+  active?: boolean;
+  row_version?: number;
 }
 
 /** Phone RPCs replay their first result for a repeated client_event_id. */
@@ -348,9 +409,27 @@ interface WhRpc {
 
   // Phase 1: labels, stations and the print agent
   rpc_wh_request_labels: {
-    args: { p_kind: WhLabelKind; p_ids: string[]; p_from: WhRequestedFrom; p_printer_id?: string | null };
+    args: {
+      p_kind: WhLabelKind;
+      p_ids: string[];
+      p_from: WhRequestedFrom;
+      p_printer_id?: string | null;
+      p_target?: WhPrintTarget | null;
+    };
     result: WhPrintJobResult;
   };
+  rpc_wh_save_printer: {
+    args: { p_printer: WhPrinterInput };
+    result: { created: boolean; printer: WhPrinterRecord };
+  };
+  rpc_wh_delete_printer: {
+    args: { p_id: string };
+    result: { printer: WhPrinterRecord; deactivated: true; already_inactive: boolean };
+  };
+
+  // Phase 1: nightly reconcile and count scheduling (admin or service)
+  rpc_wh_reconcile_physical: { args: { p_create_counts?: boolean }; result: WhReconcileResult };
+  rpc_wh_schedule_counts: { args: Record<string, never>; result: WhScheduleCountsResult };
   rpc_wh_mark_printed: {
     args: { p_job_id: string; p_status: "printed" | "failed" | "cancelled"; p_error?: string | null };
     result: { job_id: string; status: string; unchanged?: boolean };

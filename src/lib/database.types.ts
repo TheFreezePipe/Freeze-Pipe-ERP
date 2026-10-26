@@ -6758,6 +6758,7 @@ export type Database = {
         }
         Returns: Json
       }
+      _wh_field_bucket: { Args: { p_field: string }; Returns: string }
       _wh_first_name: { Args: { p_profile: string }; Returns: string }
       _wh_is_print_agent: { Args: never; Returns: boolean }
       _wh_is_service_call: { Args: never; Returns: boolean }
@@ -6780,6 +6781,7 @@ export type Database = {
         Returns: Json
       }
       _wh_live: { Args: never; Returns: boolean }
+      _wh_live_since: { Args: never; Returns: string }
       _wh_loc_full: { Args: { p_location_id: string }; Returns: boolean }
       _wh_loc_id: { Args: { p_code: string }; Returns: string }
       _wh_loc_json: { Args: { p_id: string }; Returns: Json }
@@ -6812,6 +6814,12 @@ export type Database = {
           zone: string
         }[]
       }
+      _wh_mirror_ledger_row: {
+        Args: {
+          p_tx: Database["public"]["Tables"]["inventory_transactions"]["Row"]
+        }
+        Returns: Json
+      }
       _wh_move_balance: {
         Args: {
           p_actor: string
@@ -6828,6 +6836,18 @@ export type Database = {
           p_to_ctr: string
           p_to_loc: string
           p_type: string
+        }
+        Returns: Json
+      }
+      _wh_open_count: {
+        Args: {
+          p_actor: string
+          p_kind: string
+          p_location_id: string
+          p_reason: string
+          p_sku_id: string
+          p_source_id: string
+          p_source_type: string
         }
         Returns: Json
       }
@@ -6860,12 +6880,28 @@ export type Database = {
           p_ids: string[]
           p_kind: string
           p_printer_id: string
+          p_target?: string
         }
         Returns: Json
       }
       _wh_require_role: { Args: { p_roles: string[] }; Returns: string }
       _wh_resolve_code: { Args: { p_code: string }; Returns: Json }
       _wh_setting: { Args: { p_key: string }; Returns: Json }
+      _wh_settle_order: {
+        Args: { p_actor?: string; p_order_id: string }
+        Returns: Json
+      }
+      _wh_settle_order_safe: { Args: { p_order_id: string }; Returns: Json }
+      _wh_settlement_pairs: {
+        Args: never
+        Returns: {
+          order_id: string
+          order_status: string
+          settled: number
+          sku_id: string
+          target: number
+        }[]
+      }
       _wh_suggest_putaway: {
         Args: {
           p_bucket?: string
@@ -7398,6 +7434,7 @@ export type Database = {
         Args: { p_kind?: string; p_location_ids: string[]; p_reason?: string }
         Returns: Json
       }
+      rpc_wh_delete_printer: { Args: { p_id: string }; Returns: Json }
       rpc_wh_end_station: { Args: never; Returns: Json }
       rpc_wh_generate_locations: {
         Args: { p_dry_run?: boolean; p_rack_id?: string }
@@ -7456,6 +7493,10 @@ export type Database = {
         }
         Returns: Json
       }
+      rpc_wh_reconcile_physical: {
+        Args: { p_create_counts?: boolean }
+        Returns: Json
+      }
       rpc_wh_record_count: {
         Args: {
           p_actor_id?: string
@@ -7473,6 +7514,7 @@ export type Database = {
           p_ids: string[]
           p_kind: string
           p_printer_id?: string
+          p_target?: string
         }
         Returns: Json
       }
@@ -7491,6 +7533,8 @@ export type Database = {
       }
       rpc_wh_save_layout: { Args: { p_payload: Json }; Returns: Json }
       rpc_wh_save_location: { Args: { p_location: Json }; Returns: Json }
+      rpc_wh_save_printer: { Args: { p_printer: Json }; Returns: Json }
+      rpc_wh_schedule_counts: { Args: never; Returns: Json }
       rpc_wh_set_setting: {
         Args: { p_key: string; p_value: Json }
         Returns: Json
