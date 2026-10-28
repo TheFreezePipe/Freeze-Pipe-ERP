@@ -70,9 +70,6 @@ Code,Face,Rack,Bay,Level,Zone,Pickable,Pick seq,Bay index along run (Nâ†’S or Wâ
 08-01-1,08,R05,1,1,WIP,no,99069,1,,,,both,,
 08-01-2,08,R05,1,2,WIP,no,99070,1,,,,both,,
 08-01-3,08,R05,1,3,WIP,no,99071,1,,,,both,,
-09-01-1,09,R08,1,1,MISC,no,99900,,,,,,,"Bottom-wall shelving, left unit"
-09-02-1,09,R08,2,1,MISC,no,99901,,,,,,,"Bottom-wall shelving, middle unit"
-09-03-1,09,R09,3,1,MISC,no,99902,,,,,,,"Bottom-wall shelving, right unit"
 IN-01,-,-,-,-,IN,no,99910,,,,,,,"Inbound carton staging floor by the right dock door (assumed footprint, see Fixtures)"
 OUT-UPS,-,-,-,-,OUT,no,99920,,,,,,,UPS table by the left dock door
 OUT-GAY-1,-,-,-,-,OUT,no,99921,,,,,,,"Gaylord 1 (USPS/DHL), on pallet base by the left dock door"

@@ -6,6 +6,6 @@ R04,Right wall run,848,335,905,960,,,,,vertical,4,3,1,06,RAW x4,Faces west into 
 R05,WIP rack (red),718,1243,772,1395,,,,,vertical,1,3,1,08,WIP,Between the manufacturing desks. Not picked for orders.
 R06,UV curing rack (dotted),730,1105,760,1235,,,,,vertical,1,1,1,-,MFG,"Trays pass between the desks here. Fixture, not a stock location."
 R07,Accessory end caps,362,920,470,930,,,,,horizontal,2,1,1,07,"ACC, ACC",Two small units on the north end of R02. Confirm what they are built from.
-R08,"Bottom-wall shelving, left pair",570,1480,712,1510,,,,,horizontal,2,1,1,09,"MISC, MISC",Misc storage.
-R09,"Bottom-wall shelving, right",795,1480,865,1510,,,,,horizontal,1,1,1,09,MISC,Misc storage; bay 3 of face 09.
+R08,"Bottom-wall shelving, left pair",570,1480,712,1510,,,,,horizontal,2,1,1,-,"MISC, MISC",Misc storage; fixture, not a stock location (owner, 2026-10-28).
+R09,"Bottom-wall shelving, right",795,1480,865,1510,,,,,horizontal,1,1,1,-,MISC,Misc storage; fixture, not a stock location (owner, 2026-10-28).
 Pixel extents (blue) were read from the drawing; X/Y/width/length are formulas from Scale!B10. Yellow = confirm on the floor.,,,,,,,,,,,,,,,,

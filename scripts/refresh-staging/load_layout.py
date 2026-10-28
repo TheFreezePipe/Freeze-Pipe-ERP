@@ -521,7 +521,7 @@ def import_workbook(tabs):
     fixture_rows = []
     for r in [x for x in rack_rows if x['kind'] == 'fixture']:
         name = re.sub(r'\s*\([^)]*\)\s*$', '', r['description']) or r['code']
-        zone = r['zoneText'].upper()
+        zone = re.split(r'[;,]', r['zoneText'])[0].strip().upper()  # first zone of a multi-bay list
         fixture_rows.append({'name': name, 'type': zone if zone in WH_ZONES else 'fixture',
                              'x1': r['x1'], 'y1': r['y1'], 'x2': r['x2'], 'y2': r['y2']})
         warnings.append(f"Racks: {r['code']} ({name}) is not a stock location; imported as a fixture.")

@@ -80,7 +80,7 @@ describe("importWorkbook: scale", () => {
 
 describe("importWorkbook: templates and racks", () => {
   it("derives one template per rack kind and level count", () => {
-    expect(payload.templates.map((t) => t.code)).toEqual(["PR-3L", "EC-1L", "SH-1L"]);
+    expect(payload.templates.map((t) => t.code)).toEqual(["PR-3L", "EC-1L"]);
     const pr = payload.templates[0];
     expect(pr).toMatchObject({
       kind: "pallet_rack",
@@ -91,18 +91,20 @@ describe("importWorkbook: templates and racks", () => {
       overflow_top_level: true,
     });
     expect(payload.templates[1]).toMatchObject({ kind: "end_cap", levels: 1, overflow_top_level: false });
-    expect(payload.templates[2]).toMatchObject({ kind: "shelving", levels: 1, overflow_top_level: false });
   });
 
-  it("imports every stock rack with the workbook's codes; R06 (not a stock location) becomes a fixture", () => {
-    expect(payload.racks.map((r) => r.code)).toEqual(["R01", "R02", "R03", "R04", "R05", "R07", "R08", "R09"]);
+  it("imports every stock rack with the workbook's codes; R06, R08 and R09 (not stock locations) become fixtures", () => {
+    expect(payload.racks.map((r) => r.code)).toEqual(["R01", "R02", "R03", "R04", "R05", "R07"]);
     expect(fixture("UV curing rack")).toMatchObject({ zone: "MFG", location_code: "MFG-LINE", kind: "staging" });
-    expect(warnings.some((w) => w.includes("R06"))).toBe(true);
+    // the bottom-wall misc shelving never holds labelled stock, so it gets no face, no codes and no labels
+    expect(fixture("Bottom-wall shelving, left pair")).toMatchObject({ kind: "other", zone: "MISC", location_code: null, width_mm: 2513 });
+    expect(fixture("Bottom-wall shelving, right")).toMatchObject({ kind: "other", zone: "MISC", location_code: null, width_mm: 1239 });
+    for (const code of ["R06", "R08", "R09"]) expect(warnings.some((w) => w.includes(code))).toBe(true);
   });
 
   it("rotates vertical runs 90° and horizontal ones 0°", () => {
     for (const code of ["R01", "R02", "R03", "R04", "R05"]) expect(rack(code)?.rot_deg).toBe(90);
-    for (const code of ["R07", "R08", "R09"]) expect(rack(code)?.rot_deg).toBe(0);
+    expect(rack("R07")?.rot_deg).toBe(0);
   });
 
   it("places the top-left corner from the pixels, origin (180, 72), on the 100 mm grid", () => {
@@ -113,20 +115,18 @@ describe("importWorkbook: templates and racks", () => {
     expect(rack("R04")?.y_mm).toBe(4700);
     // non-pallet racks keep the drawn length along their bays
     expect(rack("R07")).toMatchObject({ width_mm: 1911, depth_mm: 177, template_code: "EC-1L" });
-    expect(rack("R09")).toMatchObject({ width_mm: 1239, bays: 1, template_code: "SH-1L" });
   });
 });
 
 describe("importWorkbook: faces", () => {
-  it("keeps every face code and splits face 09 across R08 and R09 (bay 3 on R09)", () => {
-    expect([...new Set(payload.faces.map((f) => f.face_code))]).toEqual(["01", "02", "03", "04", "05", "06", "07", "08", "09"]);
-    expect(face("R08", "09")).toMatchObject({ first_bay_no: 1, zone_by_bay: ["MISC", "MISC"], walk_dir: "E" });
-    expect(face("R09", "09")).toMatchObject({ first_bay_no: 3, zone_by_bay: ["MISC"] });
+  it("keeps every face code of the stock racks; the shelving fixtures have none", () => {
+    expect([...new Set(payload.faces.map((f) => f.face_code))]).toEqual(["01", "02", "03", "04", "05", "06", "07", "08"]);
+    expect(payload.faces.some((f) => f.rack_code === "R08" || f.rack_code === "R09")).toBe(false);
   });
 
   it("merges consecutive faces that share an aisle and direction into one walk pass", () => {
     const passes = Object.fromEntries(payload.faces.map((f) => [f.face_code, f.walk_pass]));
-    expect(passes).toEqual({ "01": 1, "02": 1, "03": 3, "04": 4, "05": 5, "06": 5, "07": 0, "08": 99, "09": 99 });
+    expect(passes).toEqual({ "01": 1, "02": 1, "03": 3, "04": 4, "05": 5, "06": 5, "07": 0, "08": 99 });
   });
 
   it("reads walk direction, side, aisle and pickable levels", () => {
@@ -212,9 +212,9 @@ describe("compareWithLocationsTab", () => {
     .map((r) => ({ code: String(r.Code), pick_sequence: Number(r["Pick seq"]), zone: String(r.Zone), pickable: r.Pickable === "yes" }))
     .filter((r) => /^\d{2}-\d{2}-\d$/.test(r.code));
 
-  it("finds all 74 bay-levels and the 11 named codes on the tab", () => {
+  it("finds all 71 bay-levels and the 11 named codes on the tab", () => {
     const cmp = compareWithLocationsTab(workbookCodes, locations);
-    expect(cmp.matched).toHaveLength(74);
+    expect(cmp.matched).toHaveLength(71);
     expect(cmp.named).toHaveLength(11);
     expect(cmp.onlyInWorkbook).toEqual([]);
     expect(cmp.onlyInGenerator).toEqual([]);

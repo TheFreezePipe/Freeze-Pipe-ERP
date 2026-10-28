@@ -42,8 +42,8 @@ const fixtureId = (name: string, d: DraftLayout = base) => d.fixtures.find((f) =
 
 describe("codes and names", () => {
   it("numbers new racks and faces past the highest", () => {
-    expect(nextRackCode(base.racks)).toBe("R10");
-    expect(nextFaceCode(base.faces)).toBe("10");
+    expect(nextRackCode(base.racks)).toBe("R08");
+    expect(nextFaceCode(base.faces)).toBe("09");
     expect(uniqueFixtureName("Desk", [{ name: "Desk" }, { name: "Desk 2" }])).toBe("Desk 3");
     expect(uniqueFixtureName("UPS table", base.fixtures)).toBe("UPS table 2");
   });
@@ -65,26 +65,26 @@ describe("edits become one save_layout payload", () => {
   });
 
   it("a new rack goes by code with its template code, and its face by rack_code", () => {
-    const tpl = base.templates.find((t) => t.code === "SH-1L")!;
+    const tpl = base.templates.find((t) => t.code === "EC-1L")!;
     const { rack, face } = rackFromTemplate(tpl, { x: 5000, y: 3000 }, base);
     const d = { ...base, racks: [...base.racks, rack], faces: [...base.faces, face] };
     const { payload } = buildLayoutPayload(base, d);
     expect(payload.racks).toHaveLength(1);
-    expect(payload.racks[0]).toMatchObject({ code: "R10", template_code: "SH-1L", bays: 2, levels: 1, rot_deg: 0, active: true });
+    expect(payload.racks[0]).toMatchObject({ code: "R08", template_code: "EC-1L", bays: 2, levels: 1, rot_deg: 0, active: true });
     expect(payload.racks[0]).not.toHaveProperty("id");
     expect(payload.racks[0]).not.toHaveProperty("template_id");
-    expect(payload.faces[0]).toMatchObject({ rack_code: "R10", face_code: "10", walk_pass: 99, zone_by_bay: ["RTS", "RTS"], pickable_levels: [1] });
+    expect(payload.faces[0]).toMatchObject({ rack_code: "R08", face_code: "09", walk_pass: 99, zone_by_bay: ["ACC", "ACC"], pickable_levels: [1] });
     expect(payload.faces[0]).not.toHaveProperty("rack_id");
     // centred on the drop point, snapped
     expect(rack.x_mm % 100).toBe(0);
-    expect(rack.width_mm).toBe(2 * 1248);
+    expect(rack.width_mm).toBe(2 * 956);
   });
 
   it("a face added to a saved rack goes by rack_id", () => {
     const d = addFace(base, rackId("R01"));
     const { payload } = buildLayoutPayload(base, d);
     expect(payload.faces).toEqual([
-      expect.objectContaining({ rack_id: rackId("R01"), face_code: "10", side: "west", walk_pass: 1, walk_dir: "S" }),
+      expect.objectContaining({ rack_id: rackId("R01"), face_code: "09", side: "west", walk_pass: 1, walk_dir: "S" }),
     ]);
   });
 
@@ -98,8 +98,8 @@ describe("edits become one save_layout payload", () => {
   });
 
   it("a removed saved rack is deactivated, a removed new rack disappears with its faces", () => {
-    const d = removeItem(base, { type: "rack", id: rackId("R09") });
-    expect(buildLayoutPayload(base, d).payload.racks).toEqual([{ id: rackId("R09"), row_version: 1, active: false }]);
+    const d = removeItem(base, { type: "rack", id: rackId("R07") });
+    expect(buildLayoutPayload(base, d).payload.racks).toEqual([{ id: rackId("R07"), row_version: 1, active: false }]);
     const { rack, face } = rackFromTemplate(base.templates[0], { x: 0, y: 0 }, base);
     const d2 = removeItem({ ...base, racks: [...base.racks, rack], faces: [...base.faces, face] }, { type: "rack", id: rack.id });
     expect(buildLayoutPayload(base, d2).count).toBe(0);
@@ -132,9 +132,9 @@ describe("rack changes", () => {
   });
 
   it("a template change takes the template's levels, depth and bay width", () => {
-    const sh = base.templates.find((t) => t.code === "SH-1L")!;
-    const d = patchRack(base, rackId("R05"), { template_id: sh.id });
-    expect(d.racks.find((r) => r.code === "R05")).toMatchObject({ levels: 1, depth_mm: 531, width_mm: 1248 });
+    const ec = base.templates.find((t) => t.code === "EC-1L")!;
+    const d = patchRack(base, rackId("R05"), { template_id: ec.id });
+    expect(d.racks.find((r) => r.code === "R05")).toMatchObject({ levels: 1, depth_mm: 177, width_mm: 956 });
   });
 
   it("rotating turns the rack and its faces; four turns change nothing", () => {
@@ -157,10 +157,10 @@ describe("rack changes", () => {
   it("duplicating a rack copies its faces under new codes beside it", () => {
     const { draft, target } = duplicateItem(base, { type: "rack", id: rackId("R02") });
     const copy = draft.racks.find((r) => r.id === target!.id)!;
-    expect(copy.code).toBe("R10");
+    expect(copy.code).toBe("R08");
     expect(isNewId(copy.id)).toBe(true);
     expect(copy.x_mm).toBeGreaterThan(3200 + 1911);
-    expect(draft.faces.filter((f) => f.rack_id === copy.id).map((f) => f.face_code)).toEqual(["10", "11"]);
+    expect(draft.faces.filter((f) => f.rack_id === copy.id).map((f) => f.face_code)).toEqual(["09", "10"]);
     expect(validateDraft(draft)).toEqual([]);
   });
 
@@ -175,14 +175,16 @@ describe("rack changes", () => {
 
 describe("validation", () => {
   it("catches duplicate rack codes, bad face codes and clashing bays", () => {
-    let d = patchRack(base, rackId("R09"), { code: "R08" });
-    expect(validateDraft(d)).toContain("Rack code R08 is used 2 times.");
+    let d = patchRack(base, rackId("R07"), { code: "R05" });
+    expect(validateDraft(d)).toContain("Rack code R05 is used 2 times.");
     d = patchFace(base, base.faces.find((f) => f.face_code === "01")!.id, { face_code: "1" });
     expect(validateDraft(d).some((m) => m.includes('Face "1"'))).toBe(true);
-    // face 09 continues at bay 3 on R09; starting it at 2 collides with R08's bay 2
-    const r09face = base.faces.find((f) => f.rack_id === rackId("R09"))!;
-    d = patchFace(base, r09face.id, { first_bay_no: 2 });
-    expect(validateDraft(d)).toContain("Face 09 bay 02 is on both R08 and R09.");
+    // a face may continue onto a second rack, but a bay number used by both is an error:
+    // give R05 a face 07 starting at bay 2, which collides with R07's bay 2
+    const d3 = addFace(base, rackId("R05"));
+    const added = d3.faces.find((f) => !base.faces.some((b) => b.id === f.id))!;
+    d = patchFace(d3, added.id, { face_code: "07", first_bay_no: 2 });
+    expect(validateDraft(d)).toContain("Face 07 bay 02 is on both R07 and R05.");
   });
 });
 

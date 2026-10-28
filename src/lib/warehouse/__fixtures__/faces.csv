@@ -7,5 +7,4 @@ Face,Rack,Side,Aisle,Walk direction,Bays,First bay at,Zone default,Pickable leve
 06,R04,west,D,north → south,4,north end,RAW,"1,2",6,Opposite side of aisle D.,
 07,R07,north,B,west → east,2,west,ACC,1,0,Accessory caps by the cart start; sequenced first because they sit next to the pack stations.,
 08,R05,both,MFG,-,1,-,WIP,-,99,Manufacturing only.,
-09,R08/R09,north,-,west → east,3,west,MISC,-,99,"Misc shelving, not routed.",
 "Yellow = confirm on the floor: the walk direction and which end bay 01 starts at decide every label, so walk it before printing.",,,,,,,,,,,

@@ -26,12 +26,13 @@
  *     bay centres at (n − 0.5) × bay width), the drawn length otherwise;
  *     depth_mm is the drawn depth.
  *   - A Racks row with no face codes, or noted "not a stock location" (R06,
- *     the UV curing rack), is imported as a fixture.
+ *     the UV curing rack; R08 and R09, the bottom-wall misc shelving, which
+ *     never hold labelled stock), is imported as a fixture.
  *   - Templates: one per rack kind and level count (pallet_rack, shelving,
  *     end_cap, floor from the description); pallet racks with 3+ levels have
  *     overflow_top_level (level 3 is overflow, never pickable).
- *   - Faces: one row per rack the face spans (face 09 continues at bay 3 on
- *     R09). walk_dir is the direction of travel; zone_by_bay is the Racks
+ *   - Faces: one row per rack the face spans. walk_dir is the direction of
+ *     travel; zone_by_bay is the Racks
  *     tab's north→south (or west→east) list for the face's side, reversed
  *     when the face walks north (or west), so index 1 is bay 01.
  *     walk_pass is the face's "Walk order of face", except that consecutive
@@ -686,7 +687,7 @@ export function importWorkbook(tabs: WorkbookTabs): WorkbookImport {
   const fixtureRows: FixtureRow[] = [];
   for (const r of rackRows.filter((x) => x.kind === "fixture")) {
     const name = r.description.replace(/\s*\([^)]*\)\s*$/, "") || r.code;
-    const zone = r.zoneText.toUpperCase();
+    const zone = r.zoneText.split(/[;,]/)[0].trim().toUpperCase(); // first zone of a multi-bay list
     fixtureRows.push({ name, type: WH_ZONES.includes(zone) ? zone : "fixture", x1: r.x1, y1: r.y1, x2: r.x2, y2: r.y2 });
     warnings.push(`Racks: ${r.code} (${name}) is not a stock location; imported as a fixture.`);
   }

@@ -1,5 +1,5 @@
 {
- "source": "staging layout export for map-geometry tests (slice 2B), 2026-10-22",
+ "source": "staging layout export for map-geometry tests (slice 2B), 2026-10-22; refreshed 2026-10-28 after R08/R09 became fixtures",
  "templates": [
   {
    "id": "f7226d11-5be8-4c27-a493-1ac7b8a93319",
@@ -31,21 +31,6 @@
     2743
    ],
    "overflow_top_level": true,
-   "capacity_cartons_per_level": null
-  },
-  {
-   "id": "4136e29d-8911-4ce3-824b-0262883218e6",
-   "code": "SH-1L",
-   "name": "Shelving, 1 level",
-   "kind": "shelving",
-   "bays": 2,
-   "levels": 1,
-   "bay_width_mm": 1248,
-   "depth_mm": 531,
-   "level_heights_mm": [
-    0
-   ],
-   "overflow_top_level": false,
    "capacity_cartons_per_level": null
   }
  ],
@@ -132,34 +117,6 @@
    "levels": 1,
    "width_mm": 1911,
    "depth_mm": 177,
-   "active": true
-  },
-  {
-   "id": "a5c60603-02ac-441d-a21f-8e59d9036ece",
-   "code": "R08",
-   "template_id": "4136e29d-8911-4ce3-824b-0262883218e6",
-   "description": "Bottom-wall shelving, left pair",
-   "x_mm": 6900,
-   "y_mm": 24900,
-   "rot_deg": 0,
-   "bays": 2,
-   "levels": 1,
-   "width_mm": 2513,
-   "depth_mm": 531,
-   "active": true
-  },
-  {
-   "id": "5e7c8918-ab79-430e-91ba-c16459723f80",
-   "code": "R09",
-   "template_id": "4136e29d-8911-4ce3-824b-0262883218e6",
-   "description": "Bottom-wall shelving, right",
-   "x_mm": 10900,
-   "y_mm": 24900,
-   "rot_deg": 0,
-   "bays": 1,
-   "levels": 1,
-   "width_mm": 1239,
-   "depth_mm": 531,
    "active": true
   }
  ],
@@ -312,35 +269,6 @@
     "WIP"
    ],
    "pickable_levels": []
-  },
-  {
-   "id": "19053521-4c11-4fe0-9982-d49135becc9d",
-   "rack_id": "a5c60603-02ac-441d-a21f-8e59d9036ece",
-   "face_code": "09",
-   "side": "north",
-   "aisle": null,
-   "walk_pass": 99,
-   "walk_dir": "E",
-   "first_bay_no": 1,
-   "zone_by_bay": [
-    "MISC",
-    "MISC"
-   ],
-   "pickable_levels": []
-  },
-  {
-   "id": "168c2fb0-ff75-4366-b2d5-aa5b94c9750f",
-   "rack_id": "5e7c8918-ab79-430e-91ba-c16459723f80",
-   "face_code": "09",
-   "side": "north",
-   "aisle": null,
-   "walk_pass": 99,
-   "walk_dir": "E",
-   "first_bay_no": 3,
-   "zone_by_bay": [
-    "MISC"
-   ],
-   "pickable_levels": []
   }
  ],
  "fixtures": [
@@ -459,6 +387,32 @@
    "rot_deg": 0,
    "zone": "SPARE",
    "location_id": "c63de4cf-99de-4a6e-9920-93f42a870394",
+   "blocked": false
+  },
+  {
+   "id": "2a8f5cf6-2c31-471b-8fd2-c698174247e7",
+   "name": "Bottom-wall shelving, left pair",
+   "kind": "other",
+   "x_mm": 6902,
+   "y_mm": 24919,
+   "width_mm": 2513,
+   "depth_mm": 531,
+   "rot_deg": 0,
+   "zone": "MISC",
+   "location_id": null,
+   "blocked": false
+  },
+  {
+   "id": "6c9929f8-f5aa-4f27-8ee2-21de60ab66f3",
+   "name": "Bottom-wall shelving, right",
+   "kind": "other",
+   "x_mm": 10884,
+   "y_mm": 24919,
+   "width_mm": 1239,
+   "depth_mm": 531,
+   "rot_deg": 0,
+   "zone": "MISC",
+   "location_id": null,
    "blocked": false
   },
   {
@@ -2443,75 +2397,6 @@
    "z_mm": 2743,
    "width_mm": 2743,
    "depth_mm": 956,
-   "height_mm": null,
-   "capacity_cartons": null,
-   "active": true
-  },
-  {
-   "id": "e2c65e35-def0-4b27-8508-7aa8221bb497",
-   "code": "09-01-1",
-   "name": null,
-   "kind": "bay_level",
-   "rack_id": "a5c60603-02ac-441d-a21f-8e59d9036ece",
-   "face_id": "19053521-4c11-4fe0-9982-d49135becc9d",
-   "face": "09",
-   "bay": 1,
-   "level": 1,
-   "zone": "MISC",
-   "pickable": false,
-   "is_overflow": false,
-   "pick_sequence": 99021,
-   "x_mm": 7528,
-   "y_mm": 24900,
-   "z_mm": 0,
-   "width_mm": 1257,
-   "depth_mm": 531,
-   "height_mm": null,
-   "capacity_cartons": null,
-   "active": true
-  },
-  {
-   "id": "d54b0ecf-dce2-4522-8143-5990e1bf7f26",
-   "code": "09-02-1",
-   "name": null,
-   "kind": "bay_level",
-   "rack_id": "a5c60603-02ac-441d-a21f-8e59d9036ece",
-   "face_id": "19053521-4c11-4fe0-9982-d49135becc9d",
-   "face": "09",
-   "bay": 2,
-   "level": 1,
-   "zone": "MISC",
-   "pickable": false,
-   "is_overflow": false,
-   "pick_sequence": 99031,
-   "x_mm": 8785,
-   "y_mm": 24900,
-   "z_mm": 0,
-   "width_mm": 1257,
-   "depth_mm": 531,
-   "height_mm": null,
-   "capacity_cartons": null,
-   "active": true
-  },
-  {
-   "id": "aa132638-0427-4f45-a0f9-ee31fe2f2624",
-   "code": "09-03-1",
-   "name": null,
-   "kind": "bay_level",
-   "rack_id": "5e7c8918-ab79-430e-91ba-c16459723f80",
-   "face_id": "168c2fb0-ff75-4366-b2d5-aa5b94c9750f",
-   "face": "09",
-   "bay": 3,
-   "level": 1,
-   "zone": "MISC",
-   "pickable": false,
-   "is_overflow": false,
-   "pick_sequence": 99041,
-   "x_mm": 11520,
-   "y_mm": 24900,
-   "z_mm": 0,
-   "width_mm": 1239,
-   "depth_mm": 531,
    "height_mm": null,
    "capacity_cartons": null,
    "active": true

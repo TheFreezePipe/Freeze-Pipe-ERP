@@ -30,20 +30,6 @@
         ],
         "overflow_top_level": false,
         "capacity_cartons_per_level": null
-      },
-      {
-        "code": "SH-1L",
-        "name": "Shelving, 1 level",
-        "kind": "shelving",
-        "bays": 2,
-        "levels": 1,
-        "bay_width_mm": 1248,
-        "depth_mm": 531,
-        "level_heights_mm": [
-          0
-        ],
-        "overflow_top_level": false,
-        "capacity_cartons_per_level": null
       }
     ],
     "racks": [
@@ -118,30 +104,6 @@
         "levels": 1,
         "width_mm": 1911,
         "depth_mm": 177
-      },
-      {
-        "code": "R08",
-        "description": "Bottom-wall shelving, left pair",
-        "template_code": "SH-1L",
-        "x_mm": 6900,
-        "y_mm": 24900,
-        "rot_deg": 0,
-        "bays": 2,
-        "levels": 1,
-        "width_mm": 2513,
-        "depth_mm": 531
-      },
-      {
-        "code": "R09",
-        "description": "Bottom-wall shelving, right",
-        "template_code": "SH-1L",
-        "x_mm": 10900,
-        "y_mm": 24900,
-        "rot_deg": 0,
-        "bays": 1,
-        "levels": 1,
-        "width_mm": 1239,
-        "depth_mm": 531
       }
     ],
     "faces": [
@@ -285,33 +247,6 @@
           "WIP"
         ],
         "pickable_levels": []
-      },
-      {
-        "rack_code": "R08",
-        "face_code": "09",
-        "side": "north",
-        "aisle": null,
-        "walk_pass": 99,
-        "walk_dir": "E",
-        "first_bay_no": 1,
-        "zone_by_bay": [
-          "MISC",
-          "MISC"
-        ],
-        "pickable_levels": []
-      },
-      {
-        "rack_code": "R09",
-        "face_code": "09",
-        "side": "north",
-        "aisle": null,
-        "walk_pass": 99,
-        "walk_dir": "E",
-        "first_bay_no": 3,
-        "zone_by_bay": [
-          "MISC"
-        ],
-        "pickable_levels": []
       }
     ],
     "fixtures": [
@@ -326,6 +261,30 @@
         "zone": "MFG",
         "blocked": false,
         "location_code": "MFG-LINE"
+      },
+      {
+        "name": "Bottom-wall shelving, left pair",
+        "kind": "other",
+        "x_mm": 6902,
+        "y_mm": 24919,
+        "width_mm": 2513,
+        "depth_mm": 531,
+        "rot_deg": 0,
+        "zone": "MISC",
+        "blocked": false,
+        "location_code": null
+      },
+      {
+        "name": "Bottom-wall shelving, right",
+        "kind": "other",
+        "x_mm": 10884,
+        "y_mm": 24919,
+        "width_mm": 1239,
+        "depth_mm": 531,
+        "rot_deg": 0,
+        "zone": "MISC",
+        "blocked": false,
+        "location_code": null
       },
       {
         "name": "Dock door L",

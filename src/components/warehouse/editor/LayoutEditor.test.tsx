@@ -64,11 +64,11 @@ describe("LayoutEditor", () => {
 
   it("a new rack from a template brings a face and its codes", () => {
     render(<LayoutEditor onClose={() => {}} />);
-    fireEvent.click(screen.getByTitle("Drag Shelving, 1 level onto the plan"));
+    fireEvent.click(screen.getByTitle("Drag End cap, 1 level onto the plan"));
     expect(screen.getByText("Unsaved · 2 changes")).toBeTruthy();
-    expect((screen.getByLabelText("Code", { selector: "input.uppercase" }) as HTMLInputElement).value).toBe("R10");
-    expect(screen.getByText("10-01-1")).toBeTruthy();
-    expect(screen.getByText("10-02-1")).toBeTruthy();
+    expect((screen.getByLabelText("Code", { selector: "input.uppercase" }) as HTMLInputElement).value).toBe("R08");
+    expect(screen.getByText("09-01-1")).toBeTruthy();
+    expect(screen.getByText("09-02-1")).toBeTruthy();
   });
 
   it("previews the generator only when the layout is saved", () => {

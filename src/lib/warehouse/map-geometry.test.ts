@@ -47,18 +47,18 @@ const key = (face: string | null, bay: number | null) => `${face}-${String(bay).
 
 describe("staging fixture", () => {
   it("has the layout the brief describes", () => {
-    expect(layout.racks).toHaveLength(8);
-    expect(layout.faces).toHaveLength(10);
-    expect(layout.fixtures).toHaveLength(36);
-    expect(bayLevels).toHaveLength(74);
+    expect(layout.racks).toHaveLength(6);
+    expect(layout.faces).toHaveLength(8);
+    expect(layout.fixtures).toHaveLength(38);
+    expect(bayLevels).toHaveLength(71);
   });
 });
 
 describe("bay cells against the generated locations", () => {
-  it("one cell per bay of every face row (face 09 spans R08 and R09)", () => {
+  it("one cell per bay of every face row (R02 carries faces 02 and 03)", () => {
     const bays = new Set(bayLevels.map((l) => key(l.face, l.bay)));
     expect(new Set(cells.map((c) => c.key))).toEqual(bays);
-    expect(cells.filter((c) => c.face === "09").map((c) => `${c.rackCode}:${c.bay}`)).toEqual(["R08:1", "R08:2", "R09:3"]);
+    expect(cells.filter((c) => c.face === "03").map((c) => `${c.rackCode}:${c.bay}`)).toEqual(["R02:1", "R02:2", "R02:3"]);
   });
 
   it("every bay-level's x_mm/y_mm falls inside or on its computed cell", () => {

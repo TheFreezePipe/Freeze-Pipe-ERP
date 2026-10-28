@@ -50,7 +50,7 @@ describe("FloorPlan", () => {
     const onSelect = vi.fn();
     render(<FloorPlan layout={layout} locations={summary()} onSelectLocation={onSelect} />);
     const cells = screen.getAllByRole("button", { name: /^Bay / });
-    expect(cells).toHaveLength(28);
+    expect(cells).toHaveLength(25);
     fireEvent.keyDown(screen.getByRole("button", { name: "Bay 02-01, RTS" }), { key: "Enter" });
     expect(onSelect).toHaveBeenCalledWith("02-01-2");
   });
