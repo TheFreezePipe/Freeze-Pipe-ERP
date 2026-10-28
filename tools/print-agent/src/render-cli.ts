@@ -11,8 +11,9 @@ import { describeAddress, parseAddress, sendZpl } from "./transport";
  *   npm run render -- --sample lpn --to tcp://192.168.1.50:9100
  *   npm run render -- --payload job.json --to share://DOCK-PC/Zebra
  *   npm run render -- --sample station            (prints the ZPL to the console)
+ *   npm run render -- --sample lpn4x6 --to tcp://192.168.1.50:9100   (the 4×6 carton pair)
  *
- * A payload file is a wh_print_jobs.payload ({kind, practice, size, labels}).
+ * A payload file is a wh_print_jobs.payload ({kind, practice, size, copies, labels}).
  */
 
 const SAMPLES: Record<string, unknown> = {
@@ -45,6 +46,50 @@ const SAMPLES: Record<string, unknown> = {
         carton_seq: 7,
         carton_of: 40,
         date: "2026-10-23",
+      },
+    ],
+  },
+  // the 4×6 carton pair: one label rotated to read landscape, printed twice (^PQ2)
+  lpn4x6: {
+    kind: "lpn",
+    practice: true,
+    size: "4x6",
+    copies: 2,
+    labels: [
+      {
+        id: "sample-lpn-4x6",
+        code: "C-466-007",
+        barcode: "%ZC-466-007",
+        sku: "BW20",
+        product_name: "Sample bowl",
+        qty: 12,
+        bucket: "finished",
+        shipment: "466",
+        carton_seq: 7,
+        carton_of: 40,
+        date: "2026-10-23",
+      },
+    ],
+  },
+  rts4x6: {
+    kind: "lpn_rts",
+    practice: true,
+    size: "4x6",
+    copies: 2,
+    labels: [
+      {
+        id: "sample-rts-4x6",
+        code: "C-466-007R1",
+        barcode: "%ZC-466-007R1",
+        sku: "BW20",
+        product_name: "Sample bowl",
+        qty: 12,
+        bucket: "finished",
+        label_stock: "green",
+        worker: "Ana",
+        finished_at: "2026-10-23T18:05:00Z",
+        suggested: "02-01-1",
+        from_code: "C-466-007",
       },
     ],
   },

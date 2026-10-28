@@ -3,10 +3,19 @@ import stagingJob from "./__fixtures__/label-job-practice.json";
 import {
   barcodeSvg,
   barcodeValue,
+  codeFontWidth4x6,
+  contentInches,
+  L4X6,
+  LABEL_INCHES,
+  labelBarcodeSvg,
+  labelCopies,
   labelModel,
   labelModels,
+  labelSizeFor,
   labelToZpl,
+  LANDSCAPE,
   locationWords,
+  moduleDotsFor,
   parseLabelPayload,
   toZpl,
   zplEscape,
@@ -179,5 +188,249 @@ describe("a real staging job (rpc_wh_request_labels in practice mode)", () => {
     const zpl = toZpl(payload);
     expect(zpl.match(/\^XA/g)).toHaveLength(3);
     expect(zpl.match(/PRACTICE _C2_B7 STAGING/g)).toHaveLength(3);
+  });
+});
+
+// ---- 4×6 carton pair ----------------------------------------------------------
+
+const carton4x6: LabelPayload = {
+  kind: "lpn",
+  practice: false,
+  size: "4x6",
+  copies: 2,
+  labels: [
+    {
+      id: "c7",
+      code: "C-466-007",
+      barcode: "%C-466-007",
+      sku: null,
+      contents: "MIXED BW20×12 + NB4×6 + GL14×3 + DS9×1 + AB12×2",
+      qty: 18,
+      bucket: "finished",
+      shipment: "466",
+      carton_seq: 7,
+      carton_of: 40,
+      date: "2026-10-22",
+    },
+  ],
+};
+
+const rts4x6Practice: LabelPayload = { ...rtsJob, practice: true, size: "4x6", copies: 2 };
+
+/** A field's ^FD text with the ^FH escapes decoded. */
+function fieldText(field: string): string {
+  const raw = /\^FD(.*)\^FS$/.exec(field)?.[1] ?? "";
+  const bytes: number[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] === "_") {
+      bytes.push(parseInt(raw.slice(i + 1, i + 3), 16));
+      i += 2;
+    } else {
+      bytes.push(raw.charCodeAt(i));
+    }
+  }
+  return new TextDecoder().decode(new Uint8Array(bytes));
+}
+
+interface FieldBox {
+  field: string;
+  /** Native dots: x across the 4 in media, y along the 6 in feed. */
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+  /** The same box as the reader sees the landscape label (X along the 6 in, Y down the 4 in). */
+  X0: number;
+  X1: number;
+  Y0: number;
+  Y1: number;
+}
+
+/**
+ * Every field's native bounding box, from its ^FO and its size: ^GB width ×
+ * height; ^BCR bar height × (modules × ^BY dots); ^A0R font height × (^FB
+ * block width, or about 0.55 × width per character without a block).
+ */
+function fieldBoxes(zpl: string): FieldBox[] {
+  return zpl
+    .split("\n")
+    .filter((f) => f.startsWith("^FO"))
+    .map((field) => {
+      const fo = /^\^FO(\d+),(\d+)/.exec(field);
+      if (!fo) throw new Error(`no ^FO in ${field}`);
+      const x0 = Number(fo[1]);
+      const y0 = Number(fo[2]);
+      let across: number;
+      let along: number;
+      const gb = /\^GB(\d+),(\d+),/.exec(field);
+      const bc = /\^BY(\d+),\d+,\d+\^BCR,(\d+),/.exec(field);
+      const font = /\^A0R,(\d+),(\d+)/.exec(field);
+      if (gb) {
+        across = Number(gb[1]);
+        along = Number(gb[2]);
+      } else if (bc) {
+        across = Number(bc[2]);
+        along = barcodeSvg(fieldText(field)).modules * Number(bc[1]);
+      } else if (font) {
+        across = Number(font[1]);
+        const block = /\^FB(\d+),/.exec(field);
+        along = block ? Number(block[1]) : Math.ceil(fieldText(field).length * 0.55 * Number(font[2]));
+      } else {
+        throw new Error(`a field that is not rotated: ${field}`);
+      }
+      const x1 = x0 + across;
+      const y1 = y0 + along;
+      return { field, x0, x1, y0, y1, X0: y0, X1: y1, Y0: L4X6.height - x1, Y1: L4X6.height - x0 };
+    });
+}
+
+describe("4×6 carton labels", () => {
+  it("is 4 in of media that reads landscape, 6 wide × 4 tall", () => {
+    expect(LABEL_INCHES["4x6"]).toEqual({ width: 4, height: 6 });
+    expect(LANDSCAPE["4x6"]).toBe(true);
+    expect(LANDSCAPE["4x2"]).toBe(false);
+    expect(contentInches("4x6")).toEqual({ width: 6, height: 4 });
+    expect(contentInches("4x2")).toEqual({ width: 4, height: 2 });
+    expect(L4X6).toMatchObject({ width: 1218, height: 812 });
+  });
+
+  it("a lpn payload with size 4x6 makes 4x6 models, two copies each", () => {
+    const payload = parseLabelPayload({ ...carton4x6, labels: [...carton4x6.labels, { ...carton4x6.labels[0], id: "c8", code: "C-466-008" }] });
+    expect(payload).toMatchObject({ kind: "lpn", size: "4x6", copies: 2 });
+    const models = labelModels(payload);
+    expect(models).toHaveLength(2);
+    for (const m of models) expect(m).toMatchObject({ size: "4x6", copies: 2, stock: "white", badge: null });
+    expect(models[0].lines).toEqual(["MIXED BW20×12 + NB4×6 + GL14×3 + DS9×1 + AB12×2", "18 units · FINISHED", "Shipment 466 · carton 7 of 40", "2026-10-22"]);
+    expect(labelModels(parseLabelPayload(rts4x6Practice))[0]).toMatchObject({ size: "4x6", copies: 2, stock: "green", badge: "RTS" });
+  });
+
+  it("a location or station payload ignores a size it cannot take", () => {
+    expect(parseLabelPayload({ ...locationJob, size: "4x6" }).size).toBe("3x1");
+    expect(parseLabelPayload({ ...locationJob, size: "9x9" }).size).toBe("3x1");
+    expect(labelModels({ ...practiceStation, size: "4x6" })[0].size).toBe("3x1");
+    expect(labelSizeFor("lpn_rts", "3x1")).toBe("4x2");
+    expect(labelSizeFor("lpn_rts", "4x6")).toBe("4x6");
+    expect(labelSizeFor("location", "4x6")).toBe("3x1");
+  });
+
+  it("guards copies: a whole number from 1 to 5, else 1", () => {
+    expect(parseLabelPayload({ kind: "lpn", labels: [] }).copies).toBe(1);
+    expect(labelCopies(2)).toBe(2);
+    for (const bad of [0, -1, 2.5, "2", null, Number.NaN]) expect(labelCopies(bad)).toBe(1);
+    expect(labelCopies(9)).toBe(5);
+    expect(labelModel("lpn", carton4x6.labels[0], false).copies).toBe(1);
+  });
+
+  it("ZPL: 812 across, 1218 along, every field rotated, 5 dots per module, ^PQ2 for the pair", () => {
+    const zpl = toZpl(carton4x6);
+    expect(zpl.match(/\^XA/g)).toHaveLength(1);
+    expect(zpl).toContain("^PW812");
+    expect(zpl).toContain("^LL1218");
+    expect(zpl).toMatch(/\^A0R,150,150\^FH\^FDC-466-007\^FS/);
+    expect(zpl).toMatch(/\^BY5,2,260\^BCR,260,N,N,N,A\^FH\^FD%C-466-007\^FS/);
+    // the human-readable value under the bars
+    expect(zpl).toMatch(/\^A0R,36,36\^FH\^FD%C-466-007\^FS/);
+    expect(zpl).not.toMatch(/\^A0N|\^BCN/);
+    // the lines step down 70 / 56 / 48 / 48
+    expect([...zpl.matchAll(/\^A0R,(\d+),/g)].map((m) => Number(m[1]))).toEqual([150, 70, 56, 48, 48, 36]);
+    expect(zpl).toContain("^PQ2\n^XZ");
+    expect(zpl).not.toContain("^PQ1");
+  });
+
+  it("^PQ1 when the payload asks for one copy (Reprint one), and on the other sizes", () => {
+    const one = toZpl(parseLabelPayload({ ...carton4x6, copies: 1 }));
+    expect(one).toContain("^PQ1\n^XZ");
+    expect(one).not.toContain("^PQ2");
+    expect(toZpl(locationJob).match(/\^PQ1\n\^XZ/g)).toHaveLength(2);
+    // a 4×2 payload asking for copies prints them too
+    expect(toZpl({ ...rtsJob, copies: 3 })).toContain("^PQ3\n^XZ");
+  });
+
+  it("a practice 4×6 job carries the band and %Z on the bars and the value", () => {
+    const zpl = toZpl(rts4x6Practice);
+    expect(zpl).toContain("^FO764,0^GB48,1218,48^FS");
+    expect(zpl).toMatch(/\^FB1218,1,0,C\^A0R,32,32\^FR\^FH\^FDPRACTICE _C2_B7 STAGING\^FS/);
+    expect(zpl).toMatch(/\^BCR,260,N,N,N,A\^FH\^FD%ZC-466-007R1\^FS/);
+    expect(zpl).toMatch(/\^A0R,36,36\^FH\^FD%ZC-466-007R1\^FS/);
+    expect(zpl).toMatch(/\^FB400,1,0,R\^A0R,190,190\^FH\^FDRTS\^FS/);
+    expect(zpl).toContain("^PQ2");
+  });
+
+  it("every rotated field lies inside the label, code top-left, badge top-right, barcode bottom-left", () => {
+    for (const payload of [carton4x6, rts4x6Practice, { ...carton4x6, practice: true }, { ...rtsJob, size: "4x6" as const }]) {
+      const boxes = fieldBoxes(toZpl(payload));
+      for (const b of boxes) {
+        expect(b.x0, b.field).toBeGreaterThanOrEqual(0);
+        expect(b.y0, b.field).toBeGreaterThanOrEqual(0);
+        expect(b.x1, b.field).toBeLessThanOrEqual(812);
+        expect(b.y1, b.field).toBeLessThanOrEqual(1218);
+      }
+      const code = boxes.find((b) => b.field.includes("^A0R,150,"));
+      const bars = boxes.find((b) => b.field.includes("^BCR"));
+      const human = boxes.find((b) => b.field.includes("^A0R,36,"));
+      const lines = boxes.filter((b) => /\^A0R,(70|56|48),/.test(b.field));
+      if (!code || !bars || !human) throw new Error("missing a field");
+      const band = payload.practice ? L4X6.band : 0;
+      // the code at the top-left of the landscape label, below the band on practice
+      expect(code.X0).toBe(L4X6.margin);
+      expect(code.Y0).toBe(payload.practice ? band + 12 : L4X6.margin);
+      // the lines under the code, the barcode under the lines, the value under the barcode
+      for (const l of lines) {
+        expect(l.X0).toBe(L4X6.margin);
+        expect(l.Y0).toBeGreaterThanOrEqual(code.Y1);
+        expect(l.Y1).toBeLessThanOrEqual(bars.Y0);
+      }
+      expect(bars.X0).toBe(L4X6.barX); // the barcode's quiet zone starts further in than the text margin
+      expect(bars.Y1).toBeLessThanOrEqual(human.Y0);
+      expect(human.Y1).toBe(L4X6.height - L4X6.margin);
+      expect(bars.Y1 - bars.Y0).toBe(260);
+      if (payload.kind === "lpn_rts") {
+        const badge = boxes.find((b) => b.field.includes("^FDRTS^FS"));
+        if (!badge) throw new Error("no RTS badge");
+        expect(badge.X1).toBe(L4X6.width - L4X6.margin);
+        expect(badge.Y0).toBeLessThan(code.Y1);
+        expect(badge.Y0).toBeGreaterThanOrEqual(band);
+        // the code (at ~0.55 × its width a character) ends clear of where "RTS" starts at the right margin
+        expect(code.X1).toBeLessThanOrEqual(badge.X1 - 3 * 0.55 * L4X6.badge - 30);
+      }
+      if (payload.practice) {
+        const fill = boxes.find((b) => b.field.includes("^GB"));
+        expect(fill).toMatchObject({ X0: 0, X1: 1218, Y0: 0, Y1: L4X6.band });
+      }
+    }
+  });
+
+  it("keeps the code 150 tall, narrowing it only when it would reach the badge or the margin", () => {
+    expect(codeFontWidth4x6("C-466-007", null)).toBe(150);
+    expect(codeFontWidth4x6("C-466-007R1", "RTS")).toBe(131);
+    expect(codeFontWidth4x6("C-123456-12345R12", null)).toBe(121);
+    expect(toZpl({ ...rtsJob, size: "4x6" })).toMatch(/\^A0R,150,131\^FH\^FDC-466-007R1\^FS/);
+  });
+
+  it("keeps a long line inside the label by truncating it", () => {
+    const zpl = toZpl(carton4x6);
+    const first = zpl.split("\n").find((f) => f.includes("^A0R,70,"));
+    expect(first && fieldText(first)).toMatch(/…$/);
+  });
+
+  it("barcode modules: 5 dots on 4×6, stepping down for a code too long to fit, 3 elsewhere", () => {
+    expect(moduleDotsFor("4x6", 178)).toBe(5);
+    expect(moduleDotsFor("4x6", 230)).toBe(4);
+    expect(moduleDotsFor("4x6", 400)).toBe(3);
+    expect(moduleDotsFor("4x2", 178)).toBe(3);
+    expect(moduleDotsFor("3x1")).toBe(3);
+    const { modules, widthMm } = barcodeSvg("%C-466-007", 5);
+    expect(widthMm).toBeCloseTo(modules * (5 / 203) * 25.4, 1);
+    expect(barcodeSvg("%C-466-007").widthMm).toBeCloseTo(modules * (3 / 203) * 25.4, 1);
+    // the browser path sizes a model's barcode at the module its size prints at
+    expect(labelBarcodeSvg({ barcode: "%C-466-007", size: "4x6" }).widthMm).toBe(widthMm);
+    expect(labelBarcodeSvg({ barcode: "%C-466-007", size: "4x2" }).widthMm).toBe(barcodeSvg("%C-466-007").widthMm);
+  });
+
+  it("leaves the 4×2 and 3×1 blocks as they were", () => {
+    const zpl = labelToZpl(labelModels(rtsJob)[0]);
+    expect(zpl.startsWith("^XA\n^CI28\n^PW812\n^LL406\n^LH0,0\n")).toBe(true);
+    expect(zpl.endsWith("^PQ1\n^XZ")).toBe(true);
+    expect(toZpl(locationJob)).not.toMatch(/\^A0R|\^BCR/);
   });
 });

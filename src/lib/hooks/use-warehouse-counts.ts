@@ -507,7 +507,7 @@ export function printerFormFrom(p: WhPrinterRecord): WhPrinterForm {
     name: p.name,
     transport: p.transport === "browser" ? "browser" : "agent",
     address: p.address ?? "",
-    labelStock: (["white_4x2", "green_4x2", "white_3x1"].includes(p.label_stock) ? p.label_stock : "white_4x2") as WhLabelStock,
+    labelStock: (["white_4x2", "green_4x2", "white_3x1", "white_4x6", "green_4x6"].includes(p.label_stock) ? p.label_stock : "white_4x2") as WhLabelStock,
     dpi: p.dpi === 300 || p.dpi === 600 ? p.dpi : 203,
     stationLocationId: p.station_location_id,
     agentId: p.agent_id ?? "",

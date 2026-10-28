@@ -163,13 +163,22 @@ export interface WhLabelRequest {
   ids: string[];
   from: WhRequestedFrom;
   printerId?: string | null;
+  /** Identical labels per item (1..5), overriding the server's default (2 for a 4×6 carton pair, else 1): Reprint one. */
+  copies?: number;
 }
 
 /** Queue a label job; the result says where it prints (station printer, this browser, or nowhere). */
 export function requestWhLabels(req: WhLabelRequest, client?: unknown) {
   return whRpc(
     "rpc_wh_request_labels",
-    { p_kind: req.kind, p_ids: req.ids, p_from: req.from, p_printer_id: req.printerId ?? null },
+    {
+      p_kind: req.kind,
+      p_ids: req.ids,
+      p_from: req.from,
+      p_printer_id: req.printerId ?? null,
+      // only when asked, so the server's default (the pair) applies otherwise
+      ...(req.copies != null ? { p_copies: req.copies } : {}),
+    },
     "Couldn't queue the labels",
     client,
   );

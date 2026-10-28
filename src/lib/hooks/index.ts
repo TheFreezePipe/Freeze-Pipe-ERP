@@ -27,3 +27,4 @@ export * from "./use-warehouse-layout";
 export * from "./use-warehouse-map";
 export * from "./use-warehouse-counts";
 export * from "./use-warehouse-mfg";
+export * from "./use-warehouse-labels";

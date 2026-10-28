@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import { AlertTriangle, Loader2, Plus, Power, Printer, Radio, ScanBarcode, ShieldAlert, ShieldCheck, ShieldOff } from "lucide-react";
@@ -49,8 +49,10 @@ import {
   WhPrinterStaleError,
   type WhPrinterForm,
 } from "@/lib/hooks/use-warehouse-counts";
+import { useWhRequestBrowserLabels, useWhSampleContainer } from "@/lib/hooks/use-warehouse-labels";
+import type { Json } from "@/lib/database.types";
 import { APP_ENV } from "@/lib/env";
-import { PrintJobStatus } from "@/components/warehouse/PrintJobStatus";
+import { PrintJobStatus, type BrowserPrintJob } from "@/components/warehouse/PrintJobStatus";
 import type { OutboundMode } from "@/lib/warehouse/outbound";
 import { cn } from "@/lib/utils";
 import LayoutImport from "@/components/warehouse/LayoutImport";
@@ -78,6 +80,8 @@ const PHASE1_SETUP = ["Rack templates", "Cart definitions", "Tote classes", "Sca
 const LABEL_STOCK: Record<string, string> = {
   white_4x2: "White 4×2",
   green_4x2: "Green 4×2",
+  white_4x6: "White 4×6",
+  green_4x6: "Green 4×6",
   white_3x1: "White 3×1",
 };
 
@@ -268,6 +272,8 @@ export default function WarehouseSettings() {
         </CardContent>
       </Card>
 
+      <LabelsCard />
+
       <PrintersAndStations />
     </div>
   );
@@ -397,6 +403,211 @@ function PhysicalLayerCard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </Card>
+  );
+}
+
+// ---- Labels ----------------------------------------------------------------------
+
+type CartonLabelSize = "4x2" | "4x6";
+
+const CARTON_SIZE_OPTIONS: { value: CartonLabelSize; label: string; hint: string }[] = [
+  {
+    value: "4x2",
+    label: "4 × 2, one label per carton",
+    hint: "Today's label: one 4×2 label on each carton, on white and green 4×2 stock.",
+  },
+  {
+    value: "4x6",
+    label: "4 × 6 pair, two labels per carton",
+    hint: "Two identical labels per carton for two adjacent faces at the aisle-side corner, on 4×6 white and green stock, with bars wide enough to scan from the aisle.",
+  },
+];
+
+const LABEL_FORMAT_STOCK: Record<CartonLabelSize, string> = {
+  "4x2": "Carton: white 4×2 · RTS: green 4×2 · Location and station: white 3×1",
+  "4x6": "Carton: white 4×6 pair · RTS: green 4×6 pair · Location and station: white 3×1",
+};
+
+/** What wh_settings.labels holds for any key that was never saved. */
+const DEFAULT_LABELS = { lpn: "4x2", location: "3x1", dpi: 203 };
+
+function isCartonLabelSize(value: unknown): value is CartonLabelSize {
+  return value === "4x2" || value === "4x6";
+}
+
+function readLabels(raw: unknown): Record<string, unknown> {
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+}
+
+type SampleSheet = { via: "station" } | { via: "browser"; job: BrowserPrintJob };
+
+/**
+ * Labels (admin): the carton label size (wh_settings.labels.lpn, which the
+ * server reads when it builds a job's payload), a read-only summary of the
+ * format, and sample prints for the newest carton. The station sample goes
+ * through LabelSheet as usual; the browser sample is queued with
+ * p_target = 'browser' and handed to LabelSheet as an existing job, so it
+ * prints here whatever the station session says.
+ */
+export function LabelsCard() {
+  const { toast } = useToast();
+  const { data: settings, isLoading: settingsLoading } = useWarehouseSettings();
+  const setSetting = useSetWarehouseSetting();
+  const sample = useWhSampleContainer();
+  const requestBrowser = useWhRequestBrowserLabels();
+  const [sheet, setSheet] = useState<SampleSheet | null>(null);
+
+  const labels = readLabels(settings?.labels);
+  const current: CartonLabelSize = isCartonLabelSize(labels.lpn) ? labels.lpn : "4x2";
+  const sampleId = sample.data?.id ?? null;
+  const sampleIds = useMemo(() => (sampleId ? [sampleId] : []), [sampleId]);
+  const noSample = !sample.isLoading && !sampleId;
+  const sampleBlocked = !sampleId || requestBrowser.isPending;
+
+  function changeSize(next: CartonLabelSize) {
+    if (next === current) return;
+    const value = { ...DEFAULT_LABELS, ...labels, lpn: next } as unknown as Json;
+    setSetting.mutate(
+      { key: "labels", value },
+      {
+        onSuccess: () => toast({ title: `Carton labels set to ${next === "4x6" ? "4×6 pair" : "4×2"}` }),
+        onError: (err) =>
+          toast({
+            title: "Couldn't change the label size",
+            description: err instanceof Error ? err.message : "Unknown error",
+            variant: "destructive",
+          }),
+      },
+    );
+  }
+
+  function sampleFromBrowser() {
+    if (!sampleId) return;
+    requestBrowser.mutate(
+      { kind: "lpn", ids: [sampleId], from: "desktop" },
+      {
+        onSuccess: (res) => {
+          if (res.target === "none") {
+            toast({ title: "Sample not printed", description: res.message ?? "Printing is blocked on this environment." });
+            return;
+          }
+          setSheet({
+            via: "browser",
+            job: { id: res.job_id, payload: res.payload ?? null, kind: "lpn", itemIds: [sampleId], cancelOnClose: true },
+          });
+        },
+        onError: (err) =>
+          toast({
+            title: "Couldn't queue the sample label",
+            description: err instanceof Error ? err.message : "Unknown error",
+            variant: "destructive",
+          }),
+      },
+    );
+  }
+
+  return (
+    <Card className="lg:col-span-2">
+      <CardHeader className="space-y-1.5">
+        <CardTitle className="text-base">Labels</CardTitle>
+        <CardDescription>What prints on a carton label and which stock it needs.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium text-muted-foreground" id="wh-label-size-heading">
+            Carton label size
+          </p>
+          <div role="radiogroup" aria-labelledby="wh-label-size-heading" className="grid gap-2 sm:grid-cols-2">
+            {CARTON_SIZE_OPTIONS.map((o) => {
+              const checked = current === o.value;
+              const disabled = settingsLoading || setSetting.isPending;
+              return (
+                <label
+                  key={o.value}
+                  htmlFor={`wh-label-size-${o.value}`}
+                  className={cn(
+                    "flex items-start gap-3 rounded-md border px-3 py-2.5",
+                    checked ? "border-primary bg-primary/5" : "border-border/60",
+                    disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+                    !checked && !disabled && "hover:bg-muted/40",
+                  )}
+                >
+                  <input
+                    type="radio"
+                    id={`wh-label-size-${o.value}`}
+                    name="wh-carton-label-size"
+                    value={o.value}
+                    checked={checked}
+                    disabled={disabled}
+                    onChange={() => changeSize(o.value)}
+                    aria-labelledby={`wh-label-size-${o.value}-title`}
+                    aria-describedby={`wh-label-size-${o.value}-hint`}
+                    className="mt-1 h-4 w-4 shrink-0 accent-primary"
+                  />
+                  <span className="space-y-0.5">
+                    <span id={`wh-label-size-${o.value}-title`} className="block text-sm font-medium">
+                      {o.label}
+                    </span>
+                    <span id={`wh-label-size-${o.value}-hint`} className="block text-xs text-muted-foreground">
+                      {o.hint}
+                    </span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
+        <ul className="space-y-1 rounded-md border border-border/50 px-3 py-2 text-xs text-muted-foreground">
+          <li>
+            <span className="font-medium text-foreground/80">Stock</span>: {LABEL_FORMAT_STOCK[current]}
+          </li>
+          <li>
+            <span className="font-medium text-foreground/80">Barcode</span>: Code 128, value % plus the code
+          </li>
+          <li>The layout and its format version come from the app&apos;s label renderer; there is no label editor.</li>
+        </ul>
+
+        <div className="space-y-2 border-t border-border/50 pt-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="outline" disabled={sampleBlocked} onClick={sampleFromBrowser}>
+              {requestBrowser.isPending ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : (
+                <Printer className="mr-1.5 h-4 w-4" />
+              )}
+              Print sample from browser
+            </Button>
+            <Button size="sm" variant="outline" disabled={sampleBlocked} onClick={() => setSheet({ via: "station" })}>
+              <Printer className="mr-1.5 h-4 w-4" /> Print sample on my station printer
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {noSample
+              ? sample.isError
+                ? "Couldn't look up a carton to sample."
+                : "Check in a shipment with carton labels first."
+              : sample.data
+                ? `Samples use the newest carton, ${sample.data.code}; marking one printed counts as a print of that carton.`
+                : "Looking for a carton to sample…"}
+          </p>
+        </div>
+      </CardContent>
+
+      {sheet && sampleIds.length > 0 && (
+        <Suspense fallback={null}>
+          <LabelSheet
+            open
+            onOpenChange={(o) => !o && setSheet(null)}
+            kind="lpn"
+            ids={sampleIds}
+            from="desktop"
+            title="Sample carton label"
+            existingJob={sheet.via === "browser" ? sheet.job : null}
+          />
+        </Suspense>
+      )}
     </Card>
   );
 }

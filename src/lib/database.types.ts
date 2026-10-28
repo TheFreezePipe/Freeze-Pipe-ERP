@@ -6763,7 +6763,12 @@ export type Database = {
       _wh_is_print_agent: { Args: never; Returns: boolean }
       _wh_is_service_call: { Args: never; Returns: boolean }
       _wh_label_payload: {
-        Args: { p_ids: string[]; p_kind: string; p_practice: boolean }
+        Args: {
+          p_copies?: number
+          p_ids: string[]
+          p_kind: string
+          p_practice: boolean
+        }
         Returns: Json
       }
       _wh_ledger_post: {
@@ -6876,6 +6881,7 @@ export type Database = {
       _wh_queue_print_job: {
         Args: {
           p_actor: string
+          p_copies?: number
           p_from: string
           p_ids: string[]
           p_kind: string
@@ -7510,6 +7516,7 @@ export type Database = {
       }
       rpc_wh_request_labels: {
         Args: {
+          p_copies?: number
           p_from: string
           p_ids: string[]
           p_kind: string

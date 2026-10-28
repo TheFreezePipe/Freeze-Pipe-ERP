@@ -11,10 +11,17 @@ import { toSVG } from "bwip-js/generic";
  * The print agent imports the same module, so a label looks the same
  * whichever path prints it. Practice jobs (outbound mode "practice") carry
  * `%Z` barcodes and the "PRACTICE · STAGING" band.
+ *
+ * The 4×6 carton label (the pair: `copies` 2, one per adjacent face) feeds
+ * 4 in wide and 6 in long but reads landscape, 6 in wide × 4 in tall. Its
+ * layout is drawn in landscape dots and every field is rotated `R` in ZPL
+ * (90° clockwise); the browser turns the same box 90° onto a 4 × 6 page.
+ * Its barcode is 5 dots per module. Each label prints `copies` times (`^PQ`,
+ * or that many pages).
  */
 
 export type LabelKind = "lpn" | "lpn_rts" | "location" | "station";
-export type LabelSize = "4x2" | "3x1";
+export type LabelSize = "4x2" | "3x1" | "4x6";
 
 /** A location or station label as the payload carries it. */
 export interface LocationLabelData {
@@ -52,6 +59,8 @@ export interface LabelPayload {
   kind: LabelKind;
   practice: boolean;
   size: LabelSize;
+  /** Identical labels per item (2 for the 4×6 carton pair). parseLabelPayload always sets it; absent means 1. */
+  copies?: number;
   labels: (LocationLabelData | LpnLabelData)[];
 }
 
@@ -60,6 +69,8 @@ export interface LabelModel {
   id: string;
   kind: LabelKind;
   size: LabelSize;
+  /** How many identical labels to print (^PQ on the printer, pages in the browser). */
+  copies: number;
   stock: "white" | "green";
   practice: boolean;
   /** The barcode's data: '%' + code, or '%Z' + code on a practice label. */
@@ -74,14 +85,32 @@ export interface LabelModel {
 
 export const LABEL_DPI = 203;
 export const MODULE_DOTS = 3;
+/** Code 128 module on the 4×6 carton label: 5 dots at 203 dpi (≈ 0.63 mm). */
+export const MODULE_DOTS_4X6 = 5;
+/** rpc_wh_request_labels accepts p_copies 1..5; a payload asking for more prints 5. */
+export const MAX_COPIES = 5;
 export const PRACTICE_BAND = "PRACTICE · STAGING";
 /** One Code 128 module at 3 dots and 203 dpi, in millimetres (≈ 0.375 mm). */
 export const MODULE_MM = (MODULE_DOTS / LABEL_DPI) * 25.4;
 
+/** The media as it feeds: width across the printer, height along the feed. */
 export const LABEL_INCHES: Record<LabelSize, { width: number; height: number }> = {
   "4x2": { width: 4, height: 2 },
   "3x1": { width: 3, height: 1 },
+  "4x6": { width: 4, height: 6 },
 };
+
+/**
+ * Sizes whose content reads landscape on the media: the 4×6 label reads 6 in
+ * wide × 4 in tall, turned 90° clockwise onto the 4 in media (ZPL `R`).
+ */
+export const LANDSCAPE: Record<LabelSize, boolean> = { "4x2": false, "3x1": false, "4x6": true };
+
+/** The label as the reader sees it, in inches (a landscape size swaps the media's sides). */
+export function contentInches(size: LabelSize): { width: number; height: number } {
+  const { width, height } = LABEL_INCHES[size];
+  return LANDSCAPE[size] ? { width: height, height: width } : { width, height };
+}
 
 const BUCKET_WORDS: Record<string, string> = {
   raw: "RAW",
@@ -93,8 +122,20 @@ const BUCKET_WORDS: Record<string, string> = {
 
 const KINDS: LabelKind[] = ["lpn", "lpn_rts", "location", "station"];
 
-export function labelSizeFor(kind: LabelKind): LabelSize {
-  return kind === "lpn" || kind === "lpn_rts" ? "4x2" : "3x1";
+/**
+ * The size a kind prints at: carton labels 4×2 unless the payload asks for
+ * 4×6 (wh_settings.labels.lpn), locations and stations always 3×1. A size
+ * the kind cannot take falls back to the kind's default.
+ */
+export function labelSizeFor(kind: LabelKind, payloadSize?: unknown): LabelSize {
+  if (kind === "lpn" || kind === "lpn_rts") return payloadSize === "4x6" ? "4x6" : "4x2";
+  return "3x1";
+}
+
+/** A payload's `copies`: a whole number from 1 to MAX_COPIES, else 1. */
+export function labelCopies(value: unknown): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) return 1;
+  return Math.min(value, MAX_COPIES);
 }
 
 /** The barcode data for a code: '%' + code, '%Z' + code on a practice label. */
@@ -130,7 +171,8 @@ export function parseLabelPayload(json: unknown): LabelPayload {
   return {
     kind,
     practice: json.practice === true,
-    size: json.size === "4x2" || json.size === "3x1" ? json.size : labelSizeFor(kind),
+    size: labelSizeFor(kind, json.size),
+    copies: labelCopies(json.copies),
     labels,
   };
 }
@@ -153,11 +195,25 @@ function skuLine(l: LpnLabelData): string | null {
   return l.sku ?? l.contents ?? null;
 }
 
+/** The job-level settings a label model takes from its payload. */
+export interface LabelModelOptions {
+  /** The payload's size; one the kind cannot take falls back to its default (labelSizeFor). */
+  size?: LabelSize;
+  /** Identical labels per item; 1 when absent or invalid. */
+  copies?: number;
+}
+
 /** The label model for one payload entry. */
-export function labelModel(kind: LabelKind, data: LocationLabelData | LpnLabelData, practice: boolean): LabelModel {
-  const size = labelSizeFor(kind);
+export function labelModel(
+  kind: LabelKind,
+  data: LocationLabelData | LpnLabelData,
+  practice: boolean,
+  options: LabelModelOptions = {},
+): LabelModel {
+  const size = labelSizeFor(kind, options.size);
+  const copies = labelCopies(options.copies ?? 1);
   const barcode = normaliseBarcode(data.barcode, data.code, practice);
-  const base = { id: data.id, kind, size, practice, barcode, code: data.code };
+  const base = { id: data.id, kind, size, copies, practice, barcode, code: data.code };
 
   if (kind === "location" || kind === "station") {
     const l = data as LocationLabelData;
@@ -205,7 +261,56 @@ export function labelModel(kind: LabelKind, data: LocationLabelData | LpnLabelDa
 }
 
 export function labelModels(payload: LabelPayload): LabelModel[] {
-  return payload.labels.map((l) => labelModel(payload.kind, l, payload.practice));
+  const options = { size: payload.size, copies: payload.copies };
+  return payload.labels.map((l) => labelModel(payload.kind, l, payload.practice, options));
+}
+
+// ---- 4×6 geometry (landscape dots) -------------------------------------------
+
+/**
+ * The 4×6 carton label in landscape dots at 203 dpi: X along the 6 in
+ * (0..1218), Y down the 4 in (0..812). Contract item 2: margin 40; code 150
+ * at the top-left; RTS badge 190 at the top-right; up to four lines at
+ * 70 / 56 / 48 / 48; Code 128 260 tall at the bottom-left with its value
+ * (36) under it; a 48 band across the top on practice jobs.
+ */
+export const L4X6 = {
+  width: Math.round(6 * LABEL_DPI),
+  height: Math.round(4 * LABEL_DPI),
+  margin: 40,
+  /** Where the barcode starts: a quiet zone of 10 modules at 5 dots needs 50; 56 is 7 mm. */
+  barX: 56,
+  band: 48,
+  bandText: 32,
+  code: 150,
+  /** Gap between the practice band and the code (the band stands in for the top margin). */
+  codeBelowBand: 12,
+  badge: 190,
+  /** The badge is right-aligned in a block this wide that ends at the right margin. */
+  badgeBlock: 400,
+  badgeTop: 10,
+  /** Clear space kept between the end of the code and the start of the badge. */
+  badgeGap: 30,
+  lines: [70, 56, 48, 48],
+  linesBelowCode: 10,
+  lineGap: 8,
+  bar: 260,
+  human: 36,
+  humanGap: 6,
+} as const;
+
+/**
+ * Dots per Code 128 module for a size: 3, or 5 on the 4×6 label. A 4×6
+ * barcode of `modules` modules too long for the space between its quiet zone and the right margin
+ * steps down a dot at a time (never below 3) so it stays on the label; codes
+ * up to about 17 characters fit at 5.
+ */
+export function moduleDotsFor(size: LabelSize, modules = 0): number {
+  if (size !== "4x6") return MODULE_DOTS;
+  const room = L4X6.width - L4X6.barX - L4X6.margin;
+  let dots = MODULE_DOTS_4X6;
+  while (dots > MODULE_DOTS && modules * dots > room) dots -= 1;
+  return dots;
 }
 
 // ---- ZPL --------------------------------------------------------------------
@@ -246,7 +351,85 @@ function barcode(x: number, y: number, h: number, value: string): string {
   return `^FO${x},${y}^BY${MODULE_DOTS},2,${h}^BCN,${h},N,N,N,A^FH^FD${zplEscape(value)}^FS`;
 }
 
-/** ZPL for one label (^XA … ^XZ). */
+/**
+ * The native `^FO` of a rotated (`R`) field whose landscape box starts at
+ * (x, y) and is `h` tall: native x = 812 − y − h, native y = x (contract
+ * item 1; ^FO is the rotated field's bounding-box top-left).
+ */
+function rotatedOrigin(x: number, y: number, h: number): string {
+  return `^FO${L4X6.height - y - h},${x}`;
+}
+
+/** Text `h` tall (and `w` wide a character, ^A0's width parameter) at landscape (x, y), reading along the 6 in. */
+function rotatedText(x: number, y: number, h: number, value: string, w = h): string {
+  return `${rotatedOrigin(x, y, h)}^A0R,${h},${w}^FH^FD${zplEscape(value)}^FS`;
+}
+
+/** One line of text, `h` tall, in a block `width` wide at landscape (x, y), centred or right-aligned. */
+function rotatedBlock(x: number, y: number, width: number, h: number, value: string, align: "C" | "R", reverse = false): string {
+  return `${rotatedOrigin(x, y, h)}^FB${width},1,0,${align}^A0R,${h},${h}${reverse ? "^FR" : ""}^FH^FD${zplEscape(value)}^FS`;
+}
+
+/** A filled box at landscape (x, y), `width` along the 6 in and `h` down the 4 in. */
+function rotatedFill(x: number, y: number, width: number, h: number): string {
+  return `${rotatedOrigin(x, y, h)}^GB${h},${width},${Math.min(width, h)}^FS`;
+}
+
+/** Code 128 `h` tall at landscape (x, y), `dots` per module, no interpretation line. */
+function rotatedBarcode(x: number, y: number, h: number, dots: number, value: string): string {
+  return `${rotatedOrigin(x, y, h)}^BY${dots},2,${h}^BCR,${h},N,N,N,A^FH^FD${zplEscape(value)}^FS`;
+}
+
+/** An ^A0 capital or digit is at most about this many times the font width wide. */
+const A0_CHAR = 0.55;
+
+/** The most characters of a line `h` tall that fit between the margins (29 at 70, 36 at 56, 43 at 48). */
+function lineChars(h: number): number {
+  return Math.floor((L4X6.width - 2 * L4X6.margin) / (h * A0_CHAR));
+}
+
+/**
+ * ^A0's width parameter for the 4×6 code: 150 like its height, narrower when
+ * a long code would otherwise run into the RTS badge (or past the right
+ * margin). The code always stays 150 tall.
+ */
+export function codeFontWidth4x6(code: string, badge: string | null): number {
+  const g = L4X6;
+  const end = g.width - g.margin - (badge ? badge.length * A0_CHAR * g.badge + g.badgeGap : 0);
+  const room = end - g.margin;
+  return Math.max(1, Math.min(g.code, Math.floor(room / (Math.max(1, code.length) * A0_CHAR))));
+}
+
+/** The fields of a 4×6 carton label (contract item 2), laid out in landscape dots. */
+function carton4x6Fields(m: LabelModel): string[] {
+  const g = L4X6;
+  const out: string[] = [];
+  const top = m.practice ? g.band : 0;
+  if (m.practice) {
+    out.push(
+      rotatedFill(0, 0, g.width, g.band),
+      rotatedBlock(0, (g.band - g.bandText) / 2, g.width, g.bandText, PRACTICE_BAND, "C", true),
+    );
+  }
+  const codeY = m.practice ? g.band + g.codeBelowBand : g.margin;
+  out.push(rotatedText(g.margin, codeY, g.code, m.code, codeFontWidth4x6(m.code, m.badge)));
+  if (m.badge) {
+    out.push(rotatedBlock(g.width - g.margin - g.badgeBlock, top + g.badgeTop, g.badgeBlock, g.badge, m.badge, "R"));
+  }
+  let y = codeY + g.code + g.linesBelowCode;
+  m.lines.slice(0, g.lines.length).forEach((line, i) => {
+    const h = g.lines[i];
+    out.push(rotatedText(g.margin, y, h, truncate(line, lineChars(h))));
+    y += h + g.lineGap;
+  });
+  const humanY = g.height - g.margin - g.human;
+  const barY = humanY - g.humanGap - g.bar;
+  const dots = moduleDotsFor(m.size, barcodeSvg(m.barcode).modules);
+  out.push(rotatedBarcode(g.barX, barY, g.bar, dots, m.barcode), rotatedText(g.margin, humanY, g.human, m.barcode));
+  return out;
+}
+
+/** ZPL for one label (^XA … ^XZ), printed `copies` times (^PQ). */
 export function labelToZpl(m: LabelModel): string {
   const { width, height } = LABEL_INCHES[m.size];
   const w = Math.round(width * LABEL_DPI);
@@ -254,7 +437,9 @@ export function labelToZpl(m: LabelModel): string {
   const out = ["^XA", "^CI28", `^PW${w}`, `^LL${h}`, "^LH0,0"];
   const margin = 30;
 
-  if (m.size === "3x1") {
+  if (m.size === "4x6") {
+    out.push(...carton4x6Fields(m));
+  } else if (m.size === "3x1") {
     const top = m.practice ? 32 : 0;
     if (m.practice) {
       out.push(`^FO0,0^GB${w},30,30^FS`, centred(w, 4, 24, PRACTICE_BAND, true));
@@ -278,7 +463,7 @@ export function labelToZpl(m: LabelModel): string {
     m.lines.slice(0, 4).forEach((line, i) => out.push(text(margin, top + 92 + i * 34, 28, truncate(line, 44))));
     out.push(barcode(margin, h - 120, 100, m.barcode));
   }
-  out.push("^PQ1", "^XZ");
+  out.push(`^PQ${labelCopies(m.copies)}`, "^XZ");
   return out.join("\n");
 }
 
@@ -293,19 +478,37 @@ export interface BarcodeSvg {
   svg: string;
   /** Code 128 modules across, quiet zones excluded. */
   modules: number;
-  /** Printed width at 3 dots per module and 203 dpi. */
+  /** Printed width at `moduleDots` dots per module (3 unless asked) and 203 dpi. */
   widthMm: number;
 }
 
 /**
  * Code 128 as SVG (bwip-js), one viewBox unit per module, bars stretched to
  * the box the caller gives it (preserveAspectRatio none). Size it with
- * `widthMm` so the browser prints the same module width as the thermal path.
+ * `widthMm` so the browser prints the same module width as the thermal path;
+ * pass moduleDotsFor(size, modules) for a size that is not 3 dots per module.
  */
-export function barcodeSvg(value: string): BarcodeSvg {
+export function barcodeSvg(value: string, moduleDots: number = MODULE_DOTS): BarcodeSvg {
   const raw = toSVG({ bcid: "code128", text: value, scale: 1, height: 10, includetext: false });
   const vb = /viewBox="0 0 (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)"/.exec(raw);
   const modules = vb ? Number(vb[1]) : 0;
   const svg = raw.replace("<svg ", '<svg preserveAspectRatio="none" shape-rendering="crispEdges" ');
-  return { svg, modules, widthMm: Math.round(modules * MODULE_MM * 10) / 10 };
+  return { svg, modules, widthMm: barcodeWidthMm(modules, moduleDots) };
+}
+
+/** Printed width of `modules` Code 128 modules at `moduleDots` dots each and 203 dpi, to 0.1 mm. */
+function barcodeWidthMm(modules: number, moduleDots: number): number {
+  const moduleMm = (moduleDots / LABEL_DPI) * 25.4;
+  return Math.round(modules * moduleMm * 10) / 10;
+}
+
+/**
+ * A label's barcode as SVG, its width at the module the thermal path uses
+ * for that size (moduleDotsFor: 5 dots on 4×6, 3 elsewhere), for the browser
+ * path and the preview.
+ */
+export function labelBarcodeSvg(m: Pick<LabelModel, "barcode" | "size">): BarcodeSvg {
+  const bar = barcodeSvg(m.barcode);
+  const dots = moduleDotsFor(m.size, bar.modules);
+  return dots === MODULE_DOTS ? bar : { ...bar, widthMm: barcodeWidthMm(bar.modules, dots) };
 }

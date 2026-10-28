@@ -49,7 +49,27 @@ interface PrintJobStatusProps {
   className?: string;
 }
 
-const STOCK_WORDS: Record<string, string> = { white_4x2: "white 4×2", green_4x2: "green 4×2", white_3x1: "white 3×1" };
+const STOCK_WORDS: Record<string, string> = {
+  white_4x2: "white 4×2",
+  green_4x2: "green 4×2",
+  white_3x1: "white 3×1",
+  white_4x6: "white 4×6",
+  green_4x6: "green 4×6",
+};
+
+/**
+ * The job payload's size and copies, read without the label renderer (it
+ * pulls in bwip-js, which LabelSheet loads lazily). copies is 1 unless the
+ * payload has a whole number above 1 (the 4×6 carton pair has 2).
+ */
+function payloadLayout(payload: Json | null | undefined): { size: string | null; copies: number } {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return { size: null, copies: 1 };
+  const { size, copies } = payload as { size?: unknown; copies?: unknown };
+  return {
+    size: typeof size === "string" ? size : null,
+    copies: typeof copies === "number" && Number.isInteger(copies) && copies > 1 ? copies : 1,
+  };
+}
 
 function PhaseIcon({ phase }: { phase: PrintJobPhase }) {
   switch (phase) {
@@ -72,7 +92,9 @@ function PhaseIcon({ phase }: { phase: PrintJobPhase }) {
  * printed, or failed with the agent's error. A failed or stale job offers
  * Reprint (a new job on the same printer), Print elsewhere (a new job on
  * another agent printer) and Print from browser (the job's own labels through
- * LabelSheet, which then marks it printed). Polls every 2 s while the job is
+ * LabelSheet, which then marks it printed). A job of several copies per item
+ * (the 4×6 carton pair) also offers Reprint one, a new job with copies 1 for
+ * a single torn or lost label. Polls every 2 s while the job is
  * queued or claimed (useWhPrintJob) and stops when it is done.
  */
 export function PrintJobStatus({
@@ -122,7 +144,8 @@ export function PrintJobStatus({
       }
     : null;
   const view = describePrintJob(job, printer, dataUpdatedAt);
-  const fits = labelStockFor(kind);
+  const layout = payloadLayout(job.payload);
+  const fits = labelStockFor(kind, layout.size);
   const elsewhere = printers
     .filter((p) => p.active && p.transport === "agent" && p.id !== job.printer_id)
     .sort((a, b) => Number(b.label_stock === fits) - Number(a.label_stock === fits) || a.code.localeCompare(b.code));
@@ -132,11 +155,12 @@ export function PrintJobStatus({
     else setBrowserJob(bj);
   }
 
-  function newJob(printerId: string | null) {
+  /** A new job for the same items; `copies` 1 is "Reprint one" of a pair, otherwise the server's default. */
+  function newJob(printerId: string | null, copies?: number) {
     if (!job) return;
     setNote(null);
     request(
-      { kind, ids: job.item_ids, from, printerId },
+      { kind, ids: job.item_ids, from, printerId, ...(copies != null ? { copies } : {}) },
       {
         onSuccess: (res) => {
           if (res.target === "printer") {
@@ -186,6 +210,17 @@ export function PrintJobStatus({
               {requesting ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="mr-1.5 h-3.5 w-3.5" />}
               Reprint
             </Button>
+            {layout.copies > 1 && (
+              <Button
+                variant="outline"
+                className={btn}
+                disabled={requesting}
+                onClick={() => newJob(job.printer_id, 1)}
+                title="A new job for one label per item, to replace a single torn or lost label"
+              >
+                <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> Reprint one
+              </Button>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" className={btn} disabled={requesting || elsewhere.length === 0}>

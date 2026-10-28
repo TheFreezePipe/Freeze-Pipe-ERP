@@ -192,7 +192,7 @@ export interface WhPrinterInput {
   name?: string;
   transport?: "agent" | "browser";
   address?: string | null;
-  label_stock?: "white_4x2" | "green_4x2" | "white_3x1";
+  label_stock?: "white_4x2" | "green_4x2" | "white_4x6" | "green_4x6" | "white_3x1";
   dpi?: 203 | 300 | 600;
   station_location_id?: string | null;
   station_code?: string | null;
@@ -415,6 +415,8 @@ interface WhRpc {
       p_from: WhRequestedFrom;
       p_printer_id?: string | null;
       p_target?: WhPrintTarget | null;
+      /** Identical labels per item, 1-5; null lets the server choose (2 for a 4x6 carton label, else 1). */
+      p_copies?: number | null;
     };
     result: WhPrintJobResult;
   };

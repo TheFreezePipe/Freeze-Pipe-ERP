@@ -445,9 +445,14 @@ export function writePinnedStation(code: string | null): void {
 
 // ---- Print jobs -----------------------------------------------------------------
 
-/** The label stock a kind prints on (the server's routing rule in _wh_queue_print_job). */
-export function labelStockFor(kind: WhLabelKind | string): WhLabelStock {
-  return kind === "lpn" ? "white_4x2" : kind === "lpn_rts" ? "green_4x2" : "white_3x1";
+/**
+ * The label stock a kind prints on (the server's routing rule in
+ * _wh_queue_print_job): carton labels on white or green at the job's size
+ * (4x2 unless the payload says 4x6), locations and stations on white 3x1.
+ */
+export function labelStockFor(kind: WhLabelKind | string, size?: string | null): WhLabelStock {
+  const carton = size === "4x6" ? "4x6" : "4x2";
+  return kind === "lpn" ? `white_${carton}` : kind === "lpn_rts" ? `green_${carton}` : "white_3x1";
 }
 
 /** A queued job nobody has printed after this long is stale: offer Reprint, Print elsewhere, Print from browser. */
@@ -548,7 +553,7 @@ export function useWhPrinterQueues() {
 
 // ---- Printer registration (workaround: no printer RPC yet) -------------------------
 
-export type WhLabelStock = "white_4x2" | "green_4x2" | "white_3x1";
+export type WhLabelStock = "white_4x2" | "green_4x2" | "white_3x1" | "white_4x6" | "green_4x6";
 
 export interface WhPrinterDraft {
   code: string;

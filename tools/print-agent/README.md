@@ -95,8 +95,21 @@ Labels are drawn for 203 dpi (`labels.ts`); a 300 dpi printer prints them smalle
 ## Register a printer
 
 Settings › Warehouse › Printers and stations (admin) › **Add printer**: code (`DOCK-1`), name, station (the
-station whose workers it prints for, or shared), address, label stock (`white_4x2` for LPNs, `green_4x2` for RTS,
-`white_3x1` for locations and stations), dpi, agent id (this installation's `AGENT_ID`) and active.
+station whose workers it prints for, or shared), address, label stock, dpi, agent id (this installation's
+`AGENT_ID`) and active. Label stock is one of:
+
+| Stock | Prints |
+|---|---|
+| `white_4x2` | Carton (LPN) labels while the carton label size is 4×2 |
+| `green_4x2` | RTS carton labels while the carton label size is 4×2 |
+| `white_4x6` | Carton (LPN) labels once the size is 4×6 (Settings › Warehouse › Labels) |
+| `green_4x6` | RTS carton labels once the size is 4×6 |
+| `white_3x1` | Location and station labels (always 3×1) |
+
+A job goes to the station printer loaded with its stock. A 4×6 carton label is the pair: the job's payload says
+`copies: 2`, the agent sends `^PQ2`, and the printer feeds two identical labels for the two adjacent faces at the
+carton's aisle corner (Reprint one asks for `copies: 1`). The 4×6 content reads landscape, rotated in the ZPL, so
+the printer is loaded with plain 4 in wide × 6 in long stock, the same as shipping labels.
 
 There is no printer RPC yet and `wh_printers` has no client write policy, so the dialog builds the SQL statement
 and **Copy SQL** puts it on the clipboard; the database owner runs it in the Supabase SQL editor. The agent picks
@@ -111,6 +124,7 @@ a station label on that printer (live mode only).
 ```
 npm run render -- --sample location                           # print the ZPL to the console
 npm run render -- --sample lpn --to tcp://192.168.1.50:9100   # one practice LPN label on that printer
+npm run render -- --sample lpn4x6 --to tcp://192.168.1.50:9100   # a practice 4×6 carton pair (also rts4x6)
 npm run render -- --payload job.json --to share://localhost/ZebraDock
 ```
 
