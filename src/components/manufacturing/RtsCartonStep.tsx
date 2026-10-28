@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowRight, Check, Loader2, Minus, PackageOpen, Plus, Pr
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
+import { CartonLink } from "@/components/warehouse/CartonLink";
 import { LocationCode } from "@/components/warehouse/LocationCode";
 import { PrintJobStatus } from "@/components/warehouse/PrintJobStatus";
 import { ScanSink } from "@/components/warehouse/ScanSink";
@@ -329,7 +330,7 @@ export function RtsCartonStep({ ref, product, quantity, canSubmit, onLog, onComp
                       "No label: the cartons get new C-MFG codes"
                     ) : (
                       <span>
-                        From <span className="font-mono font-semibold tabular-nums">{parent.code}</span>
+                        From <CartonLink code={parent.code} className="font-semibold" newTab />
                         <span className="text-muted-foreground">
                           {" "}
                           · {parent.sku ?? "MIXED"} · {parent.qty} left · {parent.location_code ?? "?"}
@@ -601,7 +602,7 @@ function RtsResult({ result, onDone }: { result: WhRtsRelabelResult; onDone: () 
             <div key={c.id} className="space-y-2 rounded-lg border border-green-500/40 p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="h-3 w-3 shrink-0 rounded-sm bg-green-400" aria-label="green label" />
-                <span className="font-mono text-lg font-bold tabular-nums">{c.code}</span>
+                <CartonLink code={c.code} className="text-lg font-bold" newTab />
                 <span className="text-sm text-muted-foreground">
                   {c.qty} units{c.state === "open" ? " · open" : ""}
                 </span>
@@ -636,16 +637,28 @@ function RtsResult({ result, onDone }: { result: WhRtsRelabelResult; onDone: () 
         {rem && (
           <p className="text-sm text-muted-foreground">
             {rem.qty} loose{" "}
-            {rem.left_at_line
-              ? `left at the line for a putaway${rem.suggested?.code ? ` to ${rem.suggested.code}` : ""}.`
-              : `moved to ${rem.to?.code ?? "the pick face"}${rem.container ? ` (${rem.container.code})` : ""}.`}
+            {rem.left_at_line ? (
+              `left at the line for a putaway${rem.suggested?.code ? ` to ${rem.suggested.code}` : ""}.`
+            ) : (
+              <>
+                moved to {rem.to?.code ?? "the pick face"}
+                {rem.container && (
+                  <>
+                    {" "}
+                    (<CartonLink code={rem.container.code} newTab />)
+                  </>
+                )}
+                .
+              </>
+            )}
           </p>
         )}
         {result.parent && (
           <p className="text-xs text-muted-foreground">
+            <CartonLink code={result.parent.code} newTab />{" "}
             {result.parent.state === "void"
-              ? `${result.parent.code} is voided; its white label no longer scans.`
-              : `${result.parent.code} still holds units and stays open at the line.`}
+              ? "is voided; its white label no longer scans."
+              : "still holds units and stays open at the line."}
           </p>
         )}
 

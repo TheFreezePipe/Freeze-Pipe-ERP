@@ -574,6 +574,7 @@ export type Database = {
         Row: {
           carton_qty: number
           created_at: string
+          factory_order_item_id: string | null
           freight_shipment_id: string
           id: string
           notes: string | null
@@ -584,6 +585,7 @@ export type Database = {
         Insert: {
           carton_qty: number
           created_at?: string
+          factory_order_item_id?: string | null
           freight_shipment_id: string
           id?: string
           notes?: string | null
@@ -594,6 +596,7 @@ export type Database = {
         Update: {
           carton_qty?: number
           created_at?: string
+          factory_order_item_id?: string | null
           freight_shipment_id?: string
           id?: string
           notes?: string | null
@@ -602,6 +605,20 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "freight_carton_groups_factory_order_item_id_fkey"
+            columns: ["factory_order_item_id"]
+            isOneToOne: false
+            referencedRelation: "factory_order_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "freight_carton_groups_factory_order_item_id_fkey"
+            columns: ["factory_order_item_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_factory_order_items"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "freight_carton_groups_freight_shipment_id_fkey"
             columns: ["freight_shipment_id"]
@@ -4487,6 +4504,79 @@ export type Database = {
           },
         ]
       }
+      wh_fifo_deviations: {
+        Row: {
+          actor_id: string | null
+          container_id: string
+          created_at: string
+          id: string
+          reason: string
+          sku_id: string
+          suggested_container_id: string | null
+        }
+        Insert: {
+          actor_id?: string | null
+          container_id: string
+          created_at?: string
+          id?: string
+          reason: string
+          sku_id: string
+          suggested_container_id?: string | null
+        }
+        Update: {
+          actor_id?: string | null
+          container_id?: string
+          created_at?: string
+          id?: string
+          reason?: string
+          sku_id?: string
+          suggested_container_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wh_fifo_deviations_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_fifo_deviations_container_id_fkey"
+            columns: ["container_id"]
+            isOneToOne: false
+            referencedRelation: "wh_containers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_fifo_deviations_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_fifo_deviations_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus_active"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_fifo_deviations_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_portal_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wh_fifo_deviations_suggested_container_id_fkey"
+            columns: ["suggested_container_id"]
+            isOneToOne: false
+            referencedRelation: "wh_containers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       wh_fixtures: {
         Row: {
           blocked: boolean
@@ -6759,6 +6849,10 @@ export type Database = {
         Returns: Json
       }
       _wh_field_bucket: { Args: { p_field: string }; Returns: string }
+      _wh_fifo_carton_json: {
+        Args: { p_container_id: string; p_reason?: string }
+        Returns: Json
+      }
       _wh_first_name: { Args: { p_profile: string }; Returns: string }
       _wh_is_print_agent: { Args: never; Returns: boolean }
       _wh_is_service_call: { Args: never; Returns: boolean }
@@ -6844,6 +6938,7 @@ export type Database = {
         }
         Returns: Json
       }
+      _wh_next_carton: { Args: { p_sku_id: string }; Returns: Json }
       _wh_open_count: {
         Args: {
           p_actor: string
@@ -6892,6 +6987,10 @@ export type Database = {
       }
       _wh_require_role: { Args: { p_roles: string[] }; Returns: string }
       _wh_resolve_code: { Args: { p_code: string }; Returns: Json }
+      _wh_resolve_group_fo_item: {
+        Args: { p_group_id: string }
+        Returns: string
+      }
       _wh_setting: { Args: { p_key: string }; Returns: Json }
       _wh_settle_order: {
         Args: { p_actor?: string; p_order_id: string }
@@ -7432,6 +7531,7 @@ export type Database = {
         Args: { p_from: string; p_to: string }
         Returns: Json
       }
+      rpc_wh_carton_passport: { Args: { p_code: string }; Returns: Json }
       rpc_wh_claim_print_jobs: {
         Args: { p_agent_id: string; p_printer_ids: string[] }
         Returns: Json
@@ -7442,6 +7542,7 @@ export type Database = {
       }
       rpc_wh_delete_printer: { Args: { p_id: string }; Returns: Json }
       rpc_wh_end_station: { Args: never; Returns: Json }
+      rpc_wh_fifo_compliance: { Args: { p_days?: number }; Returns: Json }
       rpc_wh_generate_locations: {
         Args: { p_dry_run?: boolean; p_rack_id?: string }
         Returns: Json
@@ -7478,6 +7579,7 @@ export type Database = {
         }
         Returns: Json
       }
+      rpc_wh_next_cartons: { Args: { p_sku_ids: string[] }; Returns: Json }
       rpc_wh_open_container: {
         Args: {
           p_actor_id?: string
@@ -7559,6 +7661,7 @@ export type Database = {
           p_actor_id?: string
           p_client_event_id?: string
           p_container_id: string
+          p_fifo_override?: string
         }
         Returns: Json
       }

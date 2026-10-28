@@ -25,6 +25,7 @@ import InventoryOverview from "@/pages/inventory/InventoryOverview";
 import StockPage from "@/pages/inventory/Stock";
 import FactoryOrders from "@/pages/inventory/FactoryOrders";
 import AdminFactoryOrderDetail from "@/pages/inventory/FactoryOrderDetail";
+import CartonPassport from "@/pages/inventory/CartonPassport";
 import QualityIssues from "@/pages/inventory/QualityIssues";
 // Feature-flagged page — Materials catalog. Visible only to Chase
 // during development. Drop the import + route block + sidebar entry
@@ -234,6 +235,12 @@ export default function App() {
               <Route path="/inventory/factory-orders/:id" element={
                 <RequireRole allowed={["admin", "manager"]}>
                   <AdminFactoryOrderDetail />
+                </RequireRole>
+              } />
+              {/* Carton passport: not a sidebar item; every carton code in the app links here, floor staff included. */}
+              <Route path="/inventory/cartons/:code" element={
+                <RequireRole allowed={["admin", "manager", "user"]}>
+                  <CartonPassport />
                 </RequireRole>
               } />
               <Route path="/inventory/issues" element={

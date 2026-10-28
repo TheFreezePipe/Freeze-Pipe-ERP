@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  cartonPath,
+  factoryOrderPath,
   INVENTORY_ROUTES,
   LEGACY_ROUTE_PATHS,
   legacyRedirect,
@@ -78,5 +80,24 @@ describe("route helpers", () => {
 
   it("shipmentPath points under Inventory", () => {
     expect(shipmentPath("s-1")).toBe("/inventory/shipments/s-1");
+  });
+
+  it("factoryOrderPath points at the factory order page", () => {
+    expect(factoryOrderPath("fo-1")).toBe("/inventory/factory-orders/fo-1");
+  });
+
+  it("cartonPath links a carton code to its passport", () => {
+    expect(cartonPath("C-466-007R1")).toBe("/inventory/cartons/C-466-007R1");
+    expect(cartonPath(" C-OB-0001 ")).toBe("/inventory/cartons/C-OB-0001");
+  });
+
+  it("cartonPath encodes characters that would break the route", () => {
+    expect(cartonPath("C-1/2")).toBe("/inventory/cartons/C-1%2F2");
+    expect(cartonPath("C-9#A?b")).toBe("/inventory/cartons/C-9%23A%3Fb");
+    expect(cartonPath("C 1")).toBe("/inventory/cartons/C%201");
+  });
+
+  it("cartonPath is not a legacy route", () => {
+    expect(legacyRedirect(cartonPath("C-466-007"), "")).toBeNull();
   });
 });

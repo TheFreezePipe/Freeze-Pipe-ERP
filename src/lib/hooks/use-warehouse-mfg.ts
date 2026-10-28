@@ -5,7 +5,10 @@ import type { RtsCartonEntry } from "@/lib/warehouse/rts-cartons";
 import type {
   WhBucket,
   WhContainerState,
+  WhFifoOverride,
+  WhFifoSuggestsPayload,
   WhLocationRef,
+  WhNextCarton,
   WhPrintJobResult,
   WhRpcArgs,
   WhRpcName,
@@ -25,6 +28,10 @@ import { newClientEventId } from "./use-warehouse-tasks";
  * Workspace, `insufficient_at_line` carries { available, needed } for the
  * gap. Every write sends a client_event_id (§5.1), so a retry after a lost
  * response replays the first result instead of moving stock twice.
+ *
+ * Taking a carton to the line is FIFO-checked: when an older carton of the
+ * SKU is on the shelf the RPC answers `fifo_suggests` (nothing moves) and the
+ * step retries the same carton with the worker's reason (`fifoOverride`).
  *
  * Opening a carton reuses the existing rpc_wh_open_container hook from
  * use-warehouse-tasks (re-exported below, the same binding).
@@ -78,18 +85,30 @@ export async function mfgRpc<K extends WhRpcName>(
 
 // ---- Take to the line (step 1) ----------------------------------------------------
 
+/** Why a worker took another carton than the FIFO suggestion (p_fifo_override), in button order. */
+export const FIFO_OVERRIDE_REASONS: readonly WhFifoOverride[] = ["buried", "damaged", "closer", "other"];
+
 export interface WhTakeToLineParams {
   containerId: string;
   clientEventId?: string;
+  /** Take this carton although an older one is suggested; recorded as a FIFO deviation. */
+  fifoOverride?: WhFifoOverride | null;
 }
 
 export type WhTakeToLineResult = WhRpcResult<"rpc_wh_take_to_line">;
 
-/** One scan: every balance of the carton moves to MFG-LINE (rpc_wh_take_to_line). Exported for tests. */
+/**
+ * One scan: every balance of the carton moves to MFG-LINE (rpc_wh_take_to_line).
+ * p_fifo_override is sent only when the worker gave a reason. Exported for tests.
+ */
 export function takeWhToLine(params: WhTakeToLineParams, client?: unknown): Promise<WhTakeToLineResult> {
   return mfgRpc(
     "rpc_wh_take_to_line",
-    { p_container_id: params.containerId, p_client_event_id: params.clientEventId ?? newClientEventId() },
+    {
+      p_container_id: params.containerId,
+      p_client_event_id: params.clientEventId ?? newClientEventId(),
+      ...(params.fifoOverride ? { p_fifo_override: params.fifoOverride } : {}),
+    },
     "Couldn't take the carton to the line",
     client,
   );
@@ -98,6 +117,38 @@ export function takeWhToLine(params: WhTakeToLineParams, client?: unknown): Prom
 /** The carton was already at MFG-LINE: the Workspace accepts it silently. */
 export function isAlreadyAtLine(err: unknown): boolean {
   return whErrorCode(err) === "already_at_line";
+}
+
+/**
+ * A fifo_suggests refusal: an older carton of the SKU is on the shelf, so
+ * nothing moved. Null for any other error. Pure; exported for tests.
+ */
+export function fifoSuggestion(
+  err: unknown,
+): { suggested: WhNextCarton; scanned: WhFifoSuggestsPayload["scanned"] | null; message: string } | null {
+  if (whErrorCode(err) !== "fifo_suggests") return null;
+  const d = (err as WhMfgError).details;
+  const suggested = d.suggested as WhNextCarton | null | undefined;
+  if (!suggested || typeof suggested !== "object" || !suggested.code) return null;
+  const scanned = d.scanned && typeof d.scanned === "object" ? (d.scanned as WhFifoSuggestsPayload["scanned"]) : null;
+  return { suggested, scanned, message: (err as WhMfgError).message };
+}
+
+/**
+ * The flash after a carton reached the line: green "C-1 to the line" when
+ * FIFO was followed (or the server says nothing about it), amber
+ * "Taken to the line · FIFO skipped (buried)" when the worker overrode it.
+ * Pure; exported for tests.
+ */
+export function takeToLineFlash(
+  code: string,
+  res: Pick<WhTakeToLineResult, "fifo">,
+  override?: WhFifoOverride | null,
+): { tone: "ok" | "warn"; label: string; skipped: WhFifoOverride | null } {
+  const fifo = res.fifo as WhTakeToLineResult["fifo"] | undefined;
+  const skipped = fifo ? (fifo.followed ? null : (fifo.override ?? override ?? "other")) : (override ?? null);
+  if (!skipped) return { tone: "ok", label: `${code} to the line`, skipped: null };
+  return { tone: "warn", label: `Taken to the line · FIFO skipped (${skipped})`, skipped };
 }
 
 // ---- RTS relabel (step 5) ------------------------------------------------------------
@@ -255,6 +306,7 @@ export const MFG_INVALIDATE_ROOTS: string[][] = [
   ["wh-overview"],
   ["wh-container-contents"],
   ["wh-balances"],
+  ["wh-next-cartons"],
 ];
 
 function useMfgMutation<P, R>(mutationFn: (params: P) => Promise<R>) {

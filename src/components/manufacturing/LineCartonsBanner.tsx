@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronDown, ChevronRight, Package } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { CartonLink } from "@/components/warehouse/CartonLink";
 import { LocationCode } from "@/components/warehouse/LocationCode";
 import { useWhLineCartons, type WhLineCarton } from "@/lib/hooks/use-warehouse-mfg";
 import { cn } from "@/lib/utils";
@@ -14,7 +15,8 @@ const SHOWN = 4;
  * are still at MFG-LINE with an open putaway (the worker's own first), each
  * linking to /go/putaway?lpn=; "N raw cartons at the line" shows what was
  * pulled to the line. Live through Realtime plus a 60 s refetch; renders
- * nothing when the line is clear.
+ * nothing when the line is clear. Each carton code links to its passport;
+ * the rest of a waiting row opens the putaway.
  */
 export function LineCartonsBanner({ me }: { me: string | null }) {
   const { data } = useWhLineCartons(me);
@@ -71,7 +73,7 @@ export function LineCartonsBanner({ me }: { me: string | null }) {
                 {raw.map((c) => (
                   <li key={c.id} className="flex items-center gap-2">
                     <span className="h-2.5 w-2.5 shrink-0 rounded-sm border border-slate-400 bg-slate-200" aria-label="white label" />
-                    <span className="font-mono font-semibold tabular-nums">{c.code}</span>
+                    <CartonLink code={c.code} className="font-semibold" />
                     <span className="truncate text-muted-foreground">
                       {c.sku?.sku ?? "MIXED"} · {c.qty} units · {c.state}
                     </span>
@@ -86,15 +88,17 @@ export function LineCartonsBanner({ me }: { me: string | null }) {
   );
 }
 
+/**
+ * The whole row opens the putaway (a stretched link: the putaway link's
+ * ::after covers the row), and the carton code above it opens the passport.
+ * Two sibling links, never one inside the other.
+ */
 function WaitingRow({ carton, mine }: { carton: WhLineCarton; mine: boolean }) {
   return (
-    <Link
-      to={`/go/putaway?lpn=${encodeURIComponent(carton.code)}`}
-      className="flex min-h-[48px] items-center gap-3 rounded-lg border border-border px-3 py-1.5 transition-colors touch-manipulation hover:bg-muted/40"
-    >
+    <div className="relative flex min-h-[48px] items-center gap-3 rounded-lg border border-border px-3 py-1.5 transition-colors touch-manipulation hover:bg-muted/40">
       <span className="min-w-0 flex-1">
         <span className="block font-mono text-sm font-semibold tabular-nums">
-          {carton.code}
+          <CartonLink code={carton.code} className="relative z-10" />
           {mine && <span className="ml-2 font-sans text-[11px] font-normal text-green-400">yours</span>}
         </span>
         <span className="block truncate text-xs text-muted-foreground">
@@ -106,7 +110,13 @@ function WaitingRow({ carton, mine }: { carton: WhLineCarton; mine: boolean }) {
       ) : (
         <span className="text-xs text-muted-foreground">any bay</span>
       )}
-      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-    </Link>
+      <Link
+        to={`/go/putaway?lpn=${encodeURIComponent(carton.code)}`}
+        aria-label={`Put away ${carton.code}`}
+        className="shrink-0 rounded-lg text-muted-foreground after:absolute after:inset-0 after:rounded-lg focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring"
+      >
+        <ChevronRight className="h-4 w-4" />
+      </Link>
+    </div>
   );
 }

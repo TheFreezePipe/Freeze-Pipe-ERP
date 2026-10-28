@@ -18,6 +18,8 @@ export const INVENTORY_ROUTES = {
   newShipment: "/inventory/shipments/new",
   materials: "/inventory/materials",
   issues: "/inventory/issues",
+  /** Carton passports live under here (/inventory/cartons/:code); not a nav item. */
+  cartons: "/inventory/cartons",
   floor: "/go",
 } as const;
 
@@ -42,6 +44,21 @@ export function stockSearch(query: string): string {
 /** One shipment's page (check-in lives here). */
 export function shipmentPath(id: string): string {
   return `${INVENTORY_ROUTES.shipments}/${id}`;
+}
+
+/** One factory order's page (the batch a carton came from). */
+export function factoryOrderPath(id: string): string {
+  return `${INVENTORY_ROUTES.factoryOrders}/${id}`;
+}
+
+/**
+ * One carton's passport (owner decision 2026-10-28): a page, not a
+ * navigation item. Every carton code shown in the app links here through
+ * <CartonLink>. The code is encoded, so a stray "/" or "#" cannot escape
+ * the route.
+ */
+export function cartonPath(code: string): string {
+  return `${INVENTORY_ROUTES.cartons}/${encodeURIComponent(code.trim())}`;
 }
 
 /**

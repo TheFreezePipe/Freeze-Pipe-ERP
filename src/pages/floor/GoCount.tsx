@@ -543,6 +543,7 @@ export default function GoCount() {
                   <CardContent className="space-y-3 p-4 text-center">
                     <p className="text-sm">
                       How many units of <span className="font-semibold">{pending.sku}</span> in{" "}
+                      {/* Plain text, not a passport link: the passport shows the expected quantity, and this is a blind count. */}
                       <span className="font-mono font-semibold tabular-nums">{pending.containerCode}</span>?
                     </p>
                     <BigStepper
@@ -734,6 +735,7 @@ function EntryRow({ entry, onQty, onRemove }: { entry: WhCountEntry; onQty: (n: 
           <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
             {entry.containerCode ? (
               <>
+                {/* Plain text, not a passport link: the passport shows the expected quantity, and this is a blind count. */}
                 <span className="font-mono tabular-nums">{entry.containerCode}</span>
                 <span>· {entry.containerState}</span>
               </>

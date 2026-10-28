@@ -9,7 +9,28 @@ import { launchAwareDemand } from "@/lib/launch-demand";
 import { useUpcomingMarketingBySku } from "@/lib/hooks/use-marketing-signals";
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
+import { CartonLink } from "@/components/warehouse/CartonLink";
 import { useInventory, useTaskLogs, useForecastDemandMap } from "@/lib/hooks";
+import type { WhNextCarton } from "@/lib/hooks/use-warehouse";
+import { describeNextCarton, useWhNextCartons } from "@/lib/hooks/use-warehouse-fifo";
+
+/**
+ * The carton to pull for one SKU (FIFO suggestion), one quiet line under the
+ * row. The SKU order above stays demand-driven; this only names the carton.
+ */
+function NextCartonLine({ next }: { next: WhNextCarton | null }) {
+  if (!next) {
+    return <p className="pl-6 text-xs leading-tight text-muted-foreground/70">No raw carton on the shelf</p>;
+  }
+  const d = describeNextCarton(next);
+  return (
+    <p className="truncate pl-6 text-xs leading-tight text-muted-foreground" title={`Next carton: ${d.line} · ${d.reason}`}>
+      Next carton:{" "}
+      <CartonLink code={d.code} className="text-foreground/90" />
+      {d.detail && <> · {d.detail}</>} · {d.reason}
+    </p>
+  );
+}
 
 export default function ManufacturingDashboard() {
   const { data: inventory = [], isLoading: inventoryLoading } = useInventory();
@@ -75,6 +96,10 @@ export default function ManufacturingDashboard() {
       })
       .sort((a, b) => b.priority.score - a.priority.score);
   }, [inventory, forecastMap, mktSignals, todayIso]);
+
+  // The carton to pull next for each SKU on the list (nothing while loading).
+  const pipelineSkuIds = useMemo(() => pipelineRows.map((r) => r.product.id), [pipelineRows]);
+  const { data: nextCartons } = useWhNextCartons(pipelineSkuIds);
 
   // DOS color tiers — green > 40d, yellow 20-40, red < 10d. Centralized
   // constants so adjusting the bands is a one-line change.
@@ -242,6 +267,7 @@ export default function ManufacturingDashboard() {
                     </div>
                   )}
                 </div>
+                {nextCartons && <NextCartonLine next={nextCartons[product.id] ?? null} />}
               </div>
             );
           })}

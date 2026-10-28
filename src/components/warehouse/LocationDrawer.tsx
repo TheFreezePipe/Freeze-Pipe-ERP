@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
+import { CartonLink } from "@/components/warehouse/CartonLink";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -246,7 +247,7 @@ export function LocationDrawer({ code, fixtureId, locations, layout, onClose, on
                     {containers.map((c) => (
                       <li key={c.id} className="rounded-md border border-border/60 px-2.5 py-1.5">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold tabular-nums">{c.code}</span>
+                          <CartonLink code={c.code} className="text-sm font-semibold" />
                           <Chip className={CONTAINER_STATE_COLORS[c.state]}>{c.state}</Chip>
                           {c.label_stock === "green" && <Chip className="border-green-500/30 bg-green-500/10 text-green-400">RTS</Chip>}
                           <span className="ml-auto text-sm tabular-nums">{c.qty}</span>

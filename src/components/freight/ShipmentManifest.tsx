@@ -34,6 +34,7 @@ import {
 import type { FreightShipment } from "@/types/database";
 import { nextCartonPreview } from "@/lib/warehouse/carton-split";
 import type { BrowserPrintJob } from "@/components/warehouse/PrintJobStatus";
+import { CartonLink } from "@/components/warehouse/CartonLink";
 import { groupLpns, loosePutaway, lpnRange, type GroupLpns } from "./lpn-progress";
 
 // Lazy: LabelSheet pulls in the barcode renderer (~1 MB); load it on first print.
@@ -99,6 +100,24 @@ interface StationJob {
   ids: string[];
   codes: string;
   printer: string;
+}
+
+/**
+ * A group's LPN range ("C-466-001…040") with both ends linking to their
+ * carton passports; one carton is just its code.
+ */
+function LpnRangeLinks({ live }: { live: { code: string }[] }) {
+  const first = live[0]?.code;
+  const last = live[live.length - 1]?.code;
+  if (!first || !last) return null;
+  if (first === last) return <CartonLink code={first} />;
+  const cut = first.lastIndexOf("-") + 1;
+  const tail = cut > 0 && last.startsWith(first.slice(0, cut)) ? last.slice(cut) : last;
+  return (
+    <>
+      <CartonLink code={first} />…<CartonLink code={last}>{tail}</CartonLink>
+    </>
+  );
 }
 
 /**
@@ -713,7 +732,7 @@ export function ShipmentManifest({
                                   className="rounded border border-cyan-500/40 bg-cyan-500/10 px-1.5 py-px font-mono text-[11px] text-cyan-400"
                                   title={`${lpns.live.length} license plate${lpns.live.length === 1 ? "" : "s"}`}
                                 >
-                                  {lpns.range}
+                                  <LpnRangeLinks live={lpns.live} />
                                 </span>
                                 {canEdit && (
                                   <Button

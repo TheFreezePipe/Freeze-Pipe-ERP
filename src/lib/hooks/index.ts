@@ -28,3 +28,5 @@ export * from "./use-warehouse-map";
 export * from "./use-warehouse-counts";
 export * from "./use-warehouse-mfg";
 export * from "./use-warehouse-labels";
+export * from "./use-warehouse-fifo";
+export * from "./use-warehouse-passport";

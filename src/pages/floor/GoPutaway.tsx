@@ -4,6 +4,7 @@ import { AlertTriangle, Check, ChevronRight, Loader2, PackageOpen, Printer, Refr
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { TaskActions, TaskHeader } from "@/components/layout/TaskShell";
+import { CartonLink } from "@/components/warehouse/CartonLink";
 import { LocationCode } from "@/components/warehouse/LocationCode";
 import { PrintJobStatus, type BrowserPrintJob } from "@/components/warehouse/PrintJobStatus";
 import { ScanSink } from "@/components/warehouse/ScanSink";
@@ -85,6 +86,27 @@ function errorText(err: unknown, fallback: string): string {
 function cartonOf(row: WhMoveRow): string {
   return row.container?.code ?? `${row.sku?.sku ?? "Loose units"}`;
 }
+
+/**
+ * The carton's code as a link to its passport, or the SKU for loose units.
+ * `raised` lifts the link above a row's stretched pick button.
+ */
+function CartonName({ row, className, raised = false }: { row: WhMoveRow; className?: string; raised?: boolean }) {
+  return row.container?.code ? (
+    <CartonLink code={row.container.code} className={cn(raised && "relative z-10", className)} />
+  ) : (
+    <span className={cn("font-mono tabular-nums", className)}>{cartonOf(row)}</span>
+  );
+}
+
+/**
+ * A tap-to-pick row: the button's ::after covers the whole row, and the
+ * carton code (relative z-10) sits above it as its own link, so the code
+ * opens the passport and anywhere else picks the carton. Sibling controls,
+ * never a link inside a button.
+ */
+const PICK_BUTTON =
+  "shrink-0 rounded-lg text-muted-foreground after:absolute after:inset-0 after:rounded-lg focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring";
 
 /** "BW20 · Bowl 20" / "MIXED" / "BW20 × 6 loose". */
 function whatLine(row: WhMoveRow): string {
@@ -410,7 +432,7 @@ export default function GoPutaway() {
 
           <div className="space-y-1.5">
             <Step state="ok">
-              Carton <span className="font-mono tabular-nums">{cartonOf(selected)}</span> {selectedBy === "scan" ? "scanned" : "selected"}
+              Carton <CartonName row={selected} /> {selectedBy === "scan" ? "scanned" : "selected"}
             </Step>
             <Step state="now" n={2}>
               {confirmByScan || !shown.location_id ? (
@@ -444,7 +466,7 @@ export default function GoPutaway() {
 
           {nextRow && (
             <p className="truncate text-xs text-muted-foreground">
-              Next: <span className="font-mono tabular-nums">{cartonOf(nextRow)}</span> · {whatLine(nextRow)}
+              Next: <CartonName row={nextRow} /> · {whatLine(nextRow)}
               {nextRow.suggested?.code ? ` · ${nextRow.suggested.code}` : ""}
             </p>
           )}
@@ -586,7 +608,7 @@ function CartonCard({ row, contents }: { row: WhMoveRow; contents: { sku: { sku:
     <Card>
       <CardContent className="space-y-1 p-3.5">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-lg font-bold tabular-nums">{cartonOf(row)}</span>
+          <CartonName row={row} className="text-lg font-bold" />
           {c && (
             <span className="rounded-full border border-cyan-500/35 bg-cyan-500/10 px-2 py-0.5 text-[11px] font-semibold text-cyan-400">
               {c.state}
@@ -692,15 +714,13 @@ function Waiting({
         <>
           <p className="text-sm text-muted-foreground">Scan a carton&apos;s label, or tap it, to start.</p>
           {first && (
-            <button
-              type="button"
-              onClick={() => onPick(first)}
-              className="w-full rounded-lg border border-primary bg-primary/10 p-3.5 text-left transition-all touch-manipulation active:scale-[0.99]"
-            >
+            <div className="relative w-full rounded-lg border border-primary bg-primary/10 p-3.5 text-left transition-all touch-manipulation active:scale-[0.99]">
               <p className="text-[11px] uppercase tracking-widest text-primary">Next up</p>
               <div className="mt-1 flex items-center gap-3">
                 <div className="min-w-0 flex-1">
-                  <p className="font-mono text-lg font-bold tabular-nums">{cartonOf(first)}</p>
+                  <p className="text-lg font-bold">
+                    <CartonName row={first} raised />
+                  </p>
                   <p className="truncate text-sm text-muted-foreground">
                     {whatLine(first)} · {unitsOf(first)} units
                   </p>
@@ -710,9 +730,11 @@ function Waiting({
                 ) : (
                   <span className="text-xs text-muted-foreground">any</span>
                 )}
-                <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
+                <button type="button" onClick={() => onPick(first)} aria-label={`Put away ${cartonOf(first)}`} className={PICK_BUTTON}>
+                  <ChevronRight className="h-5 w-5" />
+                </button>
               </div>
-            </button>
+            </div>
           )}
           <QueueList rows={others} me={me} onPick={onPick} />
         </>
@@ -731,11 +753,7 @@ function QueueList({ rows, me, onPick }: { rows: WhMoveRow[]; me: string | null;
         return (
           <div key={row.id}>
             {header && <p className="px-1 pb-1 pt-2 text-[11px] uppercase tracking-widest text-muted-foreground">{header}</p>}
-            <button
-              type="button"
-              onClick={() => onPick(row)}
-              className="flex min-h-[56px] w-full items-center gap-3 rounded-lg border border-border px-3 py-2 text-left transition-all touch-manipulation hover:bg-muted/40 active:scale-[0.99]"
-            >
+            <div className="relative flex min-h-[56px] w-full items-center gap-3 rounded-lg border border-border px-3 py-2 text-left transition-all touch-manipulation hover:bg-muted/40 active:scale-[0.99]">
               <span
                 className={cn(
                   "h-2.5 w-2.5 shrink-0 rounded-full",
@@ -744,14 +762,18 @@ function QueueList({ rows, me, onPick }: { rows: WhMoveRow[]; me: string | null;
                 aria-label={row.container?.label_stock === "green" ? "green RTS label" : row.container ? "white label" : "loose units"}
               />
               <span className="min-w-0 flex-1">
-                <span className="block font-mono text-[15px] font-semibold tabular-nums">{cartonOf(row)}</span>
+                <span className="block text-[15px] font-semibold">
+                  <CartonName row={row} raised />
+                </span>
                 <span className="block truncate text-xs text-muted-foreground">
                   {whatLine(row)} · {unitsOf(row)} units
                 </span>
               </span>
               {row.suggested?.code && <LocationCode code={row.suggested.code} size="small" />}
-              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-            </button>
+              <button type="button" onClick={() => onPick(row)} aria-label={`Put away ${cartonOf(row)}`} className={PICK_BUTTON}>
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         );
       })}

@@ -5,6 +5,7 @@ import { MapPin, Search } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CartonLink } from "@/components/warehouse/CartonLink";
 import { useWhLocations, type WhLocationContent, type WhLocationSummary } from "@/lib/hooks";
 import { cn } from "@/lib/utils";
 
@@ -107,9 +108,13 @@ function ContentChip({ item }: { item: WhLocationContent }) {
         ? "border-cyan-400/35 bg-cyan-400/10 text-cyan-400"
         : "border-slate-400/30 bg-slate-400/10 text-slate-300";
   const text =
-    item.state === "sealed" && item.code
-      ? `${item.code} · ${item.sku} · ${item.qty}`
-      : `${item.sku} · ${item.qty}${loose ? " loose" : ""}`;
+    item.state === "sealed" && item.code ? (
+      <>
+        <CartonLink code={item.code} /> · {item.sku} · {item.qty}
+      </>
+    ) : (
+      `${item.sku} · ${item.qty}${loose ? " loose" : ""}`
+    );
   return (
     <span
       className={cn(

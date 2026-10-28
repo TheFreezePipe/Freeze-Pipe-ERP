@@ -1,5 +1,6 @@
 import { Check, X } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { CartonLink } from "@/components/warehouse/CartonLink";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useUrlFilter } from "@/lib/use-url-filter";
 import { useWhMoves, type WhMoveKind, type WhMoveStatus } from "@/lib/hooks/use-warehouse-counts";
@@ -97,9 +98,13 @@ export function MovesTab() {
           </thead>
           <tbody>
             {moves.map((m) => {
-              const what = m.container
-                ? `${m.container.code} · ${m.container.sku?.sku ?? (m.container.sku_id ? "SKU" : "MIXED")} × ${m.container.qty}`
-                : `${m.sku?.sku ?? "SKU"} × ${m.qty ?? 0} loose`;
+              const what = m.container ? (
+                <>
+                  <CartonLink code={m.container.code} /> · {m.container.sku?.sku ?? (m.container.sku_id ? "SKU" : "MIXED")} × {m.container.qty}
+                </>
+              ) : (
+                `${m.sku?.sku ?? "SKU"} × ${m.qty ?? 0} loose`
+              );
               const at = m.completed_at ?? m.started_at ?? m.created_at;
               return (
                 <tr key={m.id} className="border-b border-border/40 last:border-0">

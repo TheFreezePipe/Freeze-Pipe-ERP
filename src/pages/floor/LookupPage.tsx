@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CartonLink } from "@/components/warehouse/CartonLink";
 import { ScanSink } from "@/components/warehouse/ScanSink";
 import { ResultFlash, type FlashTone } from "@/components/warehouse/ResultFlash";
 import { useAuth } from "@/lib/auth-context";
@@ -45,7 +46,8 @@ function ErrorBox({ message }: { message: string }) {
   );
 }
 
-function MatchCard({ match }: { match: WhScanMatch }) {
+/** `kind` is the server's reading of the scan; a carton's code links to its passport. */
+function MatchCard({ match, kind }: { match: WhScanMatch; kind?: string }) {
   const { data: inventory = [] } = useInventory();
   const stock = inventory.find((row) => row.sku_id === match.sku_id);
   const finished = stock?.warehouse_finished ?? 0;
@@ -66,7 +68,11 @@ function MatchCard({ match }: { match: WhScanMatch }) {
         </div>
         {match.code && (
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-base tabular-nums">{match.code}</span>
+            {kind === "container" ? (
+              <CartonLink code={match.code} className="text-base" />
+            ) : (
+              <span className="font-mono text-base tabular-nums">{match.code}</span>
+            )}
             {match.symbology && (
               <Badge variant="outline" className="border-green-500/30 bg-green-500/10 text-[10px] text-green-400">
                 {SYMBOLOGY_LABELS[match.symbology] ?? match.symbology}
@@ -220,7 +226,7 @@ export default function LookupPage() {
 
       {error && !isPending && <ErrorBox message={error.message} />}
 
-      {match && !isPending && <MatchCard match={match} />}
+      {match && !isPending && <MatchCard match={match} kind={result?.kind} />}
 
       {unknown && !isPending && scanned && parsed && (
         <>

@@ -179,6 +179,169 @@ export interface WhScheduleCountsResult {
   scheduled_today: number;
 }
 
+// ---- Next carton (FIFO) and the carton passport (§5.8) ------------------------
+
+/** rpc_wh_take_to_line p_fifo_override: why the worker took another carton than the suggested one. */
+export type WhFifoOverride = "buried" | "damaged" | "closer" | "other";
+
+/** Which rule picked the next carton: an open carton, the oldest factory order, or (no batch known) the oldest check-in. */
+export type WhNextCartonReason = "open_carton" | "oldest_batch" | "oldest_received";
+
+/**
+ * The carton FIFO suggests pulling next for a SKU (rpc_wh_next_cartons, and
+ * `suggested` on a fifo_suggests refusal). qty and bucket are its raw /
+ * pre-filled units. Batch fields are null when the carton's group has no
+ * resolved factory order item (opening stock, ambiguous shipments).
+ */
+export interface WhNextCarton {
+  container_id: string;
+  code: string;
+  state: "sealed" | "open";
+  qty: number;
+  bucket: "raw" | "prefilled_raw";
+  /** The server only suggests located cartons; nullable per the contract ("null where unknown"). */
+  location_id: string | null;
+  location_code: string | null;
+  factory_order_id: string | null;
+  factory_order_number: string | null;
+  /** YYYY-MM-DD */
+  order_date: string | null;
+  shipment_id: string | null;
+  shipment_number: string | null;
+  /** The carton's check-in (its receipt, else when the carton was created); the server always fills it. */
+  received_at: string | null;
+  reason: WhNextCartonReason;
+}
+
+/** rpc_wh_take_to_line's refusal when FIFO suggests another carton: { ok: false, error: 'fifo_suggests', message, suggested, scanned }. Nothing moved. */
+export interface WhFifoSuggestsPayload {
+  suggested: WhNextCarton;
+  scanned: {
+    code: string;
+    factory_order_number: string | null;
+    order_date: string | null;
+    received_at: string | null;
+    location_code: string | null;
+  };
+}
+
+/** The `fifo` key of a successful take to the line. followed: no suggestion, or the scanned carton was it. */
+export interface WhTakeToLineFifo {
+  followed: boolean;
+  /** The suggested carton's code (the scanned one when followed); null when FIFO had nothing to suggest. */
+  suggested_code: string | null;
+  /** The reason recorded as a deviation; null when followed. */
+  override: WhFifoOverride | null;
+}
+
+export interface WhFifoCompliance {
+  days: number;
+  since: string;
+  /** Take-to-line pulls of single-SKU raw cartons in the window. */
+  pulls: number;
+  followed: number;
+  deviations: Record<WhFifoOverride, number>;
+}
+
+/** Short machine word for the timeline icon. */
+export type WhPassportTimelineKind =
+  | "ordered"
+  | "factory"
+  | "shipped"
+  | "delivered"
+  | "checked_in"
+  | "putaway"
+  | "pulled"
+  | "moved"
+  | "opened"
+  | "relabel"
+  | "count"
+  | "labels"
+  | "other";
+
+export interface WhPassportTimelineEntry {
+  at: string;
+  kind: WhPassportTimelineKind;
+  title: string;
+  detail: string | null;
+  actor_name: string | null;
+}
+
+/** rpc_wh_carton_passport: one carton's whole life (oldest timeline entry first). */
+export interface WhCartonPassport {
+  carton: {
+    id: string;
+    code: string;
+    sku_id: string | null;
+    sku: string | null;
+    product_name: string | null;
+    state: WhContainerState;
+    qty: number;
+    qty_initial: number;
+    /** The bucket it holds most of, else the bucket of its last movement. */
+    bucket: WhBucket | null;
+    label_stock: "white" | "green";
+    location_id: string | null;
+    location_code: string | null;
+    created_at: string;
+    opened_at: string | null;
+    finished_at: string | null;
+    finished_by_name: string | null;
+    parent: { id: string; code: string; state: WhContainerState } | null;
+    children: { id: string; code: string; state: WhContainerState; qty: number; location_code: string | null }[];
+    superseded_by: { id: string; code: string } | null;
+    carton_seq: number | null;
+    /** The shipment's planned carton count ("carton n of N"); null without a shipment. */
+    carton_of: number | null;
+  };
+  batch: {
+    factory_order: {
+      id: string;
+      order_number: string | null;
+      supplier_name: string | null;
+      order_date: string | null;
+      expected_completion: string | null;
+      status: string;
+    } | null;
+    item: {
+      quantity_ordered: number;
+      quantity_finished: number | null;
+      consolidator_confirmed_quantity: number | null;
+      quantity_breakage: number;
+    } | null;
+    shipment: {
+      id: string;
+      shipment_number: string;
+      ship_date: string | null;
+      eta: string | null;
+      actual_arrival_date: string | null;
+      status: string;
+    } | null;
+    /** Carton counts across the batch, plus broken units (the item's breakage). */
+    summary: {
+      cartons_received: number;
+      cartons_short: number;
+      finished: number;
+      raw_on_shelf: number;
+      at_the_line: number;
+      broken_units: number;
+    };
+    /** Other cartons of the same factory order item (else the same group), newest first, at most 50. */
+    siblings: { id: string; code: string; state: WhContainerState; qty: number; location_code: string | null; since: string }[];
+    siblings_total: number;
+  };
+  timeline: WhPassportTimelineEntry[];
+  legs: {
+    order_to_finished_days: number | null;
+    finished_to_shipped_days: number | null;
+    water_days: number | null;
+    arrival_to_checkin_days: number | null;
+    checkin_to_shelf_minutes: number | null;
+    shelf_to_line_days: number | null;
+    line_to_rts_days: number | null;
+  };
+}
+
 export type WhPrinterRecord = Database["public"]["Tables"]["wh_printers"]["Row"];
 
 /**
@@ -323,9 +486,23 @@ interface WhRpc {
     };
   };
   rpc_wh_take_to_line: {
-    args: WhPhoneArgs & { p_container_id: string };
-    result: WhReplayable & { container: WhContainerRef; from: WhLocationRef | null; units: number; movement_group_id: string };
+    /** Without p_fifo_override, a carton other than the FIFO suggestion is refused with fifo_suggests (WhFifoSuggestsPayload). */
+    args: WhPhoneArgs & { p_container_id: string; p_fifo_override?: WhFifoOverride | null };
+    result: WhReplayable & {
+      container: WhContainerRef;
+      from: WhLocationRef | null;
+      units: number;
+      movement_group_id: string;
+      fifo: WhTakeToLineFifo;
+    };
   };
+  rpc_wh_next_cartons: {
+    /** Up to 200 SKU ids; every id comes back as a key, null when nothing is suggested. */
+    args: { p_sku_ids: string[] };
+    result: { next: Record<string, WhNextCarton | null> };
+  };
+  rpc_wh_fifo_compliance: { args: { p_days?: number }; result: WhFifoCompliance };
+  rpc_wh_carton_passport: { args: { p_code: string }; result: WhCartonPassport };
   rpc_wh_rts_relabel: {
     args: WhPhoneArgs & {
       p_sku_id: string;

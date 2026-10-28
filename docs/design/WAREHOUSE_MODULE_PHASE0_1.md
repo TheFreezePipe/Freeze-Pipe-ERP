@@ -441,6 +441,15 @@ Rules:
 - Counting: a white LPN scanned in an RTS zone flags "needs a green label" on the count line; a green LPN scanned in a RAW zone flags the reverse.
 - Hardware: a 4-inch direct thermal printer at the manufacturing desks loaded with fluorescent green 4×2 labels, a scanner at each desk, and a station label per desk. The Workspace runs on the desk laptop, which also runs the print agent; a phone can log the step too, and the label still comes out at the desk.
 
+### 5.8 Next carton (FIFO) and the carton passport
+
+Owner decisions 2026-10-28 (built as Phase 1 slice 6, migration 20261029000001, staging only).
+
+- **FIFO is a suggestion, never a block.** The Manufacturing Overview keeps its demand-driven SKU order and adds one line per SKU naming the carton to pull. The take-to-line step shows the same carton above the scan box. Scanning a different carton returns `fifo_suggests` ("C-472-003 is newer; C-466-004 in 05-02-1 is older") and changes nothing; the worker picks a reason (buried, damaged, closer, other) and the scan is retried with `p_fifo_override`, which records a row in `wh_fifo_deviations`. `rpc_wh_fifo_compliance(p_days)` counts pulls against deviations; a rising share is the cue to tighten the rule.
+- **The batch is the factory order.** `_wh_next_carton(sku)` prefers an open raw carton anywhere in storage, then the oldest factory order by `order_date`, then the shipment that landed first (`actual_arrival_date`), then check-in (`wh_containers.created_at`), then walk order. Cartons at `MFG-LINE`, void or empty cartons, mixed cartons and cartons without raw or pre-filled stock are never suggested. `rpc_wh_next_cartons(sku_ids[])` serves the Overview in one call.
+- **The carton group carries its batch.** `freight_carton_groups.factory_order_item_id` is stamped by a trigger from the shipment's line for the group's SKU when exactly one such line exists, backfilled once; ambiguous groups stay NULL and fall back to check-in date. Production date inside an order is not known, so FIFO is batch-level.
+- **The carton passport** (`/inventory/cartons/:code`, `rpc_wh_carton_passport(code)`) is one carton's whole life: the carton and its parent or children, the batch (factory order, supplier, shipment, sibling cartons and where they sit, received/short/finished/broken counts), a timeline assembled from the factory order and its audit-log status changes, the shipment dates, the carton group's receipts, every movement that touched the carton, its putaway tasks, count lines and label jobs, and the elapsed legs (order to finished, to shipped, on the water, arrival to check-in, dock to shelf in minutes, shelf to line, line to RTS). It is not a navigation item: every carton code shown anywhere in the app renders through `CartonLink` and opens it.
+
 ---
 
 ## 6. Nightly reconciliation

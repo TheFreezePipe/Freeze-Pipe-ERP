@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   fetchWhLineCartons,
+  FIFO_OVERRIDE_REASONS,
+  fifoSuggestion,
   isAlreadyAtLine,
   MFG_INVALIDATE_ROOTS,
   mfgRpc,
@@ -10,6 +12,7 @@ import {
   relabelShortfall,
   rtsRelabelWh,
   splitLineCartons,
+  takeToLineFlash,
   takeWhToLine,
   whErrorCode,
   WhMfgError,
@@ -86,6 +89,76 @@ describe("takeWhToLine (rpc_wh_take_to_line)", () => {
     const err = await takeWhToLine({ containerId: "ctr-1" }, client).catch((e: unknown) => e);
     expect(isAlreadyAtLine(err)).toBe(true);
     expect(isAlreadyAtLine(new Error("C-OB-0010 is already at the manufacturing line."))).toBe(false);
+  });
+
+  it("leaves p_fifo_override out unless the worker gave a reason", async () => {
+    const client = mockClient({ data: { ok: true, units: 12, fifo: { followed: true, suggested_code: null, override: null } }, error: null });
+    await takeWhToLine({ containerId: "ctr-1", clientEventId: "evt-1", fifoOverride: null }, client);
+    expect(argsOf(client)[1]).not.toHaveProperty("p_fifo_override");
+  });
+
+  it("sends the override reason with the same client event id", async () => {
+    const client = mockClient({
+      data: { ok: true, units: 12, fifo: { followed: false, suggested_code: "C-466-004", override: "buried" } },
+      error: null,
+    });
+    const res = await takeWhToLine({ containerId: "ctr-1", clientEventId: "evt-1", fifoOverride: "buried" }, client);
+    expect(argsOf(client)[1]).toEqual({ p_container_id: "ctr-1", p_client_event_id: "evt-1", p_fifo_override: "buried" });
+    expect(res.fifo).toEqual({ followed: false, suggested_code: "C-466-004", override: "buried" });
+    expect(FIFO_OVERRIDE_REASONS).toEqual(["buried", "damaged", "closer", "other"]);
+  });
+
+  it("reads a fifo_suggests refusal: the older carton and the scanned one", async () => {
+    const suggested = {
+      container_id: "c-old",
+      code: "C-466-004",
+      state: "sealed",
+      qty: 48,
+      bucket: "raw",
+      location_id: "l-1",
+      location_code: "05-02-1",
+      factory_order_id: "fo-1",
+      factory_order_number: "FO-2026-118",
+      order_date: "2026-08-01",
+      shipment_id: "s-1",
+      shipment_number: "SH-1",
+      received_at: "2026-10-20T15:00:00Z",
+      reason: "oldest_batch",
+    };
+    const scanned = { code: "C-472-003", factory_order_number: "FO-2026-131", order_date: "2026-09-01", received_at: null, location_code: "05-03-1" };
+    const client = mockClient({
+      data: { ok: false, error: "fifo_suggests", message: "C-472-003 is newer; C-466-004 in 05-02-1 is older.", suggested, scanned },
+      error: null,
+    });
+    const err = await takeWhToLine({ containerId: "c-new" }, client).catch((e: unknown) => e);
+    expect(whErrorCode(err)).toBe("fifo_suggests");
+    expect(fifoSuggestion(err)).toEqual({ suggested, scanned, message: "C-472-003 is newer; C-466-004 in 05-02-1 is older." });
+    expect(isAlreadyAtLine(err)).toBe(false);
+  });
+
+  it("flashes green when FIFO was followed, amber with the reason when it was skipped", () => {
+    expect(takeToLineFlash("C-466-004", { fifo: { followed: true, suggested_code: "C-466-004", override: null } })).toEqual({
+      tone: "ok",
+      label: "C-466-004 to the line",
+      skipped: null,
+    });
+    expect(takeToLineFlash("C-472-003", { fifo: { followed: false, suggested_code: "C-466-004", override: "buried" } }, "buried")).toEqual({
+      tone: "warn",
+      label: "Taken to the line · FIFO skipped (buried)",
+      skipped: "buried",
+    });
+    // The server's recorded reason wins over the one the screen sent.
+    expect(takeToLineFlash("C-1", { fifo: { followed: false, suggested_code: "C-2", override: "closer" } }, "other").skipped).toBe("closer");
+    // A server that says nothing about FIFO: the override the screen sent, if any.
+    const silent = {} as Parameters<typeof takeToLineFlash>[1];
+    expect(takeToLineFlash("C-1", silent).tone).toBe("ok");
+    expect(takeToLineFlash("C-1", silent, "damaged").label).toBe("Taken to the line · FIFO skipped (damaged)");
+  });
+
+  it("is not a fifo suggestion for other errors or a refusal without a carton", () => {
+    expect(fifoSuggestion(new WhMfgError("x", "already_at_line"))).toBeNull();
+    expect(fifoSuggestion(new WhMfgError("x", "fifo_suggests", { suggested: null }))).toBeNull();
+    expect(fifoSuggestion(new Error("fifo_suggests"))).toBeNull();
   });
 });
 
@@ -225,7 +298,7 @@ describe("open container (re-exported)", () => {
 describe("invalidation", () => {
   it("refreshes cartons, putaways, locations, the overview and balances", () => {
     const roots = MFG_INVALIDATE_ROOTS.map((r) => r[0]);
-    for (const root of ["wh-containers", "wh-putaway", "wh-locations", "wh-location", "wh-overview"]) {
+    for (const root of ["wh-containers", "wh-putaway", "wh-locations", "wh-location", "wh-overview", "wh-next-cartons"]) {
       expect(roots).toContain(root);
     }
   });

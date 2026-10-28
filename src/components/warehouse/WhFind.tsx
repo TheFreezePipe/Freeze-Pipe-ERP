@@ -11,6 +11,7 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command";
+import { CartonLink } from "@/components/warehouse/CartonLink";
 import { useWhContainers, useWhLocations, useWhSkuIndex, type WhLocationSummary } from "@/lib/hooks";
 import { INVENTORY_ROUTES } from "@/lib/inventory-routes";
 
@@ -18,7 +19,8 @@ import { INVENTORY_ROUTES } from "@/lib/inventory-routes";
  * WhFind (design §9.3): a command palette (Ctrl+K or the Find button) over
  * SKUs, carton LPNs and location codes. Picking a result jumps to the map
  * with `?q=` lighting every match and `?loc=` opening the best location:
- * a SKU's pick bin first, a carton's bin, or the location itself.
+ * a SKU's pick bin first, a carton's bin, or the location itself. A
+ * carton's code is also a link to its passport (closing the palette).
  */
 
 export interface WhFindJump {
@@ -158,7 +160,14 @@ export function WhFind({ onJump, hotkey = true, className }: WhFindProps) {
               {results.lpns.map((c) => (
                 <CommandItem key={c.id} value={`lpn-${c.id}`} onSelect={() => jump({ q: c.code, loc: c.location?.code ?? null })}>
                   <Boxes />
-                  <span className="font-semibold tabular-nums">{c.code}</span>
+                  <CartonLink
+                    code={c.code}
+                    className="font-semibold"
+                    onClick={() => {
+                      setOpen(false);
+                      setQuery("");
+                    }}
+                  />
                   <span className="truncate text-muted-foreground">
                     {c.sku?.sku ?? "mixed"} · {c.qty} · {c.state}
                   </span>

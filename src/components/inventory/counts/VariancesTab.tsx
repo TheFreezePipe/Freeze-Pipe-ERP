@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { AlertTriangle, Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { CartonLink } from "@/components/warehouse/CartonLink";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -171,7 +172,7 @@ function VarianceCard({ task, canApprove }: { task: WhCountTaskRow; canApprove: 
                     </td>
                     <td className={TD}>
                       {l.container ? (
-                        <span className="font-mono text-xs tabular-nums">{l.container.code}</span>
+                        <CartonLink code={l.container.code} className="text-xs" />
                       ) : (
                         <span className="text-xs text-muted-foreground">loose</span>
                       )}

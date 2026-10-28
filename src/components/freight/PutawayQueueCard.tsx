@@ -2,6 +2,7 @@ import { useState, lazy, Suspense } from "react";
 import { CheckCircle2, Printer, RefreshCw, Truck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { CartonLink } from "@/components/warehouse/CartonLink";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { describeError } from "@/lib/supabase-error";
@@ -162,7 +163,11 @@ export function PutawayQueueCard({ rows, canEdit }: Props) {
                   return (
                     <tr key={row.id} className={cn("border-b border-border/50", !live && "opacity-70")}>
                       <td className="px-4 py-2.5 font-mono text-xs font-semibold whitespace-nowrap">
-                        {row.container?.code ?? <span className="font-sans font-normal text-muted-foreground">Loose units</span>}
+                        {row.container?.code ? (
+                          <CartonLink code={row.container.code} />
+                        ) : (
+                          <span className="font-sans font-normal text-muted-foreground">Loose units</span>
+                        )}
                       </td>
                       <td className="px-3 py-2.5 text-xs">{contentsOf(row)}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{unitsOf(row).toLocaleString()}</td>

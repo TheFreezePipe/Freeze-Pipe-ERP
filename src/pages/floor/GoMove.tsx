@@ -3,6 +3,8 @@ import { AlertTriangle, ArrowRightLeft, Check, Factory, Loader2, Minus, PackageO
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { TaskActions, TaskHeader } from "@/components/layout/TaskShell";
+import { FifoOverridePrompt } from "@/components/manufacturing/FifoOverridePrompt";
+import { CartonLink } from "@/components/warehouse/CartonLink";
 import { LocationCode } from "@/components/warehouse/LocationCode";
 import { ScanSink } from "@/components/warehouse/ScanSink";
 import {
@@ -16,15 +18,21 @@ import {
   type WhResolvedScan,
   type WhSuggestion,
 } from "@/lib/hooks";
+import type { WhFifoOverride, WhNextCarton } from "@/lib/hooks/use-warehouse";
 import {
+  fifoSuggestion,
   isAlreadyAtLine,
+  takeToLineFlash,
   useWhLooseBalances,
   useWhMoveStock,
   useWhOpenContainer,
   useWhPutawayContainerMove,
   useWhTakeToLine,
+  whErrorCode,
   type WhLooseBalance,
+  type WhTakeToLineResult,
 } from "@/lib/hooks/use-warehouse-mfg";
+import { newClientEventId } from "@/lib/hooks/use-warehouse-tasks";
 import { confirmByScan as confirmByScanSetting } from "@/lib/warehouse/rts-cartons";
 import { bayWords, cartonCode, stationCode } from "@/lib/warehouse/scan";
 import { cn } from "@/lib/utils";
@@ -47,6 +55,12 @@ import { useFloorFlash } from "./use-floor-flash";
  *      off, tapping a suggested location confirms it without the scan.
  * A station label (%ST-…) starts a station session at any point. Every write
  * sends a fresh client_event_id.
+ *
+ * Take to line is FIFO-checked but never blocked: when an older carton of the
+ * SKU is on the shelf the server refuses with fifo_suggests (nothing moved),
+ * and the screen says why the other is older, with Buried / Damaged / Closer /
+ * Other to take this one anyway. The reason retries with the refused scan's
+ * client_event_id and p_fifo_override, recorded as a deviation.
  */
 
 type Action = "line" | "bay" | "wip" | "face";
@@ -75,6 +89,14 @@ interface LooseSubject {
 }
 
 type Subject = CartonSubject | LooseSubject;
+
+/** A take to the line refused with fifo_suggests: the carton, its event id (reused on the retry) and the older carton. */
+interface FifoPrompt {
+  carton: CartonSubject;
+  clientEventId: string;
+  suggested: WhNextCarton;
+  scannedCode: string;
+}
 
 interface Target {
   id: string;
@@ -134,7 +156,8 @@ export default function GoMove() {
   const [action, setAction] = useState<Action | null>(null);
   const [suggestion, setSuggestion] = useState<{ value: WhSuggestion; exclude: string[] } | null>(null);
   const [notice, setNotice] = useState<{ tone: "info" | "warn" | "fail"; text: string } | null>(null);
-  const [last, setLast] = useState<string | null>(null);
+  const [last, setLast] = useState<LastMove | null>(null);
+  const [fifoPrompt, setFifoPrompt] = useState<FifoPrompt | null>(null);
   const [done, setDone] = useState(0);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
@@ -178,6 +201,7 @@ export default function GoMove() {
     setSubject(null);
     setAction(null);
     setSuggestion(null);
+    setFifoPrompt(null);
     setNotice(nextNotice);
   }
 
@@ -213,7 +237,7 @@ export default function GoMove() {
   function landed(tone: "ok" | "warn", label: string, text: string | null) {
     show(tone, label);
     setDone((n) => n + 1);
-    setLast(label);
+    setLast({ code: subject?.kind === "carton" ? subject.code : null, text: label });
     reset(text ? { tone: "warn", text } : null);
   }
 
@@ -301,16 +325,33 @@ export default function GoMove() {
     );
   }
 
+  /** A carton reached the line: green, or amber when FIFO was skipped with a reason. */
+  function lineLanded(c: CartonSubject, res: WhTakeToLineResult, override?: WhFifoOverride) {
+    const f = takeToLineFlash(c.code, res, override);
+    landed(f.tone, f.label, null);
+    setLast({
+      code: c.code,
+      text: `${c.code} · ${res.units} units from ${res.from?.code ?? "?"} to MFG-LINE${f.skipped ? ` · FIFO skipped (${f.skipped})` : ""}`,
+    });
+  }
+
   async function takeSubjectToLine() {
     if (!subject) return;
     if (subject.kind === "carton") {
+      const clientEventId = newClientEventId();
       try {
-        const res = await takeToLine.mutateAsync({ containerId: subject.id });
-        landed("ok", `${subject.code} to the line`, null);
-        setLast(`${subject.code} · ${res.units} units from ${res.from?.code ?? "?"} to MFG-LINE`);
+        const res = await takeToLine.mutateAsync({ containerId: subject.id, clientEventId });
+        lineLanded(subject, res);
       } catch (err) {
         if (isAlreadyAtLine(err)) {
           landed("warn", `${subject.code} already at the line`, errorText(err, `${subject.code} is already at the line.`));
+          return;
+        }
+        const fifo = fifoSuggestion(err);
+        if (fifo) {
+          setNotice(null);
+          setFifoPrompt({ carton: subject, clientEventId, suggested: fifo.suggested, scannedCode: fifo.scanned?.code ?? subject.code });
+          show("warn", "Older carton on the shelf");
           return;
         }
         throw err;
@@ -327,6 +368,36 @@ export default function GoMove() {
       bucket: subject.source.bucket,
     });
     landed("ok", `${subject.qty} ${subject.sku} to the line`, null);
+  }
+
+  /** Take the refused carton anyway, with the worker's reason and the refused scan's client event id. */
+  async function overrideTake(reason: WhFifoOverride) {
+    const prompt = fifoPrompt;
+    if (!prompt) return;
+    const c = prompt.carton;
+    try {
+      const res = await takeToLine.mutateAsync({ containerId: c.id, clientEventId: prompt.clientEventId, fifoOverride: reason });
+      setFifoPrompt(null);
+      lineLanded(c, res, reason);
+    } catch (err) {
+      if (isAlreadyAtLine(err)) {
+        setFifoPrompt(null);
+        landed("warn", `${c.code} already at the line`, errorText(err, `${c.code} is already at the line.`));
+        return;
+      }
+      // A refusal is final; a transport error keeps the prompt so a retry replays the same event.
+      if (whErrorCode(err)) setFifoPrompt(null);
+      throw err;
+    }
+  }
+
+  /** Leave this carton and go for the older one: say where it is. */
+  function takeOlder() {
+    const prompt = fifoPrompt;
+    if (!prompt) return;
+    setFifoPrompt(null);
+    const s = prompt.suggested;
+    setNotice({ tone: "info", text: `Scan ${s.code}${s.location_code ? ` in ${s.location_code}` : ""} and take it to the line instead.` });
   }
 
   // ---- step 3: the destination ----------------------------------------------------------
@@ -437,6 +508,7 @@ export default function GoMove() {
       startStationFrom(raw);
       return;
     }
+    setFifoPrompt(null);
     // A carton label always starts over with that carton.
     if (cartonCode(raw) || !subject) {
       void run(() => pickSubject(raw));
@@ -469,7 +541,11 @@ export default function GoMove() {
             <p className="text-sm text-muted-foreground">
               Then take it to the line, move it to a bay, park it on the WIP rack or open it at a pick face.
             </p>
-            {last && <p className="pt-2 text-xs text-muted-foreground">Last: {last}</p>}
+            {last && (
+              <p className="pt-2 text-xs text-muted-foreground">
+                Last: <LastMoveText last={last} />
+              </p>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -477,6 +553,16 @@ export default function GoMove() {
       )}
 
       {notice && <NoticeBox tone={notice.tone} text={notice.text} />}
+
+      {fifoPrompt && (
+        <FifoOverridePrompt
+          scannedCode={fifoPrompt.scannedCode}
+          suggested={fifoPrompt.suggested}
+          busy={busy}
+          onReason={(reason) => void run(() => overrideTake(reason))}
+          onTakeOlder={takeOlder}
+        />
+      )}
 
       {subject?.kind === "loose" && !subject.source && (
         <LooseSources rows={looseRows} loading={looseLoading} sku={subject.sku} onPick={chooseSource} />
@@ -527,7 +613,7 @@ export default function GoMove() {
 
       {subject && (
         <TaskActions>
-          {ready && !action && (
+          {ready && !action && !fifoPrompt && (
             <div className="grid grid-cols-2 gap-2">
               {(subject.kind === "carton" ? subject.location_code !== "MFG-LINE" : subject.source?.location_code !== "MFG-LINE") && (
                 <ActionButton icon={<Factory className="h-5 w-5" />} label="Take to line" busy={busy} onClick={() => choose("line")} />
@@ -618,6 +704,24 @@ function LooseQty({ subject, onQty }: { subject: LooseSubject; onQty: (qty: numb
   );
 }
 
+/** The last move's words; `code` is the carton that moved (null for loose units). */
+interface LastMove {
+  code: string | null;
+  text: string;
+}
+
+/** "Last: C-466-007 to the line", the carton's code linking to its passport. */
+function LastMoveText({ last }: { last: LastMove }) {
+  if (!last.code) return <>{last.text}</>;
+  const rest = last.text.startsWith(last.code) ? last.text.slice(last.code.length) : ` · ${last.text}`;
+  return (
+    <>
+      <CartonLink code={last.code} />
+      {rest}
+    </>
+  );
+}
+
 function SubjectCard({ subject }: { subject: Subject }) {
   const at = subject.kind === "carton" ? subject.location_code : subject.source?.location_code ?? null;
   return (
@@ -633,7 +737,7 @@ function SubjectCard({ subject }: { subject: Subject }) {
                 )}
                 aria-label={subject.label_stock === "green" ? "green RTS label" : "white label"}
               />
-              <span className="font-mono text-lg font-bold tabular-nums">{subject.code}</span>
+              <CartonLink code={subject.code} className="text-lg font-bold" />
               <span className="rounded-full border border-cyan-500/35 bg-cyan-500/10 px-2 py-0.5 text-[11px] font-semibold text-cyan-400">
                 {subject.state}
               </span>
