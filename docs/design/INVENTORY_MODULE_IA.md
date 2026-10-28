@@ -83,7 +83,7 @@ Floor (`/go`) is the phone home for everyone who works on the floor, and it does
 
 ## Mockups
 
-Every page in the group has a board on the design canvas: https://claude.ai/artifact/Eg5UQZMox6LMyG4CJRdsTm. Row 1: Overview, Stock by SKU, Stock by location, Stock map, rack elevation. Row 2: Factory Orders, Shipments list, one shipment's check-in and putaway, Stock counts, Materials. Row 3: the layout editor under Settings and the phase 2 Pick & Pack board. Bottom row: the Floor phone screens.
+Every page in the group has a board on the design canvas: https://claude.ai/artifact/Eg5UQZMox6LMyG4CJRdsTm. Row 1: Overview, Stock by SKU, Stock by location, Stock map, rack elevation. Row 2: Factory Orders, Shipments list, one shipment's check-in and putaway, Stock counts, Materials. Row 3: the layout editor under Settings and the phase 2 Pick & Pack board. Row 4: the Floor phone screens. Row 5 (added 2026-10-28, not yet built): Insights, reached from the Overview rather than the sidebar, with Flow (pipeline strip and cumulative flow), Lead time (box plots per leg by supplier and an on-time-in-full scorecard), Loss and ageing (Pareto of loss causes and stock by age bucket), Cover (projected stock against the measured reorder point), and the carton passport (one carton's timeline from factory order to shelf). Proposed build order: Flow and Cover, then Lead time, then Loss and ageing; the passport is nearly free.
 
 ## Open questions for the owner
 
