@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { InventoryProjectionChart } from "./InventoryProjectionChart";
+import { SkuLocations } from "./SkuLocations";
 import { Button } from "@/components/ui/button";
 import { computeDOS } from "@/lib/inventory-math";
 import { getEffectiveDemand } from "@/lib/demand";
@@ -484,6 +485,9 @@ export function SKUDetailModal({ product, inventory, open, onOpenChange }: Props
             </div>
           </div>
         </div>
+
+        {/* Where the SKU is, location by location; a row expands to its cartons (LPNs). */}
+        <SkuLocations skuId={product.id} productSku={product.sku} enabled={open} />
 
         {/* Admin actions: archive / restore. (The legacy Deactivate flip
             was removed 2026-06-10 — Archive is the single retire path:
