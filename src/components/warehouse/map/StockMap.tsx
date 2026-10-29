@@ -3,7 +3,6 @@ import { Link, useSearchParams } from "react-router-dom";
 import { ClipboardCheck, Loader2, MapPin, Pencil, Printer, Route, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
@@ -237,31 +236,24 @@ export function StockMap() {
         >
           <Route className="mr-1.5 h-4 w-4" /> Walk
         </Button>
-        <div className="relative w-full sm:w-52">
-          <Input
-            value={q}
-            onChange={(e) => set({ q: e.target.value })}
-            placeholder="SKU, LPN or location"
-            aria-label="Highlight on the map"
-            className="h-8 pr-7"
-          />
-          {q && (
-            <button
-              type="button"
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
-              onClick={() => set({ q: null })}
-              aria-label="Clear the search"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
+        {/* Find (Ctrl K) is the one way to highlight: the typed box it duplicated was removed 2026-10-29. The active query stays as a chip. */}
         <WhFind onJump={(j) => set({ q: j.q, loc: j.loc, fx: null })} />
         {q && (
-          <span className="text-xs tabular-nums text-muted-foreground">
-            {search.ids.size === 0
-              ? "No match"
-              : `${search.ids.size} bin${search.ids.size === 1 ? "" : "s"} · ${search.units.toLocaleString()} units · ${search.cartons} carton${search.cartons === 1 ? "" : "s"}${search.match === "partial" ? " · partial match" : ""}`}
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/40 py-0.5 pl-2.5 pr-1 text-xs text-muted-foreground">
+            <span className="font-mono font-medium text-foreground">{q}</span>
+            <span className="tabular-nums">
+              {search.ids.size === 0
+                ? "no match"
+                : `${search.ids.size} bin${search.ids.size === 1 ? "" : "s"} · ${search.units.toLocaleString()} units · ${search.cartons} carton${search.cartons === 1 ? "" : "s"}${search.match === "partial" ? " · partial match" : ""}`}
+            </span>
+            <button
+              type="button"
+              className="rounded p-0.5 hover:text-foreground"
+              onClick={() => set({ q: null })}
+              aria-label="Clear the highlight"
+            >
+              <X className="h-3 w-3" />
+            </button>
           </span>
         )}
         {hasRole("admin") && (
