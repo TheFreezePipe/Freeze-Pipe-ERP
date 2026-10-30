@@ -129,6 +129,11 @@ Deno.serve(async (req) => {
     return new Response("unauthorized", { status: 401, headers: CORS_HEADERS });
   }
 
+  // A manual refresh from a shipment page sends { shipmentId } and checks
+  // only that shipment (whatever its status); the list page and the cron
+  // send nothing and check every in-flight shipment.
+  let onlyShipmentId: string | null = null;
+
   // Read-only diagnostic: { "debug_track": "1Z..." } returns the raw UPS
   // response for one tracking number so the piece parser can be checked
   // against what UPS actually sends (added 2026-09-14 after sea 466, a
@@ -136,6 +141,7 @@ Deno.serve(async (req) => {
   // only; writes nothing.
   if (req.method === "POST") {
     let body: {
+      shipmentId?: string;
       debug_track?: string; debug_path?: string; debug_parse?: string;
       debug_fedex?: string; debug_fedex_path?: string; debug_fedex_body?: unknown;
     } | null = null;
@@ -143,6 +149,9 @@ Deno.serve(async (req) => {
       body = await req.clone().json();
     } catch {
       body = null;
+    }
+    if (typeof body?.shipmentId === "string" && /^[0-9a-f-]{36}$/i.test(body.shipmentId)) {
+      onlyShipmentId = body.shipmentId;
     }
     // debug_track = a tracking number (raw details lookup); debug_path = any
     // path under /api/track/v1/ (e.g. shipment/details/<1Z>?offset=0&count=50);
@@ -198,6 +207,7 @@ Deno.serve(async (req) => {
   }
 
   const report = {
+    scope: onlyShipmentId ? "one" : "fleet",
     shipments_checked: 0,
     eta_changes: 0,
     status_changes: 0,
@@ -207,11 +217,11 @@ Deno.serve(async (req) => {
   };
 
   try {
-    // Fetch every in-flight shipment (not delivered).
-    const { data: shipments, error } = await supabase
-      .from("freight_shipments")
-      .select("*")
-      .neq("status", "delivered");
+    // Fetch every in-flight shipment (not delivered), or just the one asked for.
+    const query = supabase.from("freight_shipments").select("*");
+    const { data: shipments, error } = onlyShipmentId
+      ? await query.eq("id", onlyShipmentId)
+      : await query.neq("status", "delivered");
     if (error) throw error;
 
     for (const shipment of (shipments ?? []) as Shipment[]) {
