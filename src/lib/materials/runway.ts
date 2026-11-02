@@ -167,7 +167,7 @@ export function computeAllMaterialRunways(
 /** Safety margin (days) before lead-time runs out that still triggers a reorder. */
 const REORDER_SAFETY_DAYS = 14;
 /** Target days of cover (beyond lead time) the suggested order should reach. */
-const REORDER_TARGET_COVER_DAYS = 60;
+const REORDER_TARGET_COVER_DAYS = 30;
 
 export interface ReorderSuggestion {
   shouldReorder: boolean;
