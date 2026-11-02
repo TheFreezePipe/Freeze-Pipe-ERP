@@ -32,6 +32,7 @@ function json(body: unknown, status = 200): Response {
 const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
 const num = (n: unknown) => (Number(n) || 0).toLocaleString("en-US");
+const usd = (n: unknown) => "$" + (Number(n) || 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
 function fmtDate(d: string | null, opts: Intl.DateTimeFormatOptions): string {
   if (!d) return "—";
   return new Date(d + "T12:00:00Z").toLocaleDateString("en-US", { timeZone: "America/New_York", ...opts });
@@ -75,6 +76,10 @@ interface MktBroadcast { name: string; channel: string; scheduled_at: string; }
 interface MktAwaiting { type: string; name: string; date: string; }
 interface MarketingData { sales: MktSale[]; launches: MktLaunch[]; broadcasts: MktBroadcast[]; awaiting_confirmation: MktAwaiting[]; }
 
+// Yesterday's full D2C cost (SKU Economics list model over every unit sold).
+// uncosted_* = SKUs/units with no cost on file, carried at $0.
+interface CogsData { units: number; d2c: number; uncosted_skus: number; uncosted_units: number; }
+
 interface ReportData {
   report_date: string; recipients: string[];
   sales: SalesRow[]; sales_totals: { units: number; sku_count: number };
@@ -83,6 +88,8 @@ interface ReportData {
   // Optional: absent when the deployed rpc_daily_report predates the
   // partial-receiving change. Render nothing in that case.
   receiving_outstanding?: ReceivingRow[];
+  // Optional: absent when the deployed rpc_daily_report predates the COGS line.
+  cogs?: CogsData;
 }
 
 // ---- label maps (never print a raw enum) ----
@@ -158,6 +165,20 @@ function renderSales(d: ReportData): string {
       </tr>
       ${rows}${more}
     </table>`;
+}
+
+function renderCogs(d: ReportData): string {
+  const c = d.cogs;
+  if (!c) return "";
+  const uncosted = c.uncosted_units > 0
+    ? ` <span style="color:${TER};">· ${num(c.uncosted_units)} units uncosted</span>`
+    : "";
+  return `
+    ${sectionLabel("Yesterday's COGS")}
+    <div style="font-family:${FONT};color:${SEC};font-size:14px;">
+      <span style="font-family:${MONO};color:${WHITE};font-weight:500;font-size:22px;">${usd(c.d2c)}</span>
+      <span style="color:${TER};"> full D2C cost · ${num(c.units)} units</span>${uncosted}
+    </div>`;
 }
 
 function renderIncoming(d: ReportData): string {
@@ -320,6 +341,7 @@ function renderHtml(d: ReportData): string {
         </table>
         ${renderMarketing(d)}
         ${renderSales(d)}
+        ${renderCogs(d)}
         ${renderIncoming(d)}
         ${renderReceiving(d)}
         ${renderLowStock(d)}
