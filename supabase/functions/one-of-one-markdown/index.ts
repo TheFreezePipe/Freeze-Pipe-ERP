@@ -3,8 +3,9 @@
 // =============================================================
 // Every variant of the Shopify product "One of One Drops" is a unique,
 // single-unit piece. This job walks the product daily and steps each
-// UNSOLD variant's price down $10 for every full week it has sat since its
-// clock started, stopping at a floor of 50% of its original price. When a
+// UNSOLD variant's price down $10 for every full step (OOO_STEP_DAYS days,
+// default 4) it has sat since its clock started, stopping at a floor of 50%
+// of its original price. When a
 // piece first reaches the floor, it emails the owners (slow-moving alert).
 // Fired daily by pg_cron (public.fire_one_of_one_markdown). The rule itself
 // lives in ./pricing.ts (pure, unit-tested).
@@ -22,7 +23,7 @@
 //                                      (clear it to re-arm the alert)
 //
 // Invariants:
-//   - Idempotent and time-based: price = f(original, weeks since clock_start).
+//   - Idempotent and time-based: price = f(original, steps since clock_start).
 //     Running twice a day changes nothing; a missed day catches up next run.
 //   - Prices only ever go DOWN. A price someone lowered by hand below the
 //     target is left alone (the clock keeps ticking; it catches up later).
@@ -57,11 +58,12 @@
 //                                   before this (set to go-live day to avoid
 //                                   back-dated catch-up markdowns)
 //   OOO_SET_COMPARE_AT    optional  "false" to leave compare-at alone
+//   OOO_STEP_DAYS         optional  days per $10 step (default 4)
 //   REPORT_FROM           optional  sender; shared with the daily report
 // =============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { decide, floorPrice, round2, weeksToFloor, STEP_DOLLARS } from "./pricing.ts";
+import { decide, floorPrice, round2, stepsToFloor, STEP_DOLLARS, STEP_DAYS } from "./pricing.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -78,6 +80,7 @@ const NOTIFY_TO = (Deno.env.get("OOO_NOTIFY_TO") ?? "adam@freshetech.com,chase@f
   .split(",").map((s) => s.trim()).filter(Boolean);
 const CLOCK_NOT_BEFORE = Deno.env.get("OOO_CLOCK_NOT_BEFORE") ?? "";
 const SET_COMPARE_AT = (Deno.env.get("OOO_SET_COMPARE_AT") ?? "true").toLowerCase() !== "false";
+const STEP_DAYS_CFG = Math.max(1, Math.floor(Number(Deno.env.get("OOO_STEP_DAYS")) || STEP_DAYS));
 
 const NS = "one_of_one";
 const STORE_SLUG = SHOP_DOMAIN.replace(/\.myshopify\.com$/, "");
@@ -178,6 +181,14 @@ mutation($metafields: [MetafieldsSetInput!]!) {
   }
 }`;
 
+const DEFINITION_UPDATE = `
+mutation($definition: MetafieldDefinitionUpdateInput!) {
+  metafieldDefinitionUpdate(definition: $definition) {
+    updatedDefinition { id }
+    userErrors { field message code }
+  }
+}`;
+
 const DEFINITION_CREATE = `
 mutation($definition: MetafieldDefinitionInput!) {
   metafieldDefinitionCreate(definition: $definition) {
@@ -194,7 +205,7 @@ async function ensureDefinitions(): Promise<void> {
     { key: "original_price", name: "One of One · Original price", type: "number_decimal",
       description: "Price the markdown clock started at. The floor is half of this." },
     { key: "clock_start", name: "One of One · Clock start", type: "date_time",
-      description: "Markdowns of $10 apply per full week since this moment. Edit to restart the clock." },
+      description: `Markdowns of $10 apply every ${STEP_DAYS_CFG} days since this moment. Edit to restart the clock.` },
     { key: "floor_notified_at", name: "One of One · Floor alert sent", type: "date_time",
       description: "When the 50%-floor email went out. Clear to re-arm the alert." },
   ];
@@ -205,6 +216,11 @@ async function ensureDefinitions(): Promise<void> {
     );
     const errs = r.metafieldDefinitionCreate.userErrors.filter((e) => e.code !== "TAKEN");
     if (errs.length) throw new Error(`metafieldDefinitionCreate ${d.key}: ${errs.map((e) => e.message).join("; ")}`);
+    // Already exists (the steady state): keep its admin-facing description
+    // in step with the configured step length. Best effort, never fatal.
+    if (r.metafieldDefinitionCreate.userErrors.length) {
+      await shopify(DEFINITION_UPDATE, { definition: { namespace: NS, key: d.key, ownerType: "PRODUCTVARIANT", name: d.name, description: d.description } }).catch(() => {});
+    }
   }
 }
 
@@ -212,7 +228,7 @@ async function ensureDefinitions(): Promise<void> {
 interface Plan {
   variantId: string; sku: string; piece: string; theme: string;
   inventory: number; current: number; original: number; clockStart: string;
-  weeks: number; target: number; floor: number; weeksToFloor: number;
+  days: number; steps: number; stepDays: number; target: number; floor: number; stepsToFloor: number;
   newPrice: number | null; atFloor: boolean; notify: boolean;
   compareAt: number | null; setCompareAt: number | null;
   writeOriginal: boolean; writeClockStart: boolean;
@@ -234,22 +250,22 @@ function buildPlan(v: RawVariant, now: Date): Plan {
   const theme = opt("Theme");
   const compareAt = v.compareAtPrice == null ? null : Number(v.compareAtPrice);
 
-  const base: Omit<Plan, "weeks" | "target" | "newPrice" | "atFloor" | "notify" | "setCompareAt" | "action"> = {
+  const base: Omit<Plan, "days" | "steps" | "target" | "newPrice" | "atFloor" | "notify" | "setCompareAt" | "action"> = {
     variantId: v.id, sku: v.sku ?? "", piece, theme, inventory: v.inventoryQuantity,
     current, original, clockStart: clockStart.toISOString(), floor: floorPrice(original),
-    weeksToFloor: weeksToFloor(original), compareAt,
+    stepsToFloor: stepsToFloor(original), stepDays: STEP_DAYS_CFG, compareAt,
     writeOriginal: !hasOriginal, writeClockStart: !mf.clock_start,
   };
   if (v.inventoryQuantity <= 0) {
-    return { ...base, weeks: 0, target: current, newPrice: null, atFloor: false, notify: false, setCompareAt: null, action: "sold" };
+    return { ...base, days: 0, steps: 0, target: current, newPrice: null, atFloor: false, notify: false, setCompareAt: null, action: "sold" };
   }
-  const d = decide(original, current, clockStart, now);
+  const d = decide(original, current, clockStart, now, STEP_DAYS_CFG);
   const notify = d.atFloor && !mf.floor_notified_at;
   // Show the strikethrough once a markdown has happened (or already applies).
   const marked = (d.newPrice ?? current) < original;
   const setCompareAt = SET_COMPARE_AT && marked && compareAt !== original ? original : null;
   return {
-    ...base, weeks: d.weeks, target: d.target, newPrice: d.newPrice, atFloor: d.atFloor, notify, setCompareAt,
+    ...base, days: d.days, steps: d.steps, target: d.target, newPrice: d.newPrice, atFloor: d.atFloor, notify, setCompareAt,
     action: d.newPrice != null ? "markdown" : "hold",
   };
 }
@@ -285,14 +301,14 @@ function renderHtml(floored: Plan[], others: Plan[], productId: string, now: Dat
       <td style="${TD}">${pieceCell(p, productId)}</td>
       <td style="${TD}text-align:right;font-family:${MONO};color:${TER};text-decoration:line-through;">${money(p.original)}</td>
       <td style="${TD}text-align:right;font-family:${MONO};color:${AMBER};font-weight:700;">${money(p.newPrice ?? p.current)}</td>
-      <td style="${TD}text-align:right;font-family:${MONO};color:${WHITE};">${p.weeks}</td>
+      <td style="${TD}text-align:right;font-family:${MONO};color:${WHITE};">${p.days}</td>
     </tr>`).join("");
   const rowsOther = others.map((p) => `
     <tr>
       <td style="${TD}">${pieceCell(p, productId)}</td>
       <td style="${TD}text-align:right;font-family:${MONO};color:${WHITE};">${money(p.newPrice ?? p.current)}</td>
       <td style="${TD}text-align:right;font-family:${MONO};color:${TER};">${money(p.floor)}</td>
-      <td style="${TD}text-align:right;font-family:${MONO};color:${WHITE};">${p.weeks}</td>
+      <td style="${TD}text-align:right;font-family:${MONO};color:${WHITE};">${p.days}</td>
     </tr>`).join("");
   const n = floored.length;
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -310,17 +326,17 @@ function renderHtml(floored: Plan[], others: Plan[], productId: string, now: Dat
           </td></tr>
         </table>
         <p style="font-family:${FONT};font-size:14px;color:${SEC};line-height:1.6;margin:20px 0 0;">
-          These pieces have been marked down $${STEP_DOLLARS} a week since listing and are now at half their original price. The automation stops here; what happens next is up to you.
+          These pieces have been marked down $${STEP_DOLLARS} every ${STEP_DAYS_CFG} days since listing and are now at half their original price. The automation stops here; what happens next is up to you.
         </p>
         <div style="${EYEBROW}margin:26px 0 10px;">At the floor</div>
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-          <tr><th align="left" style="${TH}">Piece</th><th align="right" style="${TH}">Original</th><th align="right" style="${TH}">Now</th><th align="right" style="${TH}">Weeks</th></tr>
+          <tr><th align="left" style="${TH}">Piece</th><th align="right" style="${TH}">Original</th><th align="right" style="${TH}">Now</th><th align="right" style="${TH}">Days unsold</th></tr>
           ${rowsFloor}
         </table>
         ${others.length ? `
         <div style="${EYEBROW}margin:30px 0 10px;">Still marking down</div>
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-          <tr><th align="left" style="${TH}">Piece</th><th align="right" style="${TH}">Now</th><th align="right" style="${TH}">Floor</th><th align="right" style="${TH}">Weeks</th></tr>
+          <tr><th align="left" style="${TH}">Piece</th><th align="right" style="${TH}">Now</th><th align="right" style="${TH}">Floor</th><th align="right" style="${TH}">Days unsold</th></tr>
           ${rowsOther}
         </table>` : ""}
         <div style="border-top:1px solid ${BORD};margin-top:28px;padding-top:14px;font-family:${FONT};font-size:12px;color:${TER};">
@@ -387,7 +403,7 @@ Deno.serve(async (req) => {
   };
 
   if (dryRun) {
-    return json({ ok: true, dry_run: true, run_id: runId, as_of: now.toISOString(), config: { clock_not_before: CLOCK_NOT_BEFORE || null, set_compare_at: SET_COMPARE_AT, notify_to: NOTIFY_TO }, ...summary, plans });
+    return json({ ok: true, dry_run: true, run_id: runId, as_of: now.toISOString(), config: { step_days: STEP_DAYS_CFG, clock_not_before: CLOCK_NOT_BEFORE || null, set_compare_at: SET_COMPARE_AT, notify_to: NOTIFY_TO }, ...summary, plans });
   }
 
   // 3. Write prices + state to Shopify. One mutation covers every unsold
@@ -424,7 +440,7 @@ Deno.serve(async (req) => {
   let resendId: string | null = null;
   let notified: string[] = [];
   if (toNotify.length) {
-    const others = unsold.filter((p) => !p.notify).sort((a, b) => b.weeks - a.weeks);
+    const others = unsold.filter((p) => !p.notify).sort((a, b) => b.days - a.days);
     const html = renderHtml(toNotify, others, product.id, now);
     const subject = toNotify.length === 1
       ? `One of One at 50% floor: ${toNotify[0].piece}`
@@ -455,7 +471,8 @@ Deno.serve(async (req) => {
   const rows = unsold.map((p) => ({
     run_id: runId, run_at: now.toISOString(),
     variant_id: p.variantId, sku: p.sku, piece: p.piece, theme: p.theme,
-    weeks: p.weeks, original_price: p.original, old_price: p.current, new_price: p.newPrice ?? p.current,
+    steps: p.steps, step_days: p.stepDays, days_unsold: p.days,
+    original_price: p.original, old_price: p.current, new_price: p.newPrice ?? p.current,
     floor_price: p.floor, at_floor: p.atFloor, action: p.action,
     floor_alert_sent: p.notify && notified.length > 0 && !testTo,
   }));
@@ -464,7 +481,7 @@ Deno.serve(async (req) => {
 
   return json({
     ok: errors.length === 0, run_id: runId, as_of: now.toISOString(), ...summary,
-    applied: markdowns.map((p) => ({ sku: p.sku, piece: p.piece, weeks: p.weeks, from: p.current, to: p.newPrice })),
+    applied: markdowns.map((p) => ({ sku: p.sku, piece: p.piece, days: p.days, steps: p.steps, from: p.current, to: p.newPrice })),
     floor_alert: toNotify.length ? { sent_to: notified, resend_id: resendId, pieces: toNotify.map((p) => p.piece) } : null,
     errors,
   });

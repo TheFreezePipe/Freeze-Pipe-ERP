@@ -1,8 +1,9 @@
 # One of One markdown
 
 Daily job that steps every unsold variant of the Shopify product **One of One
-Drops** down **$10 per full week** since it was listed, stops at **50% of the
-original price**, and emails the owners when a piece first hits that floor.
+Drops** down **$10 every 4 days** (`OOO_STEP_DAYS`) since it was listed, stops at
+**50% of the original price**, and emails the owners when a piece first hits that
+floor. (7-day steps from launch 2026-10-22 until 2026-11-03.)
 
 - Rule: `pricing.ts` (pure; see the header for the formula)
 - Job: `index.ts` (reads Shopify, writes prices + state, sends the alert, logs)
@@ -17,7 +18,7 @@ variant page in admin):
 | Metafield           | Meaning                                                           |
 |---------------------|-------------------------------------------------------------------|
 | `original_price`    | Price the clock started at. Floor = half of this.                 |
-| `clock_start`       | Weeks are counted from here. Edit it to restart a piece's clock.  |
+| `clock_start`       | Steps are counted from here. Edit it to restart a piece's clock.  |
 | `floor_notified_at` | When the floor email went out. Clear it to re-arm the alert.      |
 
 Both are written on first sighting (`original_price` = live price,
@@ -52,7 +53,7 @@ Both are written on first sighting (`original_price` = live price,
      -H "Authorization: Bearer <service-role-jwt>" -H "Content-Type: application/json" \
      -d '{"dry_run":true}'
    ```
-   Check `plans[]`: `action`, `newPrice`, `weeks`, `notify`.
+   Check `plans[]`: `action`, `newPrice`, `days`, `steps`, `notify`.
 5. **Schedule** (SQL on prod, once):
    ```sql
    SELECT cron.schedule('one-of-one-markdown-daily', '30 10 * * *',
@@ -62,9 +63,9 @@ Both are written on first sighting (`original_price` = live price,
 ## Clock choice
 
 With no `OOO_CLOCK_NOT_BEFORE`, the first live run back-dates every piece to
-its listing date, so a piece listed six weeks ago drops $60 at once. With
-`OOO_CLOCK_NOT_BEFORE=<go-live date>`, every existing piece starts at week 0
-on go-live and takes its first $10 step a week later. Pieces listed after
+its listing date, so a piece listed 24 days ago drops $60 at once. With
+`OOO_CLOCK_NOT_BEFORE=<go-live date>`, every existing piece starts at day 0
+on go-live and takes its first $10 step 4 days later. Pieces listed after
 go-live are unaffected either way (their listing date is later).
 
 ## Testing the alert email
