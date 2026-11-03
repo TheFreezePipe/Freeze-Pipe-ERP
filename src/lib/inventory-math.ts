@@ -164,11 +164,33 @@ export interface ListD2CResult {
   contributionMargin: number;
 }
 
+/** What the weekly shipping solve wrote for a SKU (sku_shipping_measured). */
+export interface ShippingMeasuredLike {
+  as_sold_cost: number | null;
+  confidence: string;
+}
+
+/**
+ * The outbound shipping figure of record: the measured "as sold" cost when
+ * the weekly solve is confident about the SKU, else the typed-in estimate.
+ */
+export function effectiveShippingCost(
+  econ: { shipping_cost: number | null } | null | undefined,
+  measured: ShippingMeasuredLike | null | undefined,
+): { cost: number; source: "measured" | "estimate" } {
+  if (measured && measured.confidence === "high" && measured.as_sold_cost != null) {
+    return { cost: measured.as_sold_cost, source: "measured" };
+  }
+  return { cost: econ?.shipping_cost ?? 0, source: "estimate" };
+}
+
 export function computeListD2C(
   econ: SKUEconomics | null | undefined,
   primaryUnitCost: number,
   retailPrice: number,
   category: ProductSKU["category"],
+  // Measured as-sold shipping; when null/undefined the estimate on econ is used.
+  shippingOverride?: number | null,
 ): ListD2CResult | null {
   if (!econ) return null;
 
@@ -208,7 +230,7 @@ export function computeListD2C(
   const packShipCost =
     (econ.packing_material_cost ?? 0) +
     (econ.packing_labor_cost ?? 0) +
-    (econ.shipping_cost ?? 0) +
+    (shippingOverride ?? econ.shipping_cost ?? 0) +
     ccFees;
 
   const totalD2C = rawCost + importCost + mfgCost + packShipCost;

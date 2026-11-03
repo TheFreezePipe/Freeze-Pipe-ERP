@@ -3228,6 +3228,147 @@ export type Database = {
           },
         ]
       }
+      shipping_box_tare: {
+        Row: {
+          box: string
+          computed_at: string
+          orders: number
+          tare_oz: number
+          tare_oz_prev: number | null
+        }
+        Insert: {
+          box: string
+          computed_at?: string
+          orders: number
+          tare_oz: number
+          tare_oz_prev?: number | null
+        }
+        Update: {
+          box?: string
+          computed_at?: string
+          orders?: number
+          tare_oz?: number
+          tare_oz_prev?: number | null
+        }
+        Relationships: []
+      }
+      shipping_measure_runs: {
+        Row: {
+          completed_at: string | null
+          error: string | null
+          exceptions: Json
+          id: string
+          median_resid_oz: number | null
+          orders_kept: number | null
+          orders_used: number | null
+          r2: number | null
+          skus_written: number | null
+          started_at: string
+          summary: Json | null
+          window_from: string | null
+          window_to: string | null
+        }
+        Insert: {
+          completed_at?: string | null
+          error?: string | null
+          exceptions?: Json
+          id?: string
+          median_resid_oz?: number | null
+          orders_kept?: number | null
+          orders_used?: number | null
+          r2?: number | null
+          skus_written?: number | null
+          started_at?: string
+          summary?: Json | null
+          window_from?: string | null
+          window_to?: string | null
+        }
+        Update: {
+          completed_at?: string | null
+          error?: string | null
+          exceptions?: Json
+          id?: string
+          median_resid_oz?: number | null
+          orders_kept?: number | null
+          orders_used?: number | null
+          r2?: number | null
+          skus_written?: number | null
+          started_at?: string
+          summary?: Json | null
+          window_from?: string | null
+          window_to?: string | null
+        }
+        Relationships: []
+      }
+      shipstation_shipments: {
+        Row: {
+          carrier_code: string | null
+          height_in: number | null
+          insurance_cost: number | null
+          items: Json
+          length_in: number | null
+          order_id: number | null
+          order_key: string | null
+          order_number: string | null
+          package_code: string | null
+          service_code: string | null
+          ship_date: string | null
+          ship_to_country: string | null
+          ship_to_state: string | null
+          ship_to_zip3: string | null
+          shipment_cost: number | null
+          shipment_id: number
+          synced_at: string
+          voided: boolean
+          weight_oz: number | null
+          width_in: number | null
+        }
+        Insert: {
+          carrier_code?: string | null
+          height_in?: number | null
+          insurance_cost?: number | null
+          items?: Json
+          length_in?: number | null
+          order_id?: number | null
+          order_key?: string | null
+          order_number?: string | null
+          package_code?: string | null
+          service_code?: string | null
+          ship_date?: string | null
+          ship_to_country?: string | null
+          ship_to_state?: string | null
+          ship_to_zip3?: string | null
+          shipment_cost?: number | null
+          shipment_id: number
+          synced_at?: string
+          voided?: boolean
+          weight_oz?: number | null
+          width_in?: number | null
+        }
+        Update: {
+          carrier_code?: string | null
+          height_in?: number | null
+          insurance_cost?: number | null
+          items?: Json
+          length_in?: number | null
+          order_id?: number | null
+          order_key?: string | null
+          order_number?: string | null
+          package_code?: string | null
+          service_code?: string | null
+          ship_date?: string | null
+          ship_to_country?: string | null
+          ship_to_state?: string | null
+          ship_to_zip3?: string | null
+          shipment_cost?: number | null
+          shipment_id?: number
+          synced_at?: string
+          voided?: boolean
+          weight_oz?: number | null
+          width_in?: number | null
+        }
+        Relationships: []
+      }
       shipstation_sync_runs: {
         Row: {
           completed_at: string | null
@@ -3567,6 +3708,62 @@ export type Database = {
           },
         ]
       }
+      sku_shipping_measured: {
+        Row: {
+          as_sold_cost: number | null
+          as_sold_cost_prev: number | null
+          computed_at: string
+          confidence: string
+          flags: string[]
+          item_oz: number | null
+          item_oz_prev: number | null
+          joint_with: string | null
+          orders: number
+          sku_id: string
+          solo_median_cost: number | null
+          solo_orders: number
+          window_days: number
+        }
+        Insert: {
+          as_sold_cost?: number | null
+          as_sold_cost_prev?: number | null
+          computed_at?: string
+          confidence: string
+          flags?: string[]
+          item_oz?: number | null
+          item_oz_prev?: number | null
+          joint_with?: string | null
+          orders: number
+          sku_id: string
+          solo_median_cost?: number | null
+          solo_orders: number
+          window_days: number
+        }
+        Update: {
+          as_sold_cost?: number | null
+          as_sold_cost_prev?: number | null
+          computed_at?: string
+          confidence?: string
+          flags?: string[]
+          item_oz?: number | null
+          item_oz_prev?: number | null
+          joint_with?: string | null
+          orders?: number
+          sku_id?: string
+          solo_median_cost?: number | null
+          solo_orders?: number
+          window_days?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sku_shipping_measured_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: true
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sku_supplier_costs: {
         Row: {
           created_at: string
@@ -3834,6 +4031,17 @@ export type Database = {
       }
     }
     Views: {
+      v_sku_shipping_cost: {
+        Row: {
+          confidence: string | null
+          cost: number | null
+          estimate_cost: number | null
+          measured_cost: number | null
+          sku_id: string | null
+          source: string | null
+        }
+        Relationships: []
+      }
       inventory_levels_default: {
         Row: {
           id: string | null

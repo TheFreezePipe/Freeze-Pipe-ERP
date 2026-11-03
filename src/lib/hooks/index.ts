@@ -10,6 +10,7 @@ export * from "./use-demand-overrides";
 export * from "./use-supplier-portal";
 export * from "./use-suppliers";
 export * from "./use-sku-economics";
+export * from "./use-shipping-measured";
 export * from "./use-shipstation-aliases";
 export * from "./use-materials";
 export * from "./use-forecasts";

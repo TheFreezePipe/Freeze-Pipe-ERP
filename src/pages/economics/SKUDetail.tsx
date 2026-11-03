@@ -26,6 +26,7 @@ import {
   useDeleteSkuSupplierCost,
   useSetPrimarySkuSupplierCost,
   useSkuPrefillStats,
+  useShippingMeasured,
   useSkuAliases,
   useRegisterSkuAlias,
   useUnregisterSkuAlias,
@@ -98,6 +99,11 @@ export default function SKUDetail() {
   // Persistent data
   const suppliersQ = useSuppliers({ activeOnly: true });
   const economicsQ = useSkuEconomics(skuId ?? null);
+  // Measured as-sold shipping from the weekly solve; when confident it is
+  // the shipping figure of record and the typed-in value becomes the estimate.
+  const measuredQ = useShippingMeasured(skuId ?? null);
+  const measuredShip = measuredQ.data ?? null;
+  const measuredInUse = measuredShip?.confidence === "high" && measuredShip.as_sold_cost != null;
   const supplierCostsQ = useSkuSupplierCosts(skuId ?? null);
   const upsertEcon = useUpsertSkuEconomics();
   const upsertCost = useUpsertSkuSupplierCost();
@@ -507,7 +513,8 @@ export default function SKUDetail() {
       + prefilled * values.manufacturing_cost_cn;
   }, [isNonFillable, effectivePrefilledPct, values.labor_cost_us, values.glycerin_cost_us, values.manufacturing_cost_cn]);
 
-  const packShip = values.packing_material_cost + values.packing_labor_cost + values.shipping_cost + creditCardFees;
+  const shippingCost = measuredInUse ? (measuredShip?.as_sold_cost ?? 0) : values.shipping_cost;
+  const packShip = values.packing_material_cost + values.packing_labor_cost + shippingCost + creditCardFees;
   const finished = rawCost + importCost + mfgCost;
   const totalD2C = finished + packShip;
 
@@ -1367,7 +1374,26 @@ export default function SKUDetail() {
             <div className="grid grid-cols-2 gap-3">
               <div><Label className="text-xs">Packing Material</Label><Input type="number" step="0.01" value={values.packing_material_cost} onChange={(e) => set("packing_material_cost", e.target.value)} /></div>
               <div><Label className="text-xs">Packing Labor</Label><Input type="number" step="0.01" value={values.packing_labor_cost} onChange={(e) => set("packing_labor_cost", e.target.value)} /></div>
-              <div><Label className="text-xs">Shipping Cost</Label><Input type="number" step="0.01" value={values.shipping_cost} onChange={(e) => set("shipping_cost", e.target.value)} /></div>
+              <div>
+                <Label className="text-xs">
+                  Shipping Cost{" "}
+                  <span className="text-muted-foreground/60 font-normal">{measuredInUse ? "(estimate — measured in use)" : "(estimate)"}</span>
+                </Label>
+                <Input type="number" step="0.01" value={values.shipping_cost} onChange={(e) => set("shipping_cost", e.target.value)} className={measuredInUse ? "opacity-70" : undefined} />
+              </div>
+              <div>
+                <Label className="text-xs">
+                  Shipping · Measured{" "}
+                  <span className="text-muted-foreground/60 font-normal">
+                    {measuredShip
+                      ? measuredInUse
+                        ? `(as sold · ${measuredShip.orders} orders · ${measuredShip.window_days}d)`
+                        : `(${measuredShip.confidence === "none" ? "no recent orders" : "few orders"} — estimate in use)`
+                      : "(not measured yet)"}
+                  </span>
+                </Label>
+                <Input type="number" step="0.01" value={measuredShip?.as_sold_cost ?? ""} disabled className="opacity-70" />
+              </div>
               <div>
                 <Label className="text-xs">
                   Credit Card Fees{" "}

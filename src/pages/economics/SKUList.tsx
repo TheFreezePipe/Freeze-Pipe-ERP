@@ -6,7 +6,9 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { getEffectiveDemand } from "@/lib/demand";
-import { computeListD2C, applyDiscountToListD2C } from "@/lib/inventory-math";
+import { computeListD2C, applyDiscountToListD2C, effectiveShippingCost } from "@/lib/inventory-math";
+import { hasActionableShippingFlag } from "@/lib/shipping-measured";
+import { ShippingMeasureDialog } from "@/components/economics/ShippingMeasureDialog";
 import { DISPLAY_CATEGORIES, displayCategoryRank } from "@/lib/constants";
 import { useNavigate } from "react-router-dom";
 import { ExternalLink, Percent, Plus, Search, X } from "lucide-react";
@@ -15,6 +17,8 @@ import {
   useProducts,
   useAllSkuEconomics,
   useAllPrimarySkuSupplierCosts,
+  useAllShippingMeasured,
+  useLatestShippingMeasureRun,
   useCreateProduct,
   useForecastDemandMap,
 } from "@/lib/hooks";
@@ -43,6 +47,15 @@ export default function SKUList() {
   // columns were hardcoded to "—".
   const { data: economicsById } = useAllSkuEconomics();
   const { data: primaryCostBySkuId } = useAllPrimarySkuSupplierCosts();
+  // Measured as-sold shipping (weekly solve). A confident row replaces the
+  // typed-in shipping estimate inside the P&S bucket.
+  const { data: measuredById } = useAllShippingMeasured();
+  const { data: measureRun } = useLatestShippingMeasureRun();
+  const [measureOpen, setMeasureOpen] = useState(false);
+  const flaggedCount = useMemo(
+    () => [...(measuredById?.values() ?? [])].filter((m) => hasActionableShippingFlag(m.flags)).length,
+    [measuredById],
+  );
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -124,7 +137,9 @@ export default function SKUList() {
     return filteredProducts.map((product) => {
       const econ = economicsById?.get(product.id) ?? null;
       const primaryUnitCost = primaryCostBySkuId?.get(product.id)?.unit_cost ?? 0;
-      const d2c = computeListD2C(econ, primaryUnitCost, product.retail_price ?? 0, product.category);
+      const measured = measuredById?.get(product.id) ?? null;
+      const ship = effectiveShippingCost(econ, measured);
+      const d2c = computeListD2C(econ, primaryUnitCost, product.retail_price ?? 0, product.category, ship.source === "measured" ? ship.cost : null);
       const demand = getEffectiveDemand(product.id, product.monthly_demand, forecastMap);
       const marginPerUnit =
         d2c && (product.retail_price ?? 0) > 0 ? (product.retail_price ?? 0) - d2c.totalD2C : null;
@@ -138,9 +153,9 @@ export default function SKUList() {
         lens && econ && d2c && (product.retail_price ?? 0) > 0
           ? applyDiscountToListD2C(d2c, econ, product.retail_price ?? 0, lens.pct, lens.dollar)
           : null;
-      return { product, econ, d2c, demand, marginPerUnit, monthlyContribution, lifecycle, sim };
+      return { product, econ, d2c, demand, marginPerUnit, monthlyContribution, lifecycle, sim, ship, measured };
     });
-  }, [filteredProducts, economicsById, primaryCostBySkuId, forecastMap, lens]);
+  }, [filteredProducts, economicsById, primaryCostBySkuId, measuredById, forecastMap, lens]);
 
   const { sort, toggleSort } = useTableSort();
   type Row = (typeof tableRows)[number];
@@ -350,9 +365,21 @@ export default function SKUList() {
             )}
           </div>
         </div>
-        <div className="ml-auto text-xs text-muted-foreground tabular-nums">
-          {filteredProducts.length} of {products.length} {products.length === 1 ? "SKU" : "SKUs"}
+        <div className="ml-auto flex items-center gap-3 text-xs text-muted-foreground tabular-nums">
+          {measureRun ? (
+            <button
+              type="button"
+              onClick={() => setMeasureOpen(true)}
+              className="rounded border border-border/60 px-2 py-1 hover:bg-muted/40"
+              title="Outbound shipping measured from real labels and scale weights; opens the weekly solve's flags and exceptions"
+            >
+              Shipping measured {new Date(measureRun.completed_at ?? measureRun.started_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              {flaggedCount > 0 ? <span className="ml-1 text-amber-400">· {flaggedCount} flagged</span> : null}
+            </button>
+          ) : null}
+          <span>{filteredProducts.length} of {products.length} {products.length === 1 ? "SKU" : "SKUs"}</span>
         </div>
+        <ShippingMeasureDialog open={measureOpen} onOpenChange={setMeasureOpen} run={measureRun ?? null} measured={measuredById} products={products} />
           </div>
         </CardHeader>
         <CardContent className="flex min-h-0 flex-1 flex-col p-0">
@@ -395,7 +422,7 @@ export default function SKUList() {
               </tr>
             </thead>
             <tbody>
-              {sortedRows.map(({ product, econ, d2c, demand, marginPerUnit, monthlyContribution, lifecycle, sim }) => {
+              {sortedRows.map(({ product, econ, d2c, demand, marginPerUnit, monthlyContribution, lifecycle, sim, ship, measured }) => {
                 return (
                   <tr
                     key={product.id}
@@ -509,8 +536,24 @@ export default function SKUList() {
                         <Dash />
                       )}
                     </td>
-                    <td className="px-2 py-3 text-right tabular-nums text-xs">
-                      {d2c ? `$${d2c.packShipCost.toFixed(2)}` : <Dash />}
+                    <td
+                      className="px-2 py-3 text-right tabular-nums text-xs"
+                      title={
+                        d2c
+                          ? ship.source === "measured"
+                            ? `Shipping $${ship.cost.toFixed(2)} measured as sold (${measured?.orders ?? 0} orders, ${measured?.window_days ?? 90}d) · estimate $${(econ?.shipping_cost ?? 0).toFixed(2)}`
+                            : `Shipping $${ship.cost.toFixed(2)} estimate${measured ? " · measured figure not confident yet" : ""}`
+                          : undefined
+                      }
+                    >
+                      {d2c ? (
+                        <>
+                          {`$${d2c.packShipCost.toFixed(2)}`}
+                          {ship.source === "measured" ? <span className="ml-1 text-sky-400">●</span> : null}
+                        </>
+                      ) : (
+                        <Dash />
+                      )}
                     </td>
                     <td
                       className="px-2 py-3 text-right tabular-nums font-semibold"
